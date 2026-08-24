@@ -13,6 +13,7 @@ def gen_uuid():
 class InterestType(str, enum.Enum):
     flat = "flat"
     reducing = "reducing"
+    other = "other"  # custom display label — see LoanProduct.custom_interest_label / calculation_basis
 
 
 class LoanStatus(str, enum.Enum):
@@ -83,6 +84,11 @@ class LoanProduct(Base):
     repayment_frequency = Column(String, default="monthly")  # weekly | biweekly | monthly
     processing_fee_pct = Column(Numeric(5, 2), default=0)
     is_active = Column(Boolean, default=True)
+    # When interest_type == 'other', these two drive the product: custom_interest_label
+    # is what's shown to staff/customers, calculation_basis (always 'flat' or 'reducing')
+    # is what the EMI math actually uses — a display name never changes the real formula.
+    custom_interest_label = Column(String, nullable=True)
+    calculation_basis = Column(String, nullable=True)  # 'flat' | 'reducing', required when interest_type='other'
 
 
 class Loan(Base):

@@ -737,6 +737,7 @@ async function renderEmployees(){
   content().innerHTML = `<div class="empty">Loading…</div>`;
   const [employees, branches] = await Promise.all([api('/branches/employees'), api('/branches/')]);
   const branchOpts = branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('');
+  const branchName = id => (branches.find(b=>b.id===id)||{}).name || '—';
   content().innerHTML = `
     <div class="panel"><h3>Add an employee</h3>
       <div class="form-grid">
@@ -753,10 +754,71 @@ async function renderEmployees(){
       <div class="err" id="e-err"></div>
     </div>
     <div class="panel"><h3>All employees</h3>
-      <table><thead><tr><th>Name</th><th>Email</th><th>Designation</th></tr></thead>
-      <tbody>${employees.map(e=>`<tr><td>${esc(e.full_name)}</td><td>${esc(e.email)}</td><td>${esc(e.designation||'—')}</td></tr>`).join('') || '<tr><td colspan="3" class="empty">No employees yet</td></tr>'}</tbody></table>
+      <table><thead><tr><th>Name</th><th>Email</th><th>Branch</th><th>Designation</th><th>Status</th><th>Actions</th></tr></thead>
+      <tbody id="employees-tbody">${employees.map(e=>employeeRow(e, branchName)).join('') || '<tr><td colspan="6" class="empty">No employees yet</td></tr>'}</tbody></table>
+    </div>
+    <div class="modal-overlay" id="edit-employee-modal">
+      <div class="modal-card">
+        <h3>Edit Employee</h3>
+        <label>Full name</label><input id="ee-name">
+        <label>Designation</label><input id="ee-desig">
+        <label>Branch</label><select id="ee-branch">${branchOpts}</select>
+        <div class="row-actions">
+          <button class="btn amber" onclick="submitEditEmployee()">Save</button>
+          <button class="btn ghost" onclick="document.getElementById('edit-employee-modal').classList.remove('show')">Cancel</button>
+        </div>
+        <div class="err" id="ee-err"></div>
+      </div>
     </div>
   `;
+}
+function employeeRow(e, branchName){
+  return `<tr>
+    <td>${esc(e.full_name)}</td><td>${esc(e.email)}</td><td>${esc(branchName(e.branch_id))}</td><td>${esc(e.designation||'—')}</td>
+    <td><span class="badge ${e.is_active?'active':'suspended'}">${e.is_active?'Active':'Suspended'}</span></td>
+    <td style="white-space:nowrap">
+      <button class="btn ghost" style="padding:6px 8px;font-size:12px" onclick='openEditEmployee(${JSON.stringify(e)})'>Edit</button>
+      ${e.is_active
+        ? `<button class="btn ghost" style="padding:6px 8px;font-size:12px" onclick="suspendEmployee('${e.id}')">Suspend</button>`
+        : `<button class="btn amber" style="padding:6px 8px;font-size:12px" onclick="activateEmployee('${e.id}')">Activate</button>`}
+      <button class="btn ghost" style="padding:6px 8px;font-size:12px;color:#C0392B" onclick="deleteEmployee('${e.id}')">Delete</button>
+    </td>
+  </tr>`;
+}
+async function refreshEmployeesTable(){
+  const [employees, branches] = await Promise.all([api('/branches/employees'), api('/branches/')]);
+  const branchName = id => (branches.find(b=>b.id===id)||{}).name || '—';
+  document.getElementById('employees-tbody').innerHTML = employees.map(e=>employeeRow(e, branchName)).join('') || '<tr><td colspan="6" class="empty">No employees yet</td></tr>';
+}
+let editingEmployeeId = null;
+function openEditEmployee(e){
+  editingEmployeeId = e.id;
+  document.getElementById('ee-name').value = e.full_name;
+  document.getElementById('ee-desig').value = e.designation || '';
+  document.getElementById('ee-branch').value = e.branch_id;
+  document.getElementById('ee-err').textContent = '';
+  document.getElementById('edit-employee-modal').classList.add('show');
+}
+async function submitEditEmployee(){
+  const errEl = document.getElementById('ee-err');
+  try{
+    await api(`/branches/employees/${editingEmployeeId}`, { method:'PATCH', json:{
+      full_name: document.getElementById('ee-name').value,
+      designation: document.getElementById('ee-desig').value,
+      branch_id: document.getElementById('ee-branch').value,
+    }});
+    document.getElementById('edit-employee-modal').classList.remove('show');
+    refreshEmployeesTable();
+  }catch(e){ errEl.textContent = e.message; }
+}
+async function suspendEmployee(id){ await api(`/branches/employees/${id}/suspend`, {method:'PATCH'}); refreshEmployeesTable(); }
+async function activateEmployee(id){ await api(`/branches/employees/${id}/activate`, {method:'PATCH'}); refreshEmployeesTable(); }
+async function deleteEmployee(id){
+  if(!confirm('Delete this employee? This cannot be undone.')) return;
+  try{
+    await api(`/branches/employees/${id}`, {method:'DELETE'});
+    refreshEmployeesTable();
+  }catch(e){ alert(e.message); }
 }
 async function createEmployee(){
   const errEl = document.getElementById('e-err');
@@ -779,34 +841,148 @@ async function createEmployee(){
 // ---------- Loan Products ----------
 async function renderLoanProducts(){
   content().innerHTML = `<div class="empty">Loading…</div>`;
-  const products = await api('/loan-products');
+  const products = await api('/loan-products?include_inactive=true');
   content().innerHTML = `
     <div class="panel"><h3>Create a loan product</h3>
       <div class="form-grid">
         <div class="field"><label>Name</label><input id="lp-name" placeholder="Weekly Group Loan"></div>
-        <div class="field"><label>Interest type</label><select id="lp-type"><option value="flat">Flat</option><option value="reducing">Reducing balance</option></select></div>
+        <div class="field"><label>Interest type</label>
+          <select id="lp-type" onchange="toggleOtherInterestFields('lp')">
+            <option value="flat">Flat</option>
+            <option value="reducing">Reducing balance</option>
+            <option value="other">Other (custom)</option>
+          </select>
+        </div>
         <div class="field"><label>Annual interest %</label><input id="lp-rate" type="number" value="24"></div>
         <div class="field"><label>Min amount (₹)</label><input id="lp-min" type="number" value="5000"></div>
         <div class="field"><label>Max amount (₹)</label><input id="lp-max" type="number" value="50000"></div>
         <div class="field"><label>Tenure (months)</label><input id="lp-tenure" type="number" value="6"></div>
         <div class="field"><label>Repayment frequency</label><select id="lp-freq"><option value="weekly">Weekly</option><option value="biweekly">Biweekly</option><option value="monthly">Monthly</option></select></div>
       </div>
+      <div class="form-grid hidden" id="lp-other-fields" style="margin-top:12px">
+        <div class="field"><label>Custom label</label><input id="lp-custom-label" placeholder="e.g. Diminishing Weekly Plan"></div>
+        <div class="field"><label>Calculates like</label>
+          <select id="lp-calc-basis">
+            <option value="flat">Flat</option>
+            <option value="reducing">Reducing balance</option>
+          </select>
+          <div style="font-size:11px;color:#888;margin-top:4px">The custom label is just the display name — this dropdown decides the real EMI math.</div>
+        </div>
+      </div>
       <div class="row-actions"><button class="btn amber" onclick="createLoanProduct()">Create product</button></div>
+      <div class="err" id="lp-err"></div>
     </div>
-    <div class="panel"><h3>Active products</h3>
-      <table><thead><tr><th>Name</th><th>Type</th><th>Rate</th><th>Range</th><th>Tenure</th></tr></thead>
-      <tbody>${products.map(p=>`<tr><td>${esc(p.name)}</td><td>${esc(p.interest_type)}</td><td>${p.interest_rate_annual}%</td><td>₹${p.min_amount}–₹${p.max_amount}</td><td>${p.tenure_months} mo</td></tr>`).join('') || '<tr><td colspan="5" class="empty">No loan products yet</td></tr>'}</tbody></table>
+    <div class="panel"><h3>All products</h3>
+      <table><thead><tr><th>Name</th><th>Type</th><th>Rate</th><th>Range</th><th>Tenure</th><th>Status</th><th>Actions</th></tr></thead>
+      <tbody id="products-tbody">${products.map(p=>productRow(p)).join('') || '<tr><td colspan="7" class="empty">No loan products yet</td></tr>'}</tbody></table>
+    </div>
+    <div class="modal-overlay" id="edit-product-modal">
+      <div class="modal-card">
+        <h3>Edit Loan Product</h3>
+        <label>Name</label><input id="ep-name">
+        <label>Interest type</label>
+        <select id="ep-type" onchange="toggleOtherInterestFields('ep')">
+          <option value="flat">Flat</option>
+          <option value="reducing">Reducing balance</option>
+          <option value="other">Other (custom)</option>
+        </select>
+        <div class="hidden" id="ep-other-fields">
+          <label>Custom label</label><input id="ep-custom-label">
+          <label>Calculates like</label>
+          <select id="ep-calc-basis"><option value="flat">Flat</option><option value="reducing">Reducing balance</option></select>
+        </div>
+        <label>Annual interest %</label><input id="ep-rate" type="number">
+        <div class="row-actions">
+          <button class="btn amber" onclick="submitEditProduct()">Save</button>
+          <button class="btn ghost" onclick="document.getElementById('edit-product-modal').classList.remove('show')">Cancel</button>
+        </div>
+        <div class="err" id="ep-err"></div>
+      </div>
     </div>
   `;
 }
+function toggleOtherInterestFields(prefix){
+  const isOther = document.getElementById(`${prefix}-type`).value === 'other';
+  const fieldsId = prefix === 'lp' ? 'lp-other-fields' : 'ep-other-fields';
+  document.getElementById(fieldsId).classList.toggle('hidden', !isOther);
+}
+function interestTypeLabel(p){
+  if(p.interest_type === 'other') return `${esc(p.custom_interest_label || 'Custom')} (${p.calculation_basis})`;
+  return p.interest_type === 'reducing' ? 'Reducing balance' : 'Flat';
+}
+function productRow(p){
+  return `<tr>
+    <td>${esc(p.name)}</td><td>${interestTypeLabel(p)}</td><td>${p.interest_rate_annual}%</td><td>₹${p.min_amount}–₹${p.max_amount}</td><td>${p.tenure_months} mo</td>
+    <td><span class="badge ${p.is_active?'active':'suspended'}">${p.is_active?'Active':'Inactive'}</span></td>
+    <td style="white-space:nowrap">
+      <button class="btn ghost" style="padding:6px 8px;font-size:12px" onclick='openEditProduct(${JSON.stringify(p)})'>Edit</button>
+      ${p.is_active
+        ? `<button class="btn ghost" style="padding:6px 8px;font-size:12px" onclick="deactivateProduct('${p.id}')">Deactivate</button>`
+        : `<button class="btn amber" style="padding:6px 8px;font-size:12px" onclick="activateProduct('${p.id}')">Activate</button>`}
+      <button class="btn ghost" style="padding:6px 8px;font-size:12px;color:#C0392B" onclick="deleteProduct('${p.id}')">Delete</button>
+    </td>
+  </tr>`;
+}
+async function refreshProductsTable(){
+  const products = await api('/loan-products?include_inactive=true');
+  document.getElementById('products-tbody').innerHTML = products.map(p=>productRow(p)).join('') || '<tr><td colspan="7" class="empty">No loan products yet</td></tr>';
+}
+let editingProductId = null;
+function openEditProduct(p){
+  editingProductId = p.id;
+  document.getElementById('ep-name').value = p.name;
+  document.getElementById('ep-type').value = p.interest_type;
+  document.getElementById('ep-rate').value = p.interest_rate_annual;
+  document.getElementById('ep-custom-label').value = p.custom_interest_label || '';
+  document.getElementById('ep-calc-basis').value = p.calculation_basis || 'flat';
+  toggleOtherInterestFields('ep');
+  document.getElementById('ep-err').textContent = '';
+  document.getElementById('edit-product-modal').classList.add('show');
+}
+async function submitEditProduct(){
+  const errEl = document.getElementById('ep-err');
+  const interestType = document.getElementById('ep-type').value;
+  const payload = {
+    name: document.getElementById('ep-name').value,
+    interest_type: interestType,
+    interest_rate_annual: Number(document.getElementById('ep-rate').value),
+  };
+  if(interestType === 'other'){
+    payload.custom_interest_label = document.getElementById('ep-custom-label').value;
+    payload.calculation_basis = document.getElementById('ep-calc-basis').value;
+  }
+  try{
+    await api(`/loan-products/${editingProductId}`, { method:'PATCH', json: payload });
+    document.getElementById('edit-product-modal').classList.remove('show');
+    refreshProductsTable();
+  }catch(e){ errEl.textContent = e.message; }
+}
+async function activateProduct(id){ await api(`/loan-products/${id}/activate`, {method:'PATCH'}); refreshProductsTable(); }
+async function deactivateProduct(id){ await api(`/loan-products/${id}/deactivate`, {method:'PATCH'}); refreshProductsTable(); }
+async function deleteProduct(id){
+  if(!confirm('Delete this loan product? This cannot be undone.')) return;
+  try{
+    await api(`/loan-products/${id}`, {method:'DELETE'});
+    refreshProductsTable();
+  }catch(e){ alert(e.message); }
+}
 async function createLoanProduct(){
-  await api('/loan-products', { method:'POST', json:{
-    name: document.getElementById('lp-name').value, interest_type: document.getElementById('lp-type').value,
+  const errEl = document.getElementById('lp-err');
+  const interestType = document.getElementById('lp-type').value;
+  const payload = {
+    name: document.getElementById('lp-name').value, interest_type: interestType,
     interest_rate_annual: Number(document.getElementById('lp-rate').value), min_amount: Number(document.getElementById('lp-min').value),
     max_amount: Number(document.getElementById('lp-max').value), tenure_months: Number(document.getElementById('lp-tenure').value),
     repayment_frequency: document.getElementById('lp-freq').value,
-  }});
-  renderLoanProducts();
+  };
+  if(interestType === 'other'){
+    payload.custom_interest_label = document.getElementById('lp-custom-label').value;
+    payload.calculation_basis = document.getElementById('lp-calc-basis').value;
+  }
+  try{
+    await api('/loan-products', { method:'POST', json: payload });
+    renderLoanProducts();
+  }catch(e){ errEl.textContent = e.message; }
 }
 
 // ---------- Loans (shared: SuperAdmin approves/disburses, Employee applies) ----------

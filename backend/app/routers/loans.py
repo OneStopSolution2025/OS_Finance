@@ -100,10 +100,20 @@ class LoanProductCreate(BaseModel):
     tenure_months: int
     repayment_frequency: str = "monthly"
     processing_fee_pct: float = 0
+    custom_interest_label: str | None = None  # required (by validation below) when interest_type='other'
+    calculation_basis: str | None = None      # 'flat' | 'reducing' — required when interest_type='other'
+
+    def validate_other(self):
+        if self.interest_type == InterestType.other:
+            if not self.custom_interest_label:
+                raise HTTPException(status_code=400, detail="Give the custom interest type a label when selecting 'Other'.")
+            if self.calculation_basis not in ("flat", "reducing"):
+                raise HTTPException(status_code=400, detail="Choose whether 'Other' calculates like Flat or Reducing balance.")
 
 
 @router.post("/loan-products")
 def create_loan_product(payload: LoanProductCreate, db: Session = Depends(get_db), user: User = Depends(require_superadmin_or_above)):
+    payload.validate_other()
     product = LoanProduct(tenant_id=user.tenant_id, **payload.dict())
     db.add(product)
     db.commit()
@@ -112,8 +122,86 @@ def create_loan_product(payload: LoanProductCreate, db: Session = Depends(get_db
 
 
 @router.get("/loan-products")
-def list_loan_products(db: Session = Depends(get_db), user: User = Depends(require_any)):
-    return db.query(LoanProduct).filter(LoanProduct.tenant_id == user.tenant_id, LoanProduct.is_active == True).all()
+def list_loan_products(include_inactive: bool = False, db: Session = Depends(get_db), user: User = Depends(require_any)):
+    q = db.query(LoanProduct).filter(LoanProduct.tenant_id == user.tenant_id)
+    # Only SuperAdmin+ can see inactive products (needed to reactivate them) — employees
+    # applying for a loan should only ever see what's currently offered.
+    if not (include_inactive and user.role in (UserRole.superadmin, UserRole.superemeadmin)):
+        q = q.filter(LoanProduct.is_active == True)
+    return q.all()
+
+
+class LoanProductUpdate(BaseModel):
+    name: str | None = None
+    interest_type: InterestType | None = None
+    interest_rate_annual: float | None = None
+    min_amount: float | None = None
+    max_amount: float | None = None
+    tenure_months: int | None = None
+    repayment_frequency: str | None = None
+    processing_fee_pct: float | None = None
+    custom_interest_label: str | None = None
+    calculation_basis: str | None = None
+
+
+@router.patch("/loan-products/{product_id}")
+def update_loan_product(product_id: str, payload: LoanProductUpdate, db: Session = Depends(get_db), user: User = Depends(require_superadmin_or_above)):
+    product = db.query(LoanProduct).filter(LoanProduct.id == product_id, LoanProduct.tenant_id == user.tenant_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Loan product not found")
+
+    updates = payload.dict(exclude_unset=True)
+    new_interest_type = updates.get("interest_type", product.interest_type)
+    if new_interest_type == InterestType.other:
+        new_label = updates.get("custom_interest_label", product.custom_interest_label)
+        new_basis = updates.get("calculation_basis", product.calculation_basis)
+        if not new_label:
+            raise HTTPException(status_code=400, detail="Give the custom interest type a label when selecting 'Other'.")
+        if new_basis not in ("flat", "reducing"):
+            raise HTTPException(status_code=400, detail="Choose whether 'Other' calculates like Flat or Reducing balance.")
+
+    for field, value in updates.items():
+        setattr(product, field, value)
+    db.commit()
+    return {"status": "updated"}
+
+
+@router.patch("/loan-products/{product_id}/activate")
+def activate_loan_product(product_id: str, db: Session = Depends(get_db), user: User = Depends(require_superadmin_or_above)):
+    product = db.query(LoanProduct).filter(LoanProduct.id == product_id, LoanProduct.tenant_id == user.tenant_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Loan product not found")
+    product.is_active = True
+    db.commit()
+    return {"status": "active"}
+
+
+@router.patch("/loan-products/{product_id}/deactivate")
+def deactivate_loan_product(product_id: str, db: Session = Depends(get_db), user: User = Depends(require_superadmin_or_above)):
+    product = db.query(LoanProduct).filter(LoanProduct.id == product_id, LoanProduct.tenant_id == user.tenant_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Loan product not found")
+    product.is_active = False
+    db.commit()
+    return {"status": "inactive"}
+
+
+@router.delete("/loan-products/{product_id}")
+def delete_loan_product(product_id: str, db: Session = Depends(get_db), user: User = Depends(require_superadmin_or_above)):
+    product = db.query(LoanProduct).filter(LoanProduct.id == product_id, LoanProduct.tenant_id == user.tenant_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Loan product not found")
+    try:
+        db.delete(product)
+        db.commit()
+        return {"status": "deleted"}
+    except Exception:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="This loan product has existing loans against it and can't be deleted. "
+                   "Deactivate it instead to stop new applications while keeping loan history intact."
+        )
 
 
 # ---------- Loans ----------
@@ -125,6 +213,20 @@ class LoanApply(BaseModel):
     principal_amount: float
 
 
+def resolve_calculation_basis(product: LoanProduct) -> InterestType:
+    """
+    interest_type is a display label; the EMI math always needs a concrete
+    flat/reducing formula. For flat/reducing products these are the same
+    thing. For 'other' products, calculation_basis (set at creation) says
+    which real formula to use — a custom label never changes the actual math.
+    """
+    if product.interest_type != InterestType.other:
+        return product.interest_type
+    if product.calculation_basis == "reducing":
+        return InterestType.reducing
+    return InterestType.flat  # default basis if somehow unset
+
+
 def build_emi_schedule(loan: Loan, product: LoanProduct, db: Session):
     """Generates a flat or reducing-balance EMI schedule."""
     principal = Decimal(str(loan.principal_amount))
@@ -132,8 +234,9 @@ def build_emi_schedule(loan: Loan, product: LoanProduct, db: Session):
     months = loan.tenure_months
     freq_days = {"weekly": 7, "biweekly": 14, "monthly": 30}.get(product.repayment_frequency, 30)
     installments = months if product.repayment_frequency == "monthly" else int(months * 30 / freq_days)
+    basis = resolve_calculation_basis(product)
 
-    if product.interest_type == InterestType.flat:
+    if basis == InterestType.flat:
         total_interest = principal * annual_rate * Decimal(months) / Decimal(12)
         total_payable = principal + total_interest
         per_installment = (total_payable / installments).quantize(Decimal("0.01"))

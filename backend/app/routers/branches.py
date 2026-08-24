@@ -94,4 +94,77 @@ def list_employees(db: Session = Depends(get_db), user: User = Depends(require_s
     q = db.query(User).filter(User.role == UserRole.employee)
     if user.role == UserRole.superadmin:
         q = q.filter(User.tenant_id == user.tenant_id)
-    return q.all()
+    employees = q.all()
+    # Explicit field list — never return the ORM object directly, which would
+    # leak hashed_password (and any other internal column) straight to the browser.
+    return [
+        {
+            "id": e.id, "full_name": e.full_name, "email": e.email, "phone": e.phone,
+            "designation": e.designation, "employee_code": e.employee_code,
+            "branch_id": e.branch_id, "is_active": e.is_active, "created_at": e.created_at.isoformat(),
+        }
+        for e in employees
+    ]
+
+
+class EmployeeUpdate(BaseModel):
+    full_name: str | None = None
+    phone: str | None = None
+    designation: str | None = None
+    employee_code: str | None = None
+    branch_id: str | None = None
+
+
+@router.patch("/employees/{employee_id}")
+def update_employee(employee_id: str, payload: EmployeeUpdate, db: Session = Depends(get_db), user: User = Depends(require_superadmin)):
+    employee = db.query(User).filter(User.id == employee_id, User.tenant_id == user.tenant_id, User.role == UserRole.employee).first()
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+
+    if payload.branch_id:
+        branch = db.query(Branch).filter(Branch.id == payload.branch_id, Branch.tenant_id == user.tenant_id).first()
+        if not branch:
+            raise HTTPException(status_code=404, detail="Target branch not found")
+
+    for field, value in payload.dict(exclude_unset=True).items():
+        setattr(employee, field, value)
+    db.commit()
+    return {"status": "updated"}
+
+
+@router.patch("/employees/{employee_id}/suspend")
+def suspend_employee(employee_id: str, db: Session = Depends(get_db), user: User = Depends(require_superadmin)):
+    employee = db.query(User).filter(User.id == employee_id, User.tenant_id == user.tenant_id, User.role == UserRole.employee).first()
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    employee.is_active = False
+    db.commit()
+    return {"status": "suspended"}
+
+
+@router.patch("/employees/{employee_id}/activate")
+def activate_employee(employee_id: str, db: Session = Depends(get_db), user: User = Depends(require_superadmin)):
+    employee = db.query(User).filter(User.id == employee_id, User.tenant_id == user.tenant_id, User.role == UserRole.employee).first()
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    employee.is_active = True
+    db.commit()
+    return {"status": "active"}
+
+
+@router.delete("/employees/{employee_id}")
+def delete_employee(employee_id: str, db: Session = Depends(get_db), user: User = Depends(require_superadmin)):
+    employee = db.query(User).filter(User.id == employee_id, User.tenant_id == user.tenant_id, User.role == UserRole.employee).first()
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    try:
+        db.delete(employee)
+        db.commit()
+        return {"status": "deleted"}
+    except Exception:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="This employee has existing records (customers, loans, or payments tied to them) and can't be "
+                   "deleted. Suspend their login instead to keep the history intact."
+        )

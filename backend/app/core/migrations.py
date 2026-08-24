@@ -28,6 +28,10 @@ def run_safe_migrations(engine: Engine):
         "customers": [
             ("phone_verified", "BOOLEAN DEFAULT FALSE"),
         ],
+        "loan_products": [
+            ("custom_interest_label", "VARCHAR"),
+            ("calculation_basis", "VARCHAR"),
+        ],
     }
 
     with engine.begin() as conn:
