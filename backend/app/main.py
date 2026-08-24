@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.database import Base, engine
+from app.core.migrations import run_safe_migrations
 from app.routers import auth, tenants, branches, loans, payments, documents_attendance, reports
 
 # Import models so they register on Base before create_all
@@ -29,6 +30,7 @@ app.include_router(reports.router)
 @app.on_event("startup")
 def on_startup():
     Base.metadata.create_all(bind=engine)
+    run_safe_migrations(engine)
 
 
 @app.get("/health")
