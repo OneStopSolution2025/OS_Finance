@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>OS Finances</title>
+<meta name="theme-color" content="#0E4F8C">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="data:,">
+<script src="config.js"></script>
+<style>
+  :root{
+    --ink:#1B1613;
+    --amber:#FFB600;
+    --charcoal:#231F20;
+    --lime:#B5DE00;
+    --trust:#0E4F8C;
+    --trust-dark:#0A3A69;
+    --surface:#FFFFFF;
+    --bg:#F6F5F2;
+    --border:#E7E3DC;
+    --danger:#C0392B;
+    --radius:10px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--ink)}
+  h1,h2,h3{font-family:Georgia,'Times New Roman',serif;letter-spacing:-0.01em;margin:0}
+  .app{display:none;min-height:100vh}
+  .app.active{display:flex}
+  /* ---- Login ---- */
+  #login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(160deg,var(--charcoal) 0%,var(--trust-dark) 100%);padding:20px}
+  .login-card{background:var(--surface);border-radius:16px;padding:40px 36px;width:100%;max-width:380px;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+  .login-card .brand{display:flex;align-items:center;gap:10px;margin-bottom:28px}
+  .brand-mark{width:38px;height:38px;border-radius:8px;background:var(--trust);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-family:Georgia,serif}
+  .brand-name{font-size:19px;font-weight:700}
+  .login-card label{display:block;font-size:13px;font-weight:600;margin:14px 0 6px;color:#555}
+  .login-card input{width:100%;padding:11px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px}
+  .login-card input:focus{outline:2px solid var(--trust);outline-offset:1px;border-color:var(--trust)}
+  .btn{background:var(--trust);color:#fff;border:none;padding:12px 18px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;transition:background .15s}
+  .btn:hover{background:var(--trust-dark)}
+  .btn.amber{background:var(--amber);color:var(--ink)}
+  .btn.amber:hover{background:#e6a500}
+  .btn.ghost{background:transparent;border:1px solid var(--border);color:var(--ink)}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn-block{width:100%;margin-top:22px;padding:13px}
+  .err{color:var(--danger);font-size:13px;margin-top:10px;min-height:16px}
+  /* ---- Shell ---- */
+  .sidebar{width:230px;background:var(--charcoal);color:#EFEAE0;flex-shrink:0;display:flex;flex-direction:column;padding:20px 14px}
+  .sidebar .brand{display:flex;align-items:center;gap:10px;padding:0 6px 20px;border-bottom:1px solid rgba(255,255,255,.1);margin-bottom:14px}
+  .sidebar .brand-name{color:#fff;font-size:16px}
+  .role-pill{font-size:10px;text-transform:uppercase;letter-spacing:.06em;background:var(--amber);color:var(--ink);padding:2px 8px;border-radius:20px;display:inline-block;margin-top:4px}
+  .nav-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;cursor:pointer;font-size:14px;color:#D8D3C8;margin-bottom:2px}
+  .nav-item:hover{background:rgba(255,255,255,.06)}
+  .nav-item.active{background:var(--trust);color:#fff}
+  .sidebar-footer{margin-top:auto;padding-top:14px;border-top:1px solid rgba(255,255,255,.1)}
+  .main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .topbar{background:#fff;border-bottom:1px solid var(--border);padding:14px 24px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:5}
+  .topbar h2{font-size:20px}
+  .content{padding:24px;flex:1;overflow-y:auto}
+  .mobile-topbar{display:none}
+  /* ---- Cards / grids ---- */
+  .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:24px}
+  .stat-card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:18px}
+  .stat-card .label{font-size:12px;color:#777;text-transform:uppercase;letter-spacing:.04em}
+  .stat-card .value{font-size:26px;font-weight:700;margin-top:6px;color:var(--trust)}
+  .panel{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:20px}
+  .panel h3{font-size:16px;margin-bottom:14px}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th{text-align:left;padding:10px 8px;border-bottom:2px solid var(--border);color:#666;font-weight:600;font-size:12px;text-transform:uppercase}
+  td{padding:10px 8px;border-bottom:1px solid var(--border)}
+  tr:hover td{background:#FAFAF8}
+  .badge{padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600;text-transform:capitalize}
+  .badge.active,.badge.approved,.badge.disbursed,.badge.present{background:#E5F3E5;color:#2A7A2A}
+  .badge.pending_approval,.badge.trial{background:#FFF3D6;color:#8A6200}
+  .badge.suspended,.badge.rejected,.badge.overdue{background:#FBE4E1;color:var(--danger)}
+  .badge.closed{background:#E7E3DC;color:#555}
+  .form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+  .field label{display:block;font-size:12px;font-weight:600;color:#555;margin-bottom:5px}
+  .field input,.field select{width:100%;padding:9px 10px;border:1px solid var(--border);border-radius:7px;font-size:13.5px}
+  .row-actions{display:flex;gap:8px;margin-top:16px}
+  .empty{color:#999;font-size:13.5px;padding:24px;text-align:center}
+  .hidden{display:none !important}
+  .menu-toggle{display:none;background:none;border:none;font-size:22px;cursor:pointer}
+  @media(max-width:860px){
+    .sidebar{position:fixed;left:-240px;top:0;bottom:0;z-index:20;transition:left .2s;box-shadow:2px 0 20px rgba(0,0,0,.2)}
+    .sidebar.open{left:0}
+    .menu-toggle{display:block}
+    .content{padding:16px}
+    .topbar{padding:12px 16px}
+    .login-card{padding:30px 24px}
+  }
+  .overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:15}
+  .overlay.show{display:block}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="brand">
+      <div class="brand-mark">OS</div>
+      <div class="brand-name">OS Finances</div>
+    </div>
+    <label>Email</label>
+    <input id="login-email" type="email" placeholder="you@company.com" autocomplete="username">
+    <label>Password</label>
+    <input id="login-password" type="password" placeholder="••••••••" autocomplete="current-password">
+    <button class="btn btn-block" onclick="doLogin()">Sign in</button>
+    <div class="err" id="login-err"></div>
+  </div>
+</div>
+
+<!-- APP SHELL -->
+<div class="app" id="app">
+  <div class="overlay" id="overlay" onclick="toggleSidebar(false)"></div>
+  <div class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="brand-mark">OS</div>
+      <div>
+        <div class="brand-name">OS Finances</div>
+        <div class="role-pill" id="role-pill">—</div>
+      </div>
+    </div>
+    <div id="nav-items"></div>
+    <div class="sidebar-footer">
+      <div style="font-size:13px;color:#D8D3C8;margin-bottom:8px" id="user-name">—</div>
+      <button class="btn ghost btn-block" style="color:#fff;border-color:rgba(255,255,255,.2)" onclick="logout()">Sign out</button>
+    </div>
+  </div>
+  <div class="main">
+    <div class="topbar">
+      <div style="display:flex;align-items:center;gap:10px">
+        <button class="menu-toggle" onclick="toggleSidebar(true)">☰</button>
+        <h2 id="page-title">Dashboard</h2>
+      </div>
+    </div>
+    <div class="content" id="content"></div>
+  </div>
+</div>
+
+<script>
+const API = window.OSF_API_BASE || localStorage.getItem('osf_api_base') || 'http://localhost:8000';
+let state = { token:null, role:null, name:null, tenant_id:null, branch_id:null, view:'dashboard' };
+
+// ---------- API helper ----------
+async function api(path, opts={}){
+  const headers = opts.headers || {};
+  if(state.token) headers['Authorization'] = 'Bearer ' + state.token;
+  if(opts.json){ headers['Content-Type']='application/json'; opts.body = JSON.stringify(opts.json); }
+  const res = await fetch(API + path, { ...opts, headers });
+  if(res.status === 401){ logout(); throw new Error('Session expired'); }
+  let data;
+  try{ data = await res.json(); }catch(e){ data = null; }
+  if(!res.ok) throw new Error((data && data.detail) || 'Request failed');
+  return data;
+}
+
+// ---------- Auth ----------
+async function doLogin(){
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errEl = document.getElementById('login-err');
+  errEl.textContent = '';
+  if(!email || !password){ errEl.textContent = 'Enter email and password.'; return; }
+  try{
+    const body = new URLSearchParams({ username: email, password });
+    const res = await fetch(API + '/auth/login', { method:'POST', body });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Login failed');
+    state.token = data.access_token;
+    state.role = data.role;
+    state.name = data.full_name;
+    state.tenant_id = data.tenant_id;
+    state.branch_id = data.branch_id;
+    sessionStorage.setItem('osf_session', JSON.stringify(state));
+    enterApp();
+  }catch(e){
+    errEl.textContent = e.message;
+  }
+}
+function logout(){
+  state = { token:null, role:null, name:null, tenant_id:null, branch_id:null, view:'dashboard' };
+  sessionStorage.removeItem('osf_session');
+  document.getElementById('app').classList.remove('active');
+  document.getElementById('login-screen').style.display = 'flex';
+}
+(function restoreSession(){
+  const s = sessionStorage.getItem('osf_session');
+  if(s){ state = JSON.parse(s); enterApp(); }
+})();
+
+// ---------- Nav per role ----------
+const NAV = {
+  superemeadmin: [
+    {id:'dashboard', label:'📊 Overview'},
+    {id:'tenants', label:'🏢 Tenants'},
+    {id:'plans', label:'💳 Subscription Plans'},
+  ],
+  superadmin: [
+    {id:'dashboard', label:'📊 Overview'},
+    {id:'branches', label:'🏬 Branches'},
+    {id:'employees', label:'👥 Employees'},
+    {id:'loan-products', label:'📄 Loan Products'},
+    {id:'loans', label:'💰 Loans'},
+    {id:'reports', label:'📈 Reports'},
+  ],
+  employee: [
+    {id:'dashboard', label:'📊 Overview'},
+    {id:'customers', label:'🧑‍🤝‍🧑 Customers'},
+    {id:'loans', label:'💰 Loans'},
+    {id:'collections', label:'💵 Collections'},
+    {id:'attendance', label:'🕒 Attendance'},
+  ],
+};
+
+function enterApp(){
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app').classList.add('active');
+  document.getElementById('role-pill').textContent = state.role.replace('superemeadmin','Super Eme Admin').replace('superadmin','Super Admin').replace('employee','Employee');
+  document.getElementById('user-name').textContent = state.name || '';
+  renderNav();
+  navigate('dashboard');
+}
+function renderNav(){
+  const nav = NAV[state.role] || [];
+  document.getElementById('nav-items').innerHTML = nav.map(n =>
+    `<div class="nav-item ${state.view===n.id?'active':''}" onclick="navigate('${n.id}')">${n.label}</div>`
+  ).join('');
+}
+function toggleSidebar(open){
+  document.getElementById('sidebar').classList.toggle('open', open);
+  document.getElementById('overlay').classList.toggle('show', open);
+}
+function navigate(view){
+  state.view = view;
+  toggleSidebar(false);
+  renderNav();
+  const titles = {dashboard:'Overview', tenants:'Tenants', plans:'Subscription Plans', branches:'Branches',
+    employees:'Employees', 'loan-products':'Loan Products', loans:'Loans', reports:'Reports & Accounts',
+    customers:'Customers', collections:'Collections', attendance:'Attendance'};
+  document.getElementById('page-title').textContent = titles[view] || view;
+  const renderers = {
+    dashboard: renderDashboard, tenants: renderTenants, plans: renderPlans, branches: renderBranches,
+    employees: renderEmployees, 'loan-products': renderLoanProducts, loans: renderLoans,
+    reports: renderReports, customers: renderCustomers, collections: renderCollections, attendance: renderAttendance,
+  };
+  (renderers[view] || renderDashboard)();
+}
+
+const content = () => document.getElementById('content');
+function esc(s){ return (s===undefined||s===null) ? '' : String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// ---------- Dashboard ----------
+async function renderDashboard(){
+  content().innerHTML = `<div class="empty">Loading…</div>`;
+  try{
+    if(state.role === 'superemeadmin'){
+      const tenants = await api('/tenants/');
+      const active = tenants.filter(t=>t.status==='active').length;
+      const trial = tenants.filter(t=>t.status==='trial').length;
+      content().innerHTML = `
+        <div class="stat-grid">
+          <div class="stat-card"><div class="label">Total Tenants</div><div class="value">${tenants.length}</div></div>
+          <div class="stat-card"><div class="label">Active Subscriptions</div><div class="value">${active}</div></div>
+          <div class="stat-card"><div class="label">On Trial</div><div class="value">${trial}</div></div>
+          <div class="stat-card"><div class="label">Total Branches</div><div class="value">${tenants.reduce((s,t)=>s+t.branch_count,0)}</div></div>
+        </div>
+        <div class="panel"><h3>Platform snapshot</h3><p style="color:#555;font-size:13.5px">You manage every microfinance operator's subscription from the Tenants tab. Suspend a tenant to instantly block SuperAdmin and Employee logins for that organization.</p></div>
+      `;
+    } else {
+      const r = await api('/reports/branch-summary');
+      content().innerHTML = `
+        <div class="stat-grid">
+          <div class="stat-card"><div class="label">Total Disbursed</div><div class="value">₹${r.total_disbursed.toLocaleString()}</div></div>
+          <div class="stat-card"><div class="label">Total Collected</div><div class="value">₹${r.total_collected.toLocaleString()}</div></div>
+          <div class="stat-card"><div class="label">Active Loans</div><div class="value">${r.active_loans}</div></div>
+          <div class="stat-card"><div class="label">Overdue Installments</div><div class="value">${r.overdue_installments}</div></div>
+        </div>
+        <div class="panel"><h3>Collection efficiency</h3><p style="font-size:22px;font-weight:700;color:var(--trust)">${r.collection_efficiency_pct}%</p><p style="color:#555;font-size:13px">Overdue amount outstanding: ₹${r.overdue_amount.toLocaleString()}</p></div>
+      `;
+    }
+  }catch(e){ content().innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+}
+
+// ---------- SuperEmeAdmin: Tenants ----------
+async function renderTenants(){
+  content().innerHTML = `<div class="empty">Loading…</div>`;
+  const tenants = await api('/tenants/');
+  const plans = await api('/tenants/plans');
+  const planOpts = plans.map(p=>`<option value="${p.id}">${esc(p.name)} — ₹${p.monthly_price_inr}/mo</option>`).join('');
+  content().innerHTML = `
+    <div class="panel">
+      <h3>Onboard a new microfinance operator</h3>
+      <div class="form-grid">
+        <div class="field"><label>Organization name</label><input id="t-org"></div>
+        <div class="field"><label>Slug</label><input id="t-slug" placeholder="acme-mf"></div>
+        <div class="field"><label>Plan</label><select id="t-plan">${planOpts || '<option>Create a plan first</option>'}</select></div>
+        <div class="field"><label>SuperAdmin name</label><input id="t-admin-name"></div>
+        <div class="field"><label>SuperAdmin email</label><input id="t-admin-email" type="email"></div>
+        <div class="field"><label>SuperAdmin password</label><input id="t-admin-pass" type="password"></div>
+      </div>
+      <div class="row-actions"><button class="btn amber" onclick="createTenant()">Create tenant</button></div>
+      <div class="err" id="t-err"></div>
+    </div>
+    <div class="panel">
+      <h3>All tenants</h3>
+      <table><thead><tr><th>Organization</th><th>Plan</th><th>Branches</th><th>Status</th><th>Action</th></tr></thead>
+      <tbody>${tenants.map(t=>`
+        <tr><td>${esc(t.name)}</td><td>${esc(t.plan||'—')}</td><td>${t.branch_count}</td>
+        <td><span class="badge ${t.status}">${t.status.replace('_',' ')}</span></td>
+        <td>${t.is_suspended
+          ? `<button class="btn" style="padding:6px 12px;font-size:12px" onclick="reactivateTenant('${t.id}')">Reactivate</button>`
+          : `<button class="btn ghost" style="padding:6px 12px;font-size:12px" onclick="suspendTenant('${t.id}')">Suspend</button>`}
+        </td></tr>`).join('') || '<tr><td colspan="5" class="empty">No tenants yet</td></tr>'}
+      </tbody></table>
+    </div>
+  `;
+}
+async function createTenant(){
+  const errEl = document.getElementById('t-err');
+  try{
+    await api('/tenants/', { method:'POST', json:{
+      org_name: document.getElementById('t-org').value,
+      slug: document.getElementById('t-slug').value,
+      plan_id: document.getElementById('t-plan').value,
+      admin_full_name: document.getElementById('t-admin-name').value,
+      admin_email: document.getElementById('t-admin-email').value,
+      admin_password: document.getElementById('t-admin-pass').value,
+    }});
+    renderTenants();
+  }catch(e){ errEl.textContent = e.message; }
+}
+async function suspendTenant(id){ await api(`/tenants/${id}/suspend`, {method:'PATCH'}); renderTenants(); }
+async function reactivateTenant(id){ await api(`/tenants/${id}/reactivate`, {method:'PATCH'}); renderTenants(); }
+
+async function renderPlans(){
+  content().innerHTML = `<div class="empty">Loading…</div>`;
+  const plans = await api('/tenants/plans');
+  content().innerHTML = `
+    <div class="panel">
+      <h3>Create a plan</h3>
+      <div class="form-grid">
+        <div class="field"><label>Name</label><input id="p-name" placeholder="Growth"></div>
+        <div class="field"><label>Max branches</label><input id="p-branches" type="number" value="3"></div>
+        <div class="field"><label>Max employees</label><input id="p-emp" type="number" value="25"></div>
+        <div class="field"><label>Monthly price (₹)</label><input id="p-price" type="number" value="4999"></div>
+      </div>
+      <div class="row-actions"><button class="btn amber" onclick="createPlan()">Create plan</button></div>
+    </div>
+    <div class="panel"><h3>Existing plans</h3>
+      <table><thead><tr><th>Name</th><th>Max branches</th><th>Max employees</th><th>Price / mo</th></tr></thead>
+      <tbody>${plans.map(p=>`<tr><td>${esc(p.name)}</td><td>${p.max_branches}</td><td>${p.max_employees}</td><td>₹${p.monthly_price_inr}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">No plans yet</td></tr>'}</tbody></table>
+    </div>
+  `;
+}
+async function createPlan(){
+  await api('/tenants/plans', { method:'POST', json:{
+    name: document.getElementById('p-name').value,
+    max_branches: Number(document.getElementById('p-branches').value),
+    max_employees: Number(document.getElementById('p-emp').value),
+    monthly_price_inr: Number(document.getElementById('p-price').value),
+  }});
+  renderPlans();
+}
+
+// ---------- SuperAdmin: Branches / Employees ----------
+async function renderBranches(){
+  content().innerHTML = `<div class="empty">Loading…</div>`;
+  const branches = await api('/branches/');
+  content().innerHTML = `
+    <div class="panel"><h3>Add a branch</h3>
+      <div class="form-grid">
+        <div class="field"><label>Name</label><input id="b-name"></div>
+        <div class="field"><label>Code</label><input id="b-code" placeholder="DGL"></div>
+        <div class="field"><label>City</label><input id="b-city"></div>
+        <div class="field"><label>State</label><input id="b-state"></div>
+      </div>
+      <div class="row-actions"><button class="btn amber" onclick="createBranch()">Create branch</button></div>
+      <div class="err" id="b-err"></div>
+    </div>
+    <div class="panel"><h3>All branches</h3>
+      <table><thead><tr><th>Name</th><th>Code</th><th>City</th><th>State</th></tr></thead>
+      <tbody>${branches.map(b=>`<tr><td>${esc(b.name)}</td><td>${esc(b.code)}</td><td>${esc(b.city||'—')}</td><td>${esc(b.state||'—')}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">No branches yet</td></tr>'}</tbody></table>
+    </div>
+  `;
+}
+async function createBranch(){
+  const errEl = document.getElementById('b-err');
+  try{
+    await api('/branches/', { method:'POST', json:{
+      name: document.getElementById('b-name').value, code: document.getElementById('b-code').value,
+      city: document.getElementById('b-city').value, state: document.getElementById('b-state').value,
+    }});
+    renderBranches();
+  }catch(e){ errEl.textContent = e.message; }
+}
+async function renderEmployees(){
+  content().innerHTML = `<div class="empty">Loading…</div>`;
+  const [employees, branches] = await Promise.all([api('/branches/employees'), api('/branches/')]);
+  const branchOpts = branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('');
+  content().innerHTML = `
+    <div class="panel"><h3>Add an employee</h3>
+      <div class="form-grid">
+        <div class="field"><label>Branch</label><select id="e-branch">${branchOpts || '<option>Create a branch first</option>'}</select></div>
+        <div class="field"><label>Full name</label><input id="e-name"></div>
+        <div class="field"><label>Email</label><input id="e-email" type="email"></div>
+        <div class="field"><label>Password</label><input id="e-pass" type="password"></div>
+        <div class="field"><label>Designation</label><input id="e-desig" placeholder="Loan Officer"></div>
+      </div>
+      <div class="row-actions"><button class="btn amber" onclick="createEmployee()">Create employee</button></div>
+      <div class="err" id="e-err"></div>
+    </div>
+    <div class="panel"><h3>All employees</h3>
+      <table><thead><tr><th>Name</th><th>Email</th><th>Designation</th></tr></thead>
+      <tbody>${employees.map(e=>`<tr><td>${esc(e.full_name)}</td><td>${esc(e.email)}</td><td>${esc(e.designation||'—')}</td></tr>`).join('') || '<tr><td colspan="3" class="empty">No employees yet</td></tr>'}</tbody></table>
+    </div>
+  `;
+}
+async function createEmployee(){
+  const errEl = document.getElementById('e-err');
+  try{
+    await api('/branches/employees', { method:'POST', json:{
+      branch_id: document.getElementById('e-branch').value, full_name: document.getElementById('e-name').value,
+      email: document.getElementById('e-email').value, password: document.getElementById('e-pass').value,
+      designation: document.getElementById('e-desig').value,
+    }});
+    renderEmployees();
+  }catch(e){ errEl.textContent = e.message; }
+}
+
+// ---------- Loan Products ----------
+async function renderLoanProducts(){
+  content().innerHTML = `<div class="empty">Loading…</div>`;
+  const products = await api('/loan-products');
+  content().innerHTML = `
+    <div class="panel"><h3>Create a loan product</h3>
+      <div class="form-grid">
+        <div class="field"><label>Name</label><input id="lp-name" placeholder="Weekly Group Loan"></div>
+        <div class="field"><label>Interest type</label><select id="lp-type"><option value="flat">Flat</option><option value="reducing">Reducing balance</option></select></div>
+        <div class="field"><label>Annual interest %</label><input id="lp-rate" type="number" value="24"></div>
+        <div class="field"><label>Min amount (₹)</label><input id="lp-min" type="number" value="5000"></div>
+        <div class="field"><label>Max amount (₹)</label><input id="lp-max" type="number" value="50000"></div>
+        <div class="field"><label>Tenure (months)</label><input id="lp-tenure" type="number" value="6"></div>
+        <div class="field"><label>Repayment frequency</label><select id="lp-freq"><option value="weekly">Weekly</option><option value="biweekly">Biweekly</option><option value="monthly">Monthly</option></select></div>
+      </div>
+      <div class="row-actions"><button class="btn amber" onclick="createLoanProduct()">Create product</button></div>
+    </div>
+    <div class="panel"><h3>Active products</h3>
+      <table><thead><tr><th>Name</th><th>Type</th><th>Rate</th><th>Range</th><th>Tenure</th></tr></thead>
+      <tbody>${products.map(p=>`<tr><td>${esc(p.name)}</td><td>${esc(p.interest_type)}</td><td>${p.interest_rate_annual}%</td><td>₹${p.min_amount}–₹${p.max_amount}</td><td>${p.tenure_months} mo</td></tr>`).join('') || '<tr><td colspan="5" class="empty">No loan products yet</td></tr>'}</tbody></table>
+    </div>
+  `;
+}
+async function createLoanProduct(){
+  await api('/loan-products', { method:'POST', json:{
+    name: document.getElementById('lp-name').value, interest_type: document.getElementById('lp-type').value,
+    interest_rate_annual: Number(document.getElementById('lp-rate').value), min_amount: Number(document.getElementById('lp-min').value),
+    max_amount: Number(document.getElementById('lp-max').value), tenure_months: Number(document.getElementById('lp-tenure').value),
+    repayment_frequency: document.getElementById('lp-freq').value,
+  }});
+  renderLoanProducts();
+}
+
+// ---------- Loans (shared: SuperAdmin approves/disburses, Employee applies) ----------
+async function renderLoans(){
+  content().innerHTML = `<div class="empty">Loading…</div>`;
+  const loans = await api('/loans');
+  const canManage = state.role === 'superadmin';
+  content().innerHTML = `
+    <div class="panel"><h3>All loans</h3>
+      <table><thead><tr><th>Loan #</th><th>Principal</th><th>Status</th>${canManage?'<th>Action</th>':''}</tr></thead>
+      <tbody>${loans.map(l=>`<tr><td>${esc(l.loan_number)}</td><td>₹${l.principal_amount.toLocaleString()}</td>
+        <td><span class="badge ${l.status}">${l.status.replace('_',' ')}</span></td>
+        ${canManage ? `<td>${l.status==='pending_approval'?`<button class="btn" style="padding:6px 10px;font-size:12px" onclick="approveLoan('${l.id}')">Approve</button>`
+          : l.status==='approved'?`<button class="btn amber" style="padding:6px 10px;font-size:12px" onclick="disburseLoan('${l.id}')">Disburse</button>`:'—'}</td>`:''}
+        </tr>`).join('') || `<tr><td colspan="${canManage?4:3}" class="empty">No loans yet</td></tr>`}
+      </tbody></table>
+    </div>
+  `;
+}
+async function approveLoan(id){ await api(`/loans/${id}/approve`, {method:'PATCH'}); renderLoans(); }
+async function disburseLoan(id){ await api(`/loans/${id}/disburse`, {method:'PATCH'}); renderLoans(); }
+
+// ---------- Reports ----------
+async function renderReports(){
+  content().innerHTML = `<div class="empty">Loading…</div>`;
+  const [summary, par] = await Promise.all([api('/reports/branch-summary'), api('/reports/portfolio-at-risk')]);
+  content().innerHTML = `
+    <div class="stat-grid">
+      <div class="stat-card"><div class="label">Disbursed</div><div class="value">₹${summary.total_disbursed.toLocaleString()}</div></div>
+      <div class="stat-card"><div class="label">Collected</div><div class="value">₹${summary.total_collected.toLocaleString()}</div></div>
+      <div class="stat-card"><div class="label">Collection efficiency</div><div class="value">${summary.collection_efficiency_pct}%</div></div>
+    </div>
+    <div class="panel"><h3>Portfolio at risk (overdue amount by days-past-due)</h3>
+      <table><thead><tr><th>1–30 days</th><th>31–60 days</th><th>61–90 days</th><th>90+ days</th></tr></thead>
+      <tbody><tr><td>₹${par['1-30'].toLocaleString()}</td><td>₹${par['31-60'].toLocaleString()}</td><td>₹${par['61-90'].toLocaleString()}</td><td>₹${par['90+'].toLocaleString()}</td></tr></tbody></table>
+    </div>
+  `;
+}
+
+// ---------- Employee: Customers ----------
+async function renderCustomers(){
+  content().innerHTML = `<div class="empty">Loading…</div>`;
+  const customers = await api('/customers');
+  content().innerHTML = `
+    <div class="panel"><h3>Onboard a customer</h3>
+      <div class="form-grid">
+        <div class="field"><label>Full name</label><input id="c-name"></div>
+        <div class="field"><label>Phone</label><input id="c-phone"></div>
+        <div class="field"><label>Address</label><input id="c-address"></div>
+      </div>
+      <div class="row-actions"><button class="btn amber" onclick="createCustomer()">Add customer</button></div>
+      <div class="err" id="c-err"></div>
+    </div>
+    <div class="panel"><h3>Customers</h3>
+      <table><thead><tr><th>Code</th><th>Name</th><th>Phone</th><th>KYC</th></tr></thead>
+      <tbody>${customers.map(c=>`<tr><td>${esc(c.customer_code)}</td><td>${esc(c.full_name)}</td><td>${esc(c.phone)}</td><td>${c.kyc_verified?'✅':'Pending'}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">No customers yet</td></tr>'}</tbody></table>
+    </div>
+  `;
+}
+async function createCustomer(){
+  const errEl = document.getElementById('c-err');
+  try{
+    await api('/customers', { method:'POST', json:{
+      branch_id: state.branch_id, full_name: document.getElementById('c-name').value,
+      phone: document.getElementById('c-phone').value, address: document.getElementById('c-address').value,
+    }});
+    renderCustomers();
+  }catch(e){ errEl.textContent = e.message; }
+}
+
+// ---------- Employee: Collections ----------
+async function renderCollections(){
+  content().innerHTML = `<div class="empty">Loading…</div>`;
+  const loans = (await api('/loans')).filter(l=>l.status==='active');
+  const opts = loans.map(l=>`<option value="${l.id}">${esc(l.loan_number)} — ₹${l.principal_amount}</option>`).join('');
+  content().innerHTML = `
+    <div class="panel"><h3>Record a collection</h3>
+      <div class="form-grid">
+        <div class="field"><label>Loan</label><select id="p-loan" onchange="loadSchedule()">${opts || '<option>No active loans</option>'}</select></div>
+        <div class="field"><label>Installment</label><select id="p-emi"></select></div>
+        <div class="field"><label>Amount (₹)</label><input id="p-amount" type="number"></div>
+      </div>
+      <div class="row-actions">
+        <button class="btn amber" onclick="collectCash()">Record cash payment</button>
+        <button class="btn" onclick="collectRazorpay()">Collect via Razorpay</button>
+      </div>
+      <div class="err" id="p-err"></div>
+      <div id="p-receipt"></div>
+    </div>
+  `;
+  if(loans.length) loadSchedule();
+}
+async function loadSchedule(){
+  const loanId = document.getElementById('p-loan').value;
+  if(!loanId) return;
+  const sched = await api(`/loans/${loanId}/schedule`);
+  document.getElementById('p-emi').innerHTML = sched.filter(s=>!s.is_paid).map(s=>
+    `<option value="${s.id}" data-due="${s.total_due}">#${s.installment_no} — due ${s.due_date} — ₹${s.total_due}</option>`
+  ).join('') || '<option>All installments paid</option>';
+}
+async function collectCash(){
+  const errEl = document.getElementById('p-err'); errEl.textContent='';
+  try{
+    const res = await api('/payments/cash', { method:'POST', json:{
+      loan_id: document.getElementById('p-loan').value, emi_id: document.getElementById('p-emi').value,
+      amount: Number(document.getElementById('p-amount').value),
+    }});
+    document.getElementById('p-receipt').innerHTML = `<p style="margin-top:12px;font-size:13.5px">✅ Recorded — ${res.receipt_number}. <a href="${API}/payments/${res.payment_id}/receipt" target="_blank">Print / download receipt</a></p>`;
+  }catch(e){ errEl.textContent = e.message; }
+}
+async function collectRazorpay(){
+  const errEl = document.getElementById('p-err'); errEl.textContent='';
+  const loanId = document.getElementById('p-loan').value;
+  const emiId = document.getElementById('p-emi').value;
+  const amount = Number(document.getElementById('p-amount').value);
+  try{
+    const order = await api('/payments/razorpay/create-order', { method:'POST', json:{ loan_id: loanId, emi_id: emiId, amount }});
+    if(typeof Razorpay === 'undefined'){ errEl.textContent = 'Razorpay checkout script not loaded.'; return; }
+    const rzp = new Razorpay({
+      key: order.key_id, amount: order.amount, currency: order.currency, order_id: order.order_id,
+      name: 'OS Finances', description: 'Loan repayment',
+      handler: async function(response){
+        const res = await api('/payments/razorpay/verify', { method:'POST', json:{
+          razorpay_order_id: response.razorpay_order_id, razorpay_payment_id: response.razorpay_payment_id,
+          razorpay_signature: response.razorpay_signature, loan_id: loanId, emi_id: emiId, amount,
+        }});
+        document.getElementById('p-receipt').innerHTML = `<p style="margin-top:12px;font-size:13.5px">✅ Paid online — ${res.receipt_number}. <a href="${API}/payments/${res.payment_id}/receipt" target="_blank">Print / download receipt</a></p>`;
+      },
+    });
+    rzp.open();
+  }catch(e){ errEl.textContent = e.message; }
+}
+
+// ---------- Employee: Attendance ----------
+async function renderAttendance(){
+  content().innerHTML = `<div class="empty">Loading…</div>`;
+  const records = await api('/attendance');
+  content().innerHTML = `
+    <div class="panel"><h3>Today</h3>
+      <div class="row-actions">
+        <button class="btn amber" onclick="checkIn()">Check in</button>
+        <button class="btn ghost" onclick="checkOut()">Check out</button>
+      </div>
+      <div class="err" id="a-err"></div>
+    </div>
+    <div class="panel"><h3>My attendance history</h3>
+      <table><thead><tr><th>Date</th><th>Check in</th><th>Check out</th><th>Status</th></tr></thead>
+      <tbody>${records.map(r=>`<tr><td>${r.date}</td><td>${r.check_in?new Date(r.check_in).toLocaleTimeString():'—'}</td><td>${r.check_out?new Date(r.check_out).toLocaleTimeString():'—'}</td><td><span class="badge ${r.status}">${r.status}</span></td></tr>`).join('') || '<tr><td colspan="4" class="empty">No records yet</td></tr>'}</tbody></table>
+    </div>
+  `;
+}
+async function checkIn(){ try{ await api('/attendance/check-in', {method:'POST'}); renderAttendance(); }catch(e){ document.getElementById('a-err').textContent = e.message; } }
+async function checkOut(){ try{ await api('/attendance/check-out', {method:'POST'}); renderAttendance(); }catch(e){ document.getElementById('a-err').textContent = e.message; } }
+
+// ---------- PWA registration ----------
+if('serviceWorker' in navigator){
+  window.addEventListener('load', () => navigator.serviceWorker.register('service-worker.js').catch(()=>{}));
+}
+</script>
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+</body>
+</html>
