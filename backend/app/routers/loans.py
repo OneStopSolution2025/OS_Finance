@@ -317,6 +317,8 @@ def approve_loan(loan_id: str, db: Session = Depends(get_db), user: User = Depen
     loan = db.query(Loan).filter(Loan.id == loan_id, Loan.tenant_id == user.tenant_id).first()
     if not loan:
         raise HTTPException(status_code=404, detail="Loan not found")
+    if loan.status != LoanStatus.pending_approval:
+        raise HTTPException(status_code=400, detail="Only a loan pending approval can be approved.")
     loan.status = LoanStatus.approved
     loan.approved_by = user.id
     db.commit()
@@ -329,6 +331,37 @@ def approve_loan(loan_id: str, db: Session = Depends(get_db), user: User = Depen
         pass
 
     return {"status": "approved"}
+
+
+class LoanRejectRequest(BaseModel):
+    reason: str
+
+
+@router.patch("/loans/{loan_id}/reject")
+def reject_loan(loan_id: str, payload: LoanRejectRequest, db: Session = Depends(get_db), user: User = Depends(require_superadmin_or_above)):
+    loan = db.query(Loan).filter(Loan.id == loan_id, Loan.tenant_id == user.tenant_id).first()
+    if not loan:
+        raise HTTPException(status_code=404, detail="Loan not found")
+    if loan.status != LoanStatus.pending_approval:
+        raise HTTPException(status_code=400, detail="Only a loan pending approval can be rejected.")
+    if not payload.reason or not payload.reason.strip():
+        raise HTTPException(status_code=400, detail="A reason is required to reject a loan application.")
+
+    from datetime import datetime as _dt
+    loan.status = LoanStatus.rejected
+    loan.rejected_by = user.id
+    loan.rejected_at = _dt.utcnow()
+    loan.rejection_reason = payload.reason.strip()
+    db.commit()
+
+    try:
+        customer = db.query(Customer).filter(Customer.id == loan.customer_id).first()
+        if customer and customer.phone:
+            send_loan_status_notification(customer.phone, customer.full_name, loan.loan_number, "rejected", reason=loan.rejection_reason)
+    except Exception:
+        pass
+
+    return {"status": "rejected", "reason": loan.rejection_reason}
 
 
 @router.patch("/loans/{loan_id}/disburse")
@@ -368,6 +401,7 @@ def list_loans(db: Session = Depends(get_db), user: User = Depends(require_any))
             "id": l.id, "loan_number": l.loan_number, "principal_amount": float(l.principal_amount),
             "status": l.status.value, "customer_id": l.customer_id,
             "customer_name": c.full_name if c else "—", "applied_at": l.applied_at.isoformat(),
+            "rejection_reason": l.rejection_reason,
         })
     return result
 

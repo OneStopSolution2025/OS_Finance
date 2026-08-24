@@ -67,11 +67,14 @@ def send_payment_receipt_notification(phone: str, customer_name: str, amount: fl
     return send_whatsapp_text(phone, message)
 
 
-def send_loan_status_notification(phone: str, customer_name: str, loan_number: str, status: str) -> bool:
+def send_loan_status_notification(phone: str, customer_name: str, loan_number: str, status: str, reason: str | None = None) -> bool:
     status_text = {
         "approved": "has been approved and is awaiting disbursement",
         "active": "has been disbursed and is now active",
         "rejected": "was not approved this time",
     }.get(status, f"status has changed to {status}")
-    message = f"Hi {customer_name}, your loan {loan_number} {status_text}. — OS Finances."
+    message = f"Hi {customer_name}, your loan {loan_number} {status_text}."
+    if status == "rejected" and reason:
+        message += f" Reason: {reason}."
+    message += " — OS Finances."
     return send_whatsapp_text(phone, message)

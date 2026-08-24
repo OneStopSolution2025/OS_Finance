@@ -110,6 +110,9 @@ class Loan(Base):
     disbursed_at = Column(DateTime, nullable=True)
     applied_at = Column(DateTime, default=datetime.utcnow)
     closed_at = Column(DateTime, nullable=True)
+    rejected_by = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=True)
+    rejected_at = Column(DateTime, nullable=True)
+    rejection_reason = Column(String, nullable=True)
 
 
 class EMISchedule(Base):

@@ -32,6 +32,11 @@ def run_safe_migrations(engine: Engine):
             ("custom_interest_label", "VARCHAR"),
             ("calculation_basis", "VARCHAR"),
         ],
+        "loans": [
+            ("rejected_by", "VARCHAR"),
+            ("rejected_at", "TIMESTAMP"),
+            ("rejection_reason", "VARCHAR"),
+        ],
     }
 
     with engine.begin() as conn:

@@ -1082,12 +1082,26 @@ async function renderLoans(){
     <div class="panel"><h3>All loans</h3>
       <table><thead><tr><th>Loan #</th><th>Customer</th><th>Principal</th><th>Status</th>${canManage?'<th>Documents</th><th>Action</th>':''}</tr></thead>
       <tbody>${loans.map(l=>`<tr><td>${esc(l.loan_number)}</td><td>${esc(l.customer_name)}</td><td>₹${l.principal_amount.toLocaleString()}</td>
-        <td><span class="badge ${l.status}">${l.status.replace('_',' ')}</span></td>
+        <td><span class="badge ${l.status}">${l.status.replace('_',' ')}</span>${l.status==='rejected' && l.rejection_reason ? `<div style="font-size:11px;color:#888;margin-top:4px">${esc(l.rejection_reason)}</div>` : ''}</td>
         ${canManage ? `<td><button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="viewCustomerDocs('${l.customer_id}','${esc(l.customer_name)}')">Review KYC</button></td>
-        <td>${l.status==='pending_approval'?`<button class="btn" style="padding:6px 10px;font-size:12px" onclick="approveLoan('${l.id}')">Approve</button>`
+        <td style="white-space:nowrap">${l.status==='pending_approval'?`<button class="btn" style="padding:6px 10px;font-size:12px" onclick="approveLoan('${l.id}')">Approve</button>
+          <button class="btn ghost" style="padding:6px 10px;font-size:12px;color:#C0392B" onclick="rejectLoan('${l.id}')">Reject</button>`
           : l.status==='approved'?`<button class="btn amber" style="padding:6px 10px;font-size:12px" onclick="disburseLoan('${l.id}')">Disburse</button>`:'—'}</td>`:''}
         </tr>`).join('') || `<tr><td colspan="${canManage?6:4}" class="empty">No loans yet</td></tr>`}
       </tbody></table>
+    </div>
+    <div class="modal-overlay" id="reject-loan-modal">
+      <div class="modal-card">
+        <h3>Reject Loan Application</h3>
+        <p class="sub">This reason is shown to the applicant and can't be undone.</p>
+        <label>Reason</label>
+        <textarea id="reject-reason" rows="3" style="width:100%;padding:11px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;box-sizing:border-box" placeholder="e.g. Insufficient income documentation"></textarea>
+        <div class="row-actions">
+          <button class="btn" style="background:#C0392B;color:#fff" onclick="submitRejectLoan()">Reject application</button>
+          <button class="btn ghost" onclick="document.getElementById('reject-loan-modal').classList.remove('show')">Cancel</button>
+        </div>
+        <div class="err" id="reject-loan-err"></div>
+      </div>
     </div>
     <div class="modal-overlay" id="docs-modal">
       <div class="modal-card" style="max-width:480px;max-height:85vh;overflow-y:auto">
@@ -1121,6 +1135,23 @@ async function applyForLoan(){
   }catch(e){ errEl.textContent = e.message; }
 }
 async function approveLoan(id){ await api(`/loans/${id}/approve`, {method:'PATCH'}); renderLoans(); }
+let rejectingLoanId = null;
+function rejectLoan(id){
+  rejectingLoanId = id;
+  document.getElementById('reject-reason').value = '';
+  document.getElementById('reject-loan-err').textContent = '';
+  document.getElementById('reject-loan-modal').classList.add('show');
+}
+async function submitRejectLoan(){
+  const reason = document.getElementById('reject-reason').value.trim();
+  const errEl = document.getElementById('reject-loan-err');
+  if(!reason){ errEl.textContent = 'A reason is required.'; return; }
+  try{
+    await api(`/loans/${rejectingLoanId}/reject`, { method:'PATCH', json:{ reason } });
+    document.getElementById('reject-loan-modal').classList.remove('show');
+    renderLoans();
+  }catch(e){ errEl.textContent = e.message; }
+}
 async function disburseLoan(id){ await api(`/loans/${id}/disburse`, {method:'PATCH'}); renderLoans(); }
 
 // ---------- Reports ----------
