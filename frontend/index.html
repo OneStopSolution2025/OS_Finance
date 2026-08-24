@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>OS Finances</title>
-<meta name="theme-color" content="#0E4F8C">
+<meta name="theme-color" content="#231F20">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="data:,">
 <script src="config.js"></script>
@@ -14,8 +14,8 @@
     --amber:#FFB600;
     --charcoal:#231F20;
     --lime:#B5DE00;
-    --trust:#0E4F8C;
-    --trust-dark:#0A3A69;
+    --trust:#231F20;
+    --trust-dark:#141110;
     --surface:#FFFFFF;
     --bg:#F6F5F2;
     --border:#E7E3DC;
@@ -28,16 +28,16 @@
   .app{display:none;min-height:100vh}
   .app.active{display:flex}
   /* ---- Login ---- */
-  #login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(160deg,var(--charcoal) 0%,var(--trust-dark) 100%);padding:20px}
+  #login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(160deg,var(--charcoal) 0%,#100D0C 100%);padding:20px}
   .login-card{background:var(--surface);border-radius:16px;padding:40px 36px;width:100%;max-width:380px;box-shadow:0 20px 60px rgba(0,0,0,.35)}
   .login-card .brand{display:flex;align-items:center;gap:10px;margin-bottom:28px}
-  .brand-mark{width:38px;height:38px;border-radius:8px;background:var(--trust);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-family:Georgia,serif}
+  .brand-mark{width:38px;height:38px;border-radius:8px;background:var(--amber);display:flex;align-items:center;justify-content:center;color:var(--ink);font-weight:700;font-family:Georgia,serif}
   .brand-name{font-size:19px;font-weight:700}
   .login-card label{display:block;font-size:13px;font-weight:600;margin:14px 0 6px;color:#555}
   .login-card input{width:100%;padding:11px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px}
-  .login-card input:focus{outline:2px solid var(--trust);outline-offset:1px;border-color:var(--trust)}
-  .btn{background:var(--trust);color:#fff;border:none;padding:12px 18px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;transition:background .15s}
-  .btn:hover{background:var(--trust-dark)}
+  .login-card input:focus{outline:2px solid var(--amber);outline-offset:1px;border-color:var(--amber)}
+  .btn{background:var(--amber);color:var(--ink);border:none;padding:12px 18px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;transition:background .15s}
+  .btn:hover{background:#E6A500}
   .btn.amber{background:var(--amber);color:var(--ink)}
   .btn.amber:hover{background:#e6a500}
   .btn.ghost{background:transparent;border:1px solid var(--border);color:var(--ink)}
@@ -51,7 +51,7 @@
   .role-pill{font-size:10px;text-transform:uppercase;letter-spacing:.06em;background:var(--amber);color:var(--ink);padding:2px 8px;border-radius:20px;display:inline-block;margin-top:4px}
   .nav-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;cursor:pointer;font-size:14px;color:#D8D3C8;margin-bottom:2px}
   .nav-item:hover{background:rgba(255,255,255,.06)}
-  .nav-item.active{background:var(--trust);color:#fff}
+  .nav-item.active{background:var(--amber);color:var(--ink)}
   .sidebar-footer{margin-top:auto;padding-top:14px;border-top:1px solid rgba(255,255,255,.1)}
   .main{flex:1;min-width:0;display:flex;flex-direction:column}
   .topbar{background:#fff;border-bottom:1px solid var(--border);padding:14px 24px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:5}
@@ -70,7 +70,7 @@
   td{padding:10px 8px;border-bottom:1px solid var(--border)}
   tr:hover td{background:#FAFAF8}
   .badge{padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600;text-transform:capitalize}
-  .badge.active,.badge.approved,.badge.disbursed,.badge.present{background:#E5F3E5;color:#2A7A2A}
+  .badge.active,.badge.approved,.badge.disbursed,.badge.present{background:#EEF5C4;color:#5A6B00}
   .badge.pending_approval,.badge.trial{background:#FFF3D6;color:#8A6200}
   .badge.suspended,.badge.rejected,.badge.overdue{background:#FBE4E1;color:var(--danger)}
   .badge.closed{background:#E7E3DC;color:#555}
@@ -103,16 +103,16 @@
     .modal-card label{display:block;font-size:12.5px;font-weight:600;margin:14px 0 6px;color:#555;text-transform:uppercase;letter-spacing:.03em}
     .modal-card label:first-of-type{margin-top:0}
     .modal-card input,.modal-card select{width:100%;padding:11px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;background:#fff;display:block;box-sizing:border-box}
-    .modal-card input:focus,.modal-card select:focus{outline:2px solid var(--trust);outline-offset:1px;border-color:var(--trust)}
+    .modal-card input:focus,.modal-card select:focus{outline:2px solid var(--amber);outline-offset:1px;border-color:var(--amber)}
     .modal-card select{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="12" height="8"><path d="M1 1l5 5 5-5" stroke="%23888" stroke-width="1.5" fill="none"/></svg>');background-repeat:no-repeat;background-position:right 12px center;padding-right:34px}
     .modal-card .row-actions{margin-top:22px}
     .modal-card .pw-wrap input{padding-right:40px}
-    .success-box{background:#E5F3E5;border:1px solid #C3E6C3;border-radius:8px;padding:12px;font-size:12.5px;color:#2A7A2A;margin-top:12px;word-break:break-all}
+    .success-box{background:#EEF5C4;border:1px solid #D9E89A;border-radius:8px;padding:12px;font-size:12.5px;color:#5A6B00;margin-top:12px;word-break:break-all}
     /* ---- Smart Garage style dashboard cards ---- */
     .trend-card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:20px}
     .trend-bars{display:flex;align-items:flex-end;gap:8px;height:120px;margin-top:16px}
     .trend-bar-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%}
-    .trend-bar{width:100%;background:var(--trust);border-radius:4px 4px 0 0;min-height:3px;transition:height .3s}
+    .trend-bar{width:100%;background:var(--amber);border-radius:4px 4px 0 0;min-height:3px;transition:height .3s}
     .trend-bar-label{font-size:10px;color:#888;margin-top:6px}
     .trend-bar-value{font-size:10px;color:var(--trust);font-weight:700;margin-bottom:4px}
     .activity-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
@@ -333,7 +333,7 @@ async function checkTrackingStatus(){
     const res = await fetch(API + '/tenants/application-status/' + encodeURIComponent(code));
     const data = await res.json();
     if(!res.ok) throw new Error(data.detail || 'Not found.');
-    const statusColor = {pending:'#8A6200', approved:'#2A7A2A', rejected:'#C0392B'}[data.status] || '#333';
+    const statusColor = {pending:'#8A6200', approved:'#5A6B00', rejected:'#C0392B'}[data.status] || '#333';
     document.getElementById('track-result').innerHTML = `<div class="success-box" style="color:${statusColor};background:#F6F5F2;border-color:var(--border)">
       <strong>${esc(data.org_name)}</strong><br>
       Status: <strong style="text-transform:capitalize">${data.status}</strong><br>

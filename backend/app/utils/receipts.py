@@ -9,9 +9,9 @@ from app.core.config import settings
 RECEIPTS_DIR = os.path.join(settings.LOCAL_STORAGE_PATH, "receipts")
 os.makedirs(RECEIPTS_DIR, exist_ok=True)
 
-# OS2 brand tokens, adapted for a fintech-serious receipt
+# OS2 EMS brand tokens
 INK = colors.HexColor("#1B1613")
-TRUST_BLUE = colors.HexColor("#0E4F8C")
+CHARCOAL = colors.HexColor("#231F20")
 AMBER = colors.HexColor("#FFB600")
 
 
@@ -22,11 +22,12 @@ def generate_receipt_pdf(payment, loan, customer) -> str:
     width, height = A5
 
     # Header band
-    c.setFillColor(TRUST_BLUE)
+    c.setFillColor(CHARCOAL)
     c.rect(0, height - 25 * mm, width, 25 * mm, fill=1, stroke=0)
-    c.setFillColor(colors.white)
+    c.setFillColor(AMBER)
     c.setFont("Helvetica-Bold", 16)
     c.drawString(12 * mm, height - 12 * mm, "OS FINANCES")
+    c.setFillColor(colors.white)
     c.setFont("Helvetica", 9)
     c.drawString(12 * mm, height - 18 * mm, "Payment Receipt")
 
@@ -57,7 +58,7 @@ def generate_receipt_pdf(payment, loan, customer) -> str:
     y -= 10 * mm
 
     c.setFont("Helvetica-Bold", 13)
-    c.setFillColor(TRUST_BLUE)
+    c.setFillColor(CHARCOAL)
     c.drawString(12 * mm, y, "Amount Received:")
     c.drawRightString(width - 12 * mm, y, f"Rs. {payment.amount:,.2f}")
 
