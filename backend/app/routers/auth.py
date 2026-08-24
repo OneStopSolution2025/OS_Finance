@@ -7,11 +7,7 @@ from pydantic import BaseModel, EmailStr
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import verify_password, create_access_token, hash_password
-<<<<<<< HEAD
 from app.models.tenancy import User, Tenant, SubscriptionStatus, UserRole, PasswordResetToken
-=======
-from app.models.tenancy import User, Tenant, SubscriptionStatus, UserRole
->>>>>>> 9a5e291a6aee8620705c8c642ae8f0d91ad09346
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -79,7 +75,6 @@ def bootstrap_superemeadmin(payload: BootstrapRequest, db: Session = Depends(get
     db.add(admin)
     db.commit()
     return {"status": "created", "email": admin.email, "note": "Remove BOOTSTRAP_SECRET from your env vars now."}
-<<<<<<< HEAD
 
 
 # ---------- Forgot / reset password ----------
@@ -142,5 +137,3 @@ def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db))
     reset.used = True
     db.commit()
     return {"message": "Password updated. You can sign in with your new password now."}
-=======
->>>>>>> 9a5e291a6aee8620705c8c642ae8f0d91ad09346
