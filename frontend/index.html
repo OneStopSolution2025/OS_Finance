@@ -904,21 +904,44 @@ async function renderReports(){
     </div>
   `;
 }
+// Shared authenticated-file-download helper — a plain <a href> can't carry the
+// Bearer token, so every protected file download (receipts, KYC docs, reports)
+// goes through this instead: fetch with the auth header, then trigger a
+// synthetic download from the resulting blob.
+async function downloadAuthenticatedFile(path, fallbackFilename){
+  const res = await fetch(API + path, { headers: { 'Authorization': `Bearer ${state.token}` } });
+  if(!res.ok){ const data = await res.json().catch(()=>({})); throw new Error(data.detail || 'Could not download this file.'); }
+  const blob = await res.blob();
+  const disposition = res.headers.get('Content-Disposition') || '';
+  const match = disposition.match(/filename="?([^"]+)"?/);
+  const filename = match ? match[1] : fallbackFilename;
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  window.URL.revokeObjectURL(url);
+}
+
 async function downloadReport(){
   const errEl = document.getElementById('report-download-err'); errEl.textContent = '';
   try{
-    const res = await fetch(API + '/reports/download', { headers: { 'Authorization': `Bearer ${state.token}` } });
-    if(!res.ok){ const data = await res.json().catch(()=>({})); throw new Error(data.detail || 'Could not generate report.'); }
-    const blob = await res.blob();
-    const disposition = res.headers.get('Content-Disposition') || '';
-    const match = disposition.match(/filename="?([^"]+)"?/);
-    const filename = match ? match[1] : 'os-finances-report.pdf';
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = filename;
-    document.body.appendChild(a); a.click(); a.remove();
-    window.URL.revokeObjectURL(url);
+    await downloadAuthenticatedFile('/reports/download', 'os-finances-report.pdf');
   }catch(e){ errEl.textContent = e.message; }
+}
+
+async function downloadDocument(documentId, fileName){
+  try{
+    await downloadAuthenticatedFile(`/documents/${documentId}/download`, fileName || 'document');
+  }catch(e){
+    alert(e.message);
+  }
+}
+async function downloadReceipt(paymentId, receiptNumber){
+  try{
+    await downloadAuthenticatedFile(`/payments/${paymentId}/receipt`, `${receiptNumber}.pdf`);
+  }catch(e){
+    alert(e.message);
+  }
 }
 
 // ---------- Employee: Customers ----------
@@ -946,7 +969,7 @@ async function renderCustomers(){
             <input id="c-otp" placeholder="Enter OTP" style="flex:1">
             <button class="btn amber" style="padding:9px 12px;font-size:12px;white-space:nowrap" onclick="verifyCustomerOtp()">Verify</button>
           </div>
-          <div id="c-otp-status" style="font-size:11px;margin-top:4px"></div>
+          <div id="c-otp-status" style="font-size:12px;margin-top:4px;font-weight:600"></div>
         </div>
         <div class="field"><label>Address</label><input id="c-address"></div>
         <div class="field">
@@ -1112,7 +1135,7 @@ async function viewCustomerDocs(customerId, customerName){
       ${docs.length ? `<div style="margin-bottom:16px">${docs.map(d => `
         <div class="activity-item">
           <div><div class="activity-main">${KYC_DOC_TYPES.find(t=>t.key===d.doc_type)?.label || d.doc_type}</div><div class="activity-sub">${esc(d.file_name)}</div></div>
-          <a href="${API}/documents/${d.id}/download" target="_blank" style="font-size:12px">Download</a>
+          <button class="link-btn" style="font-size:12px" onclick="downloadDocument('${d.id}','${esc(d.file_name)}')">Download</button>
         </div>`).join('')}</div>` : '<p class="empty" style="padding:12px 0">No documents uploaded yet.</p>'}
       <div style="border-top:1px solid var(--border);padding-top:14px">
         <p style="font-size:12px;color:#888;margin:0 0 10px">Upload missing documents:</p>
@@ -1184,7 +1207,7 @@ async function collectCash(){
       loan_id: document.getElementById('p-loan').value, emi_id: document.getElementById('p-emi').value,
       amount: Number(document.getElementById('p-amount').value),
     }});
-    document.getElementById('p-receipt').innerHTML = `<p style="margin-top:12px;font-size:13.5px">✅ Recorded — ${res.receipt_number}. <a href="${API}/payments/${res.payment_id}/receipt" target="_blank">Print / download receipt</a></p>`;
+    document.getElementById('p-receipt').innerHTML = `<p style="margin-top:12px;font-size:13.5px">✅ Recorded — ${res.receipt_number}. <button class="link-btn" onclick="downloadReceipt('${res.payment_id}','${res.receipt_number}')">Print / download receipt</button></p>`;
   }catch(e){ errEl.textContent = e.message; }
 }
 async function collectRazorpay(){
@@ -1203,7 +1226,7 @@ async function collectRazorpay(){
           razorpay_order_id: response.razorpay_order_id, razorpay_payment_id: response.razorpay_payment_id,
           razorpay_signature: response.razorpay_signature, loan_id: loanId, emi_id: emiId, amount,
         }});
-        document.getElementById('p-receipt').innerHTML = `<p style="margin-top:12px;font-size:13.5px">✅ Paid online — ${res.receipt_number}. <a href="${API}/payments/${res.payment_id}/receipt" target="_blank">Print / download receipt</a></p>`;
+        document.getElementById('p-receipt').innerHTML = `<p style="margin-top:12px;font-size:13.5px">✅ Paid online — ${res.receipt_number}. <button class="link-btn" onclick="downloadReceipt('${res.payment_id}','${res.receipt_number}')">Print / download receipt</button></p>`;
       },
     });
     rzp.open();
