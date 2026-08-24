@@ -1,12 +1,14 @@
 from datetime import date, timedelta, datetime
 from fastapi import APIRouter, Depends
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from app.core.database import get_db
-from app.core.security import require_any, require_superemeadmin
+from app.core.security import require_any, require_superemeadmin, require_superadmin
 from app.models.tenancy import User, UserRole, Tenant
 from app.models.finance import Loan, Payment, EMISchedule, LoanStatus, Customer
+from app.utils.report_pdf import generate_branch_report_pdf
 
 router = APIRouter(prefix="/reports", tags=["accounts & reports"])
 
@@ -138,3 +140,23 @@ def platform_overview(db: Session = Depends(get_db)):
         "platform_total_disbursed": float(total_disbursed),
         "platform_total_collected": float(total_collected),
     }
+
+
+@router.get("/download")
+def download_report(db: Session = Depends(get_db), user: User = Depends(require_superadmin)):
+    """SuperAdmin-only: generates a printable PDF snapshot of the tenant's performance."""
+    tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
+    tenant_name = tenant.name if tenant else "OS Finances"
+
+    summary = branch_summary(db=db, user=user)
+    par = portfolio_at_risk(db=db, user=user)
+    activity = recent_activity(db=db, user=user)
+
+    file_path = generate_branch_report_pdf(
+        tenant_name=tenant_name,
+        summary=summary,
+        par=par,
+        recent_loans=activity["recent_loans"],
+        recent_payments=activity["recent_payments"],
+    )
+    return FileResponse(file_path, media_type="application/pdf", filename=f"{tenant_name.replace(' ', '_')}_report.pdf")

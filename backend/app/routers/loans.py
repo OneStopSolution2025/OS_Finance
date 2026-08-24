@@ -182,7 +182,18 @@ def disburse_loan(loan_id: str, db: Session = Depends(get_db), user: User = Depe
 
 @router.get("/loans")
 def list_loans(db: Session = Depends(get_db), user: User = Depends(require_any)):
-    return scope_branch(db.query(Loan), Loan, user).all()
+    loans = scope_branch(db.query(Loan), Loan, user).order_by(Loan.applied_at.desc()).all()
+    customer_ids = {l.customer_id for l in loans}
+    customers = {c.id: c for c in db.query(Customer).filter(Customer.id.in_(customer_ids)).all()} if customer_ids else {}
+    result = []
+    for l in loans:
+        c = customers.get(l.customer_id)
+        result.append({
+            "id": l.id, "loan_number": l.loan_number, "principal_amount": float(l.principal_amount),
+            "status": l.status.value, "customer_id": l.customer_id,
+            "customer_name": c.full_name if c else "—", "applied_at": l.applied_at.isoformat(),
+        })
+    return result
 
 
 @router.get("/loans/{loan_id}/schedule")

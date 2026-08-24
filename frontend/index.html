@@ -816,19 +816,66 @@ async function createLoanProduct(){
 // ---------- Loans (shared: SuperAdmin approves/disburses, Employee applies) ----------
 async function renderLoans(){
   content().innerHTML = `<div class="empty">Loading…</div>`;
-  const loans = await api('/loans');
   const canManage = state.role === 'superadmin';
+  const canApply = state.role === 'employee' || state.role === 'superadmin';
+  const [loans, customers, products] = await Promise.all([
+    api('/loans'),
+    canApply ? api('/customers') : Promise.resolve([]),
+    canApply ? api('/loan-products') : Promise.resolve([]),
+  ]);
+
+  const applyPanel = canApply ? `
+    <div class="panel">
+      <h3>Apply for a new loan</h3>
+      ${!customers.length ? `<p class="empty" style="padding:12px 0">Onboard a customer first, from the Customers tab.</p>`
+        : !products.length ? `<p class="empty" style="padding:12px 0">No loan products available yet — ask your SuperAdmin to create one under Loan Products.</p>`
+        : `
+        <div class="form-grid">
+          <div class="field"><label>Customer</label><select id="la-customer">${customers.map(c=>`<option value="${c.id}">${esc(c.full_name)} (${esc(c.customer_code)})</option>`).join('')}</select></div>
+          <div class="field"><label>Loan product</label><select id="la-product" onchange="updateLoanAmountHint()">${products.map(p=>`<option value="${p.id}" data-min="${p.min_amount}" data-max="${p.max_amount}">${esc(p.name)} — ${p.interest_rate_annual}% p.a.</option>`).join('')}</select></div>
+          <div class="field"><label>Principal amount (₹)</label><input id="la-amount" type="number"><div id="la-hint" style="font-size:11px;color:#888;margin-top:4px"></div></div>
+        </div>
+        <div class="row-actions"><button class="btn amber" onclick="applyForLoan()">Submit application</button></div>
+        <div class="err" id="la-err"></div>
+        <div id="la-result"></div>
+      `}
+    </div>
+  ` : '';
+
   content().innerHTML = `
+    ${applyPanel}
     <div class="panel"><h3>All loans</h3>
-      <table><thead><tr><th>Loan #</th><th>Principal</th><th>Status</th>${canManage?'<th>Action</th>':''}</tr></thead>
-      <tbody>${loans.map(l=>`<tr><td>${esc(l.loan_number)}</td><td>₹${l.principal_amount.toLocaleString()}</td>
+      <table><thead><tr><th>Loan #</th><th>Customer</th><th>Principal</th><th>Status</th>${canManage?'<th>Action</th>':''}</tr></thead>
+      <tbody>${loans.map(l=>`<tr><td>${esc(l.loan_number)}</td><td>${esc(l.customer_name)}</td><td>₹${l.principal_amount.toLocaleString()}</td>
         <td><span class="badge ${l.status}">${l.status.replace('_',' ')}</span></td>
         ${canManage ? `<td>${l.status==='pending_approval'?`<button class="btn" style="padding:6px 10px;font-size:12px" onclick="approveLoan('${l.id}')">Approve</button>`
           : l.status==='approved'?`<button class="btn amber" style="padding:6px 10px;font-size:12px" onclick="disburseLoan('${l.id}')">Disburse</button>`:'—'}</td>`:''}
-        </tr>`).join('') || `<tr><td colspan="${canManage?4:3}" class="empty">No loans yet</td></tr>`}
+        </tr>`).join('') || `<tr><td colspan="${canManage?5:4}" class="empty">No loans yet</td></tr>`}
       </tbody></table>
     </div>
   `;
+  if(canApply && products.length) updateLoanAmountHint();
+}
+function updateLoanAmountHint(){
+  const sel = document.getElementById('la-product');
+  if(!sel) return;
+  const opt = sel.options[sel.selectedIndex];
+  document.getElementById('la-hint').textContent = `Allowed range: ₹${Number(opt.dataset.min).toLocaleString()} – ₹${Number(opt.dataset.max).toLocaleString()}`;
+}
+async function applyForLoan(){
+  const errEl = document.getElementById('la-err'); errEl.textContent = '';
+  const customerId = document.getElementById('la-customer').value;
+  const productId = document.getElementById('la-product').value;
+  const amount = Number(document.getElementById('la-amount').value);
+  if(!customerId || !productId || !amount){ errEl.textContent = 'Fill in every field.'; return; }
+  try{
+    const res = await api('/loans/apply', { method:'POST', json:{
+      branch_id: state.branch_id, customer_id: customerId, loan_product_id: productId, principal_amount: amount,
+    }});
+    document.getElementById('la-result').innerHTML = `<div class="success-box">Loan application submitted — ${esc(res.loan_number)}. Waiting on SuperAdmin approval.</div>`;
+    document.getElementById('la-amount').value = '';
+    renderLoans();
+  }catch(e){ errEl.textContent = e.message; }
 }
 async function approveLoan(id){ await api(`/loans/${id}/approve`, {method:'PATCH'}); renderLoans(); }
 async function disburseLoan(id){ await api(`/loans/${id}/disburse`, {method:'PATCH'}); renderLoans(); }
@@ -838,6 +885,10 @@ async function renderReports(){
   content().innerHTML = `<div class="empty">Loading…</div>`;
   const [summary, par] = await Promise.all([api('/reports/branch-summary'), api('/reports/portfolio-at-risk')]);
   content().innerHTML = `
+    <div class="row-actions" style="margin-bottom:16px">
+      <button class="btn amber" onclick="downloadReport()">⬇ Download report (PDF)</button>
+    </div>
+    <div class="err" id="report-download-err"></div>
     <div class="stat-grid">
       <div class="stat-card"><div class="label">Disbursed</div><div class="value">₹${summary.total_disbursed.toLocaleString()}</div></div>
       <div class="stat-card"><div class="label">Collected</div><div class="value">₹${summary.total_collected.toLocaleString()}</div></div>
@@ -848,6 +899,22 @@ async function renderReports(){
       <tbody><tr><td>₹${par['1-30'].toLocaleString()}</td><td>₹${par['31-60'].toLocaleString()}</td><td>₹${par['61-90'].toLocaleString()}</td><td>₹${par['90+'].toLocaleString()}</td></tr></tbody></table>
     </div>
   `;
+}
+async function downloadReport(){
+  const errEl = document.getElementById('report-download-err'); errEl.textContent = '';
+  try{
+    const res = await fetch(API + '/reports/download', { headers: { 'Authorization': `Bearer ${state.token}` } });
+    if(!res.ok){ const data = await res.json().catch(()=>({})); throw new Error(data.detail || 'Could not generate report.'); }
+    const blob = await res.blob();
+    const disposition = res.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="?([^"]+)"?/);
+    const filename = match ? match[1] : 'os-finances-report.pdf';
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    window.URL.revokeObjectURL(url);
+  }catch(e){ errEl.textContent = e.message; }
 }
 
 // ---------- Employee: Customers ----------
