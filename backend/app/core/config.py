@@ -17,4 +17,8 @@ class Settings:
 
     TIMEZONE: str = "Asia/Kolkata"
 
+    # One-time setup key for /auth/bootstrap-superemeadmin. Set this in Railway,
+    # use it once to create your first platform login, then remove the variable.
+    BOOTSTRAP_SECRET: str = os.getenv("BOOTSTRAP_SECRET", "")
+
 settings = Settings()
