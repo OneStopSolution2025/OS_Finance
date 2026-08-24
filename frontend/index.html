@@ -890,7 +890,7 @@ async function renderReports(){
   const [summary, par] = await Promise.all([api('/reports/branch-summary'), api('/reports/portfolio-at-risk')]);
   content().innerHTML = `
     <div class="row-actions" style="margin-bottom:16px">
-      <button class="btn amber" onclick="downloadReport()">⬇ Download report (PDF)</button>
+      <button class="btn amber" onclick="downloadReport()">⬇ Download summary report (PDF)</button>
     </div>
     <div class="err" id="report-download-err"></div>
     <div class="stat-grid">
@@ -902,7 +902,36 @@ async function renderReports(){
       <table><thead><tr><th>1–30 days</th><th>31–60 days</th><th>61–90 days</th><th>90+ days</th></tr></thead>
       <tbody><tr><td>₹${par['1-30'].toLocaleString()}</td><td>₹${par['31-60'].toLocaleString()}</td><td>₹${par['61-90'].toLocaleString()}</td><td>₹${par['90+'].toLocaleString()}</td></tr></tbody></table>
     </div>
+    <div class="panel">
+      <h3>Export collections breakdown</h3>
+      <div class="form-grid">
+        <div class="field"><label>Group by</label>
+          <select id="export-groupby">
+            <option value="day">Day-wise</option>
+            <option value="week">Week-wise</option>
+            <option value="month">Month-wise</option>
+            <option value="employee">Employee-wise</option>
+          </select>
+        </div>
+        <div class="field"><label>Format</label>
+          <select id="export-format">
+            <option value="xlsx">Excel (.xlsx)</option>
+            <option value="pdf">PDF</option>
+          </select>
+        </div>
+      </div>
+      <div class="row-actions"><button class="btn amber" onclick="downloadBreakdown()">⬇ Download breakdown</button></div>
+      <div class="err" id="breakdown-download-err"></div>
+    </div>
   `;
+}
+async function downloadBreakdown(){
+  const groupBy = document.getElementById('export-groupby').value;
+  const format = document.getElementById('export-format').value;
+  const errEl = document.getElementById('breakdown-download-err'); errEl.textContent = '';
+  try{
+    await downloadAuthenticatedFile(`/reports/export?group_by=${groupBy}&format=${format}`, `breakdown-${groupBy}.${format}`);
+  }catch(e){ errEl.textContent = e.message; }
 }
 // Shared authenticated-file-download helper — a plain <a href> can't carry the
 // Bearer token, so every protected file download (receipts, KYC docs, reports)

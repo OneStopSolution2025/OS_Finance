@@ -1,5 +1,5 @@
 from datetime import date, timedelta, datetime
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -8,7 +8,9 @@ from app.core.database import get_db
 from app.core.security import require_any, require_superemeadmin, require_superadmin
 from app.models.tenancy import User, UserRole, Tenant
 from app.models.finance import Loan, Payment, EMISchedule, LoanStatus, Customer
-from app.utils.report_pdf import generate_branch_report_pdf
+from app.utils.report_pdf import generate_branch_report_pdf, generate_breakdown_pdf
+from app.utils.report_breakdown import build_breakdown
+from app.utils.report_xlsx import generate_breakdown_xlsx
 
 router = APIRouter(prefix="/reports", tags=["accounts & reports"])
 
@@ -160,3 +162,37 @@ def download_report(db: Session = Depends(get_db), user: User = Depends(require_
         recent_payments=activity["recent_payments"],
     )
     return FileResponse(file_path, media_type="application/pdf", filename=f"{tenant_name.replace(' ', '_')}_report.pdf")
+
+
+@router.get("/export")
+def export_breakdown(
+    group_by: str,
+    format: str = "xlsx",
+    db: Session = Depends(get_db),
+    user: User = Depends(require_superadmin),
+):
+    """
+    SuperAdmin-only. group_by: day | week | month | employee. format: xlsx | pdf.
+    Exports collections grouped by the selected dimension.
+    """
+    if group_by not in ("day", "week", "month", "employee"):
+        raise HTTPException(status_code=400, detail="group_by must be one of: day, week, month, employee")
+    if format not in ("xlsx", "pdf"):
+        raise HTTPException(status_code=400, detail="format must be xlsx or pdf")
+
+    tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
+    tenant_name = tenant.name if tenant else "OS Finances"
+
+    rows = build_breakdown(db, user, group_by)
+
+    if format == "xlsx":
+        file_path = generate_breakdown_xlsx(tenant_name, group_by, rows)
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        ext = "xlsx"
+    else:
+        file_path = generate_breakdown_pdf(tenant_name, group_by, rows)
+        media_type = "application/pdf"
+        ext = "pdf"
+
+    filename = f"{tenant_name.replace(' ', '_')}_{group_by}_breakdown.{ext}"
+    return FileResponse(file_path, media_type=media_type, filename=filename)
