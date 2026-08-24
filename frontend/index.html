@@ -1,0 +1,1249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>OS Finances</title>
+<meta name="theme-color" content="#231F20">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="data:,">
+<script src="config.js"></script>
+<style>
+  :root{
+    --ink:#1B1613;
+    --amber:#FFB600;
+    --charcoal:#231F20;
+    --lime:#B5DE00;
+    --trust:#231F20;
+    --trust-dark:#141110;
+    --surface:#FFFFFF;
+    --bg:#F6F5F2;
+    --border:#E7E3DC;
+    --danger:#C0392B;
+    --radius:10px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--ink)}
+  h1,h2,h3{font-family:Georgia,'Times New Roman',serif;letter-spacing:-0.01em;margin:0}
+  .app{display:none;min-height:100vh}
+  .app.active{display:flex}
+  /* ---- Login ---- */
+  #login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(160deg,var(--charcoal) 0%,#100D0C 100%);padding:20px}
+  .login-card{background:var(--surface);border-radius:16px;padding:40px 36px;width:100%;max-width:380px;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+  .login-card .brand{display:flex;align-items:center;gap:10px;margin-bottom:28px}
+  .brand-mark{width:38px;height:38px;border-radius:8px;background:var(--amber);display:flex;align-items:center;justify-content:center;color:var(--ink);font-weight:700;font-family:Georgia,serif}
+  .brand-name{font-size:19px;font-weight:700}
+  .login-card label{display:block;font-size:13px;font-weight:600;margin:14px 0 6px;color:#555}
+  .login-card input{width:100%;padding:11px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px}
+  .login-card input:focus{outline:2px solid var(--amber);outline-offset:1px;border-color:var(--amber)}
+  .btn{background:var(--amber);color:var(--ink);border:none;padding:12px 18px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;transition:background .15s}
+  .btn:hover{background:#E6A500}
+  .btn.amber{background:var(--amber);color:var(--ink)}
+  .btn.amber:hover{background:#e6a500}
+  .btn.ghost{background:transparent;border:1px solid var(--border);color:var(--ink)}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn-block{width:100%;margin-top:22px;padding:13px}
+  .err{color:var(--danger);font-size:13px;margin-top:10px;min-height:16px}
+  /* ---- Shell ---- */
+  .sidebar{width:230px;background:var(--charcoal);color:#EFEAE0;flex-shrink:0;display:flex;flex-direction:column;padding:20px 14px}
+  .sidebar .brand{display:flex;align-items:center;gap:10px;padding:0 6px 20px;border-bottom:1px solid rgba(255,255,255,.1);margin-bottom:14px}
+  .sidebar .brand-name{color:#fff;font-size:16px}
+  .role-pill{font-size:10px;text-transform:uppercase;letter-spacing:.06em;background:var(--amber);color:var(--ink);padding:2px 8px;border-radius:20px;display:inline-block;margin-top:4px}
+  .nav-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;cursor:pointer;font-size:14px;color:#D8D3C8;margin-bottom:2px}
+  .nav-item:hover{background:rgba(255,255,255,.06)}
+  .nav-item.active{background:var(--amber);color:var(--ink)}
+  .sidebar-footer{margin-top:auto;padding-top:14px;border-top:1px solid rgba(255,255,255,.1)}
+  .main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .topbar{background:#fff;border-bottom:1px solid var(--border);padding:14px 24px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:5}
+  .topbar h2{font-size:20px}
+  .content{padding:24px;flex:1;overflow-y:auto}
+  .mobile-topbar{display:none}
+  /* ---- Cards / grids ---- */
+  .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:24px}
+  .stat-card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:18px}
+  .stat-card .label{font-size:12px;color:#777;text-transform:uppercase;letter-spacing:.04em}
+  .stat-card .value{font-size:26px;font-weight:700;margin-top:6px;color:var(--trust)}
+  .panel{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:20px}
+  .panel h3{font-size:16px;margin-bottom:14px}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th{text-align:left;padding:10px 8px;border-bottom:2px solid var(--border);color:#666;font-weight:600;font-size:12px;text-transform:uppercase}
+  td{padding:10px 8px;border-bottom:1px solid var(--border)}
+  tr:hover td{background:#FAFAF8}
+  .badge{padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600;text-transform:capitalize}
+  .badge.active,.badge.approved,.badge.disbursed,.badge.present{background:#EEF5C4;color:#5A6B00}
+  .badge.pending_approval,.badge.trial{background:#FFF3D6;color:#8A6200}
+  .badge.suspended,.badge.rejected,.badge.overdue{background:#FBE4E1;color:var(--danger)}
+  .badge.closed{background:#E7E3DC;color:#555}
+  .form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+  .field label{display:block;font-size:12px;font-weight:600;color:#555;margin-bottom:5px}
+  .field input,.field select{width:100%;padding:9px 10px;border:1px solid var(--border);border-radius:7px;font-size:13.5px}
+  .row-actions{display:flex;gap:8px;margin-top:16px}
+  .empty{color:#999;font-size:13.5px;padding:24px;text-align:center}
+  .hidden{display:none !important}
+  .menu-toggle{display:none;background:none;border:none;font-size:22px;cursor:pointer}
+  @media(max-width:860px){
+    .sidebar{position:fixed;left:-240px;top:0;bottom:0;z-index:20;transition:left .2s;box-shadow:2px 0 20px rgba(0,0,0,.2)}
+    .sidebar.open{left:0}
+    .menu-toggle{display:block}
+    .content{padding:16px}
+    .topbar{padding:12px 16px}
+    .login-card{padding:30px 24px}
+  }
+    label.pw-label{display:flex;justify-content:space-between;align-items:center}
+    .pw-wrap{position:relative}
+    .pw-wrap input{padding-right:40px}
+    .pw-toggle{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:16px;padding:2px;color:#888}
+    .link-btn{background:none;border:none;color:var(--trust);font-size:12.5px;cursor:pointer;padding:0;text-decoration:underline}
+    .forgot-link{text-align:right;margin-top:6px}
+    .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:50;align-items:center;justify-content:center;padding:20px}
+    .modal-overlay.show{display:flex}
+    .modal-card{background:#fff;border-radius:16px;padding:32px;width:100%;max-width:440px}
+    .modal-card h3{font-size:19px;margin-bottom:6px;font-family:Georgia,'Times New Roman',serif;letter-spacing:-0.01em}
+    .modal-card p.sub{font-size:12.5px;color:#666;margin:0 0 20px;line-height:1.55}
+    .modal-card label{display:block;font-size:12.5px;font-weight:600;margin:14px 0 6px;color:#555;text-transform:uppercase;letter-spacing:.03em}
+    .modal-card label:first-of-type{margin-top:0}
+    .modal-card input,.modal-card select{width:100%;padding:11px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;background:#fff;display:block;box-sizing:border-box}
+    .modal-card input:focus,.modal-card select:focus{outline:2px solid var(--amber);outline-offset:1px;border-color:var(--amber)}
+    .modal-card select{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="12" height="8"><path d="M1 1l5 5 5-5" stroke="%23888" stroke-width="1.5" fill="none"/></svg>');background-repeat:no-repeat;background-position:right 12px center;padding-right:34px}
+    .modal-card .row-actions{margin-top:22px}
+    .modal-card .pw-wrap input{padding-right:40px}
+    .success-box{background:#EEF5C4;border:1px solid #D9E89A;border-radius:8px;padding:12px;font-size:12.5px;color:#5A6B00;margin-top:12px;word-break:break-all}
+    /* ---- Smart Garage style dashboard cards ---- */
+    .trend-card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:20px}
+    .trend-bars{display:flex;align-items:flex-end;gap:8px;height:120px;margin-top:16px}
+    .trend-bar-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%}
+    .trend-bar{width:100%;background:var(--amber);border-radius:4px 4px 0 0;min-height:3px;transition:height .3s}
+    .trend-bar-label{font-size:10px;color:#888;margin-top:6px}
+    .trend-bar-value{font-size:10px;color:var(--trust);font-weight:700;margin-bottom:4px}
+    .activity-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    @media(max-width:760px){.activity-grid{grid-template-columns:1fr}}
+    .activity-item{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--border);font-size:13px}
+    .activity-item:last-child{border-bottom:none}
+    .activity-main{font-weight:600}
+    .activity-sub{color:#888;font-size:11.5px}
+  .overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:15}
+  .overlay.show{display:block}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="brand">
+      <div class="brand-mark">OS</div>
+      <div class="brand-name">OS Finances</div>
+    </div>
+    <label>Email</label>
+    <input id="login-email" type="email" placeholder="you@company.com" autocomplete="username">
+    <label class="pw-label">Password</label>
+    <div class="pw-wrap">
+      <input id="login-password" type="password" placeholder="••••••••" autocomplete="current-password">
+      <button type="button" class="pw-toggle" onclick="togglePw('login-password', this)">👁</button>
+    </div>
+    <div class="forgot-link"><button class="link-btn" onclick="openForgotModal()">Forgot password?</button></div>
+    <button class="btn btn-block" onclick="doLogin()">Sign in</button>
+    <div class="err" id="login-err"></div>
+    <div style="text-align:center;margin-top:16px;font-size:12.5px;color:#666;border-top:1px solid var(--border);padding-top:14px">
+      Running a microfinance business? <button class="link-btn" onclick="openSignupModal()">Sign up</button>
+      &nbsp;·&nbsp; <button class="link-btn" onclick="openTrackingModal()">Check application status</button>
+    </div>
+  </div>
+</div>
+
+<!-- SIGN UP MODAL -->
+<div class="modal-overlay" id="signup-modal">
+  <div class="modal-card" style="max-width:440px;max-height:90vh;overflow-y:auto">
+    <h3>Apply for OS Finances</h3>
+    <p class="sub">Tell us about your organization. OS2 Studio reviews every application before access is granted — you'll get a tracking code to check your status.</p>
+    <div id="signup-form-fields">
+      <label>Organization name</label>
+      <input id="su-org" placeholder="Sunrise Microfinance">
+      <label>Organization URL slug</label>
+      <input id="su-slug" placeholder="sunrise-mf">
+      <label>Subscription plan</label>
+      <select id="su-plan"></select>
+      <label>Your full name</label>
+      <input id="su-admin-name" placeholder="Full name">
+      <label>Your email</label>
+      <input id="su-admin-email" type="email" placeholder="you@company.com">
+      <label class="pw-label">Choose a password</label>
+      <div class="pw-wrap">
+        <input id="su-admin-pass" type="password" placeholder="At least 8 characters">
+        <button type="button" class="pw-toggle" onclick="togglePw('su-admin-pass', this)">👁</button>
+      </div>
+      <div class="row-actions">
+        <button class="btn amber" onclick="submitSignup()">Submit application</button>
+        <button class="btn ghost" onclick="closeSignupModal()">Cancel</button>
+      </div>
+    </div>
+    <div class="hidden" id="signup-no-plans">
+      <p style="font-size:13.5px;color:#555;line-height:1.6">No subscription plans are available to apply for yet. Please check back shortly, or contact OS2 Studio directly.</p>
+      <div class="row-actions"><button class="btn ghost" onclick="closeSignupModal()">Close</button></div>
+    </div>
+    <div class="err" id="signup-err"></div>
+    <div id="signup-result"></div>
+  </div>
+</div>
+
+<!-- TRACKING STATUS MODAL -->
+<div class="modal-overlay" id="tracking-modal">
+  <div class="modal-card">
+    <h3>Check application status</h3>
+    <p class="sub">Enter the tracking code you received when you applied.</p>
+    <label>Tracking code</label>
+    <input id="track-code" placeholder="APP-XXXXXX">
+    <div class="row-actions">
+      <button class="btn amber" onclick="checkTrackingStatus()">Check status</button>
+      <button class="btn ghost" onclick="closeTrackingModal()">Close</button>
+    </div>
+    <div class="err" id="track-err"></div>
+    <div id="track-result"></div>
+  </div>
+</div>
+
+<!-- FORGOT PASSWORD MODAL -->
+<div class="modal-overlay" id="forgot-modal">
+  <div class="modal-card">
+    <div id="forgot-step-request">
+      <h3>Reset your password</h3>
+      <p class="sub">Enter the email on your OS Finances account.</p>
+      <label>Email</label>
+      <input id="forgot-email" type="email" placeholder="you@company.com">
+      <div class="row-actions">
+        <button class="btn amber" onclick="requestPasswordReset()">Send reset link</button>
+        <button class="btn ghost" onclick="closeForgotModal()">Cancel</button>
+      </div>
+      <div class="err" id="forgot-err"></div>
+      <div id="forgot-result"></div>
+    </div>
+    <div id="forgot-step-reset" class="hidden">
+      <h3>Set a new password</h3>
+      <p class="sub">Paste the reset code you were given, and choose a new password.</p>
+      <label>Reset code</label>
+      <input id="reset-token" type="text" placeholder="Reset code">
+      <label class="pw-label">New password</label>
+      <div class="pw-wrap">
+        <input id="reset-password" type="password" placeholder="At least 8 characters">
+        <button type="button" class="pw-toggle" onclick="togglePw('reset-password', this)">👁</button>
+      </div>
+      <div class="row-actions">
+        <button class="btn amber" onclick="submitPasswordReset()">Update password</button>
+        <button class="btn ghost" onclick="closeForgotModal()">Cancel</button>
+      </div>
+      <div class="err" id="reset-err"></div>
+      <div id="reset-result"></div>
+    </div>
+  </div>
+</div>
+
+<!-- APP SHELL -->
+<div class="app" id="app">
+  <div class="overlay" id="overlay" onclick="toggleSidebar(false)"></div>
+  <div class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="brand-mark">OS</div>
+      <div>
+        <div class="brand-name">OS Finances</div>
+        <div class="role-pill" id="role-pill">—</div>
+      </div>
+    </div>
+    <div id="nav-items"></div>
+    <div class="sidebar-footer">
+      <div style="font-size:13px;color:#D8D3C8;margin-bottom:8px" id="user-name">—</div>
+      <button class="btn ghost btn-block" style="color:#fff;border-color:rgba(255,255,255,.2)" onclick="logout()">Sign out</button>
+    </div>
+  </div>
+  <div class="main">
+    <div class="topbar">
+      <div style="display:flex;align-items:center;gap:10px">
+        <button class="menu-toggle" onclick="toggleSidebar(true)">☰</button>
+        <h2 id="page-title">Dashboard</h2>
+      </div>
+    </div>
+    <div class="content" id="content"></div>
+  </div>
+</div>
+
+<script>
+const API = window.OSF_API_BASE || localStorage.getItem('osf_api_base') || 'http://localhost:8000';
+let state = { token:null, role:null, name:null, tenant_id:null, branch_id:null, view:'dashboard' };
+
+// ---------- Public signup ----------
+async function openSignupModal(){
+  document.getElementById('signup-modal').classList.add('show');
+  document.getElementById('signup-err').textContent = '';
+  document.getElementById('signup-result').innerHTML = '';
+  document.getElementById('signup-form-fields').classList.remove('hidden');
+  document.getElementById('signup-no-plans').classList.add('hidden');
+  try{
+    const res = await fetch(API + '/tenants/plans/public');
+    const plans = await res.json();
+    if(!plans.length){
+      document.getElementById('signup-form-fields').classList.add('hidden');
+      document.getElementById('signup-no-plans').classList.remove('hidden');
+      return;
+    }
+    document.getElementById('su-plan').innerHTML = plans.map(p =>
+      `<option value="${p.id}">${esc(p.name)} — ₹${p.monthly_price_inr}/mo · up to ${p.max_branches} branches</option>`
+    ).join('');
+  }catch(e){
+    document.getElementById('signup-err').textContent = 'Could not load plans. Try again shortly.';
+  }
+}
+function closeSignupModal(){ document.getElementById('signup-modal').classList.remove('show'); }
+async function submitSignup(){
+  const errEl = document.getElementById('signup-err'); errEl.textContent = '';
+  const payload = {
+    org_name: document.getElementById('su-org').value,
+    slug: document.getElementById('su-slug').value,
+    plan_id: document.getElementById('su-plan').value,
+    admin_full_name: document.getElementById('su-admin-name').value,
+    admin_email: document.getElementById('su-admin-email').value,
+    admin_password: document.getElementById('su-admin-pass').value,
+  };
+  if(!payload.org_name || !payload.slug || !payload.plan_id || !payload.admin_full_name || !payload.admin_email || !payload.admin_password){
+    errEl.textContent = 'Please fill in every field.'; return;
+  }
+  try{
+    const res = await fetch(API + '/tenants/signup', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Something went wrong.');
+    document.getElementById('signup-form-fields').classList.add('hidden');
+    document.getElementById('signup-result').innerHTML = `<div class="success-box">
+      Application submitted! Your tracking code: <strong>${esc(data.tracking_code)}</strong><br>
+      Save this code — you'll need it to check your approval status. You'll be able to sign in once OS2 Studio approves your application.
+    </div>
+    <div class="row-actions"><button class="btn" onclick="closeSignupModal()">Done</button></div>`;
+  }catch(e){ errEl.textContent = e.message; }
+}
+
+// ---------- Track application status ----------
+function openTrackingModal(){
+  document.getElementById('tracking-modal').classList.add('show');
+  document.getElementById('track-err').textContent = '';
+  document.getElementById('track-result').innerHTML = '';
+}
+function closeTrackingModal(){ document.getElementById('tracking-modal').classList.remove('show'); }
+async function checkTrackingStatus(){
+  const code = document.getElementById('track-code').value.trim();
+  const errEl = document.getElementById('track-err'); errEl.textContent = '';
+  if(!code){ errEl.textContent = 'Enter your tracking code.'; return; }
+  try{
+    const res = await fetch(API + '/tenants/application-status/' + encodeURIComponent(code));
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Not found.');
+    const statusColor = {pending:'#8A6200', approved:'#5A6B00', rejected:'#C0392B'}[data.status] || '#333';
+    document.getElementById('track-result').innerHTML = `<div class="success-box" style="color:${statusColor};background:#F6F5F2;border-color:var(--border)">
+      <strong>${esc(data.org_name)}</strong><br>
+      Status: <strong style="text-transform:capitalize">${data.status}</strong><br>
+      Submitted: ${new Date(data.submitted_at).toLocaleDateString()}
+      ${data.rejection_reason ? `<br>Reason: ${esc(data.rejection_reason)}` : ''}
+    </div>`;
+  }catch(e){ errEl.textContent = e.message; }
+}
+
+// ---------- Show/hide password ----------
+function togglePw(id, btn){
+  const input = document.getElementById(id);
+  const showing = input.type === 'text';
+  input.type = showing ? 'password' : 'text';
+  btn.textContent = showing ? '👁' : '🙈';
+}
+
+// ---------- Forgot password ----------
+function openForgotModal(){
+  document.getElementById('forgot-modal').classList.add('show');
+  document.getElementById('forgot-step-request').classList.remove('hidden');
+  document.getElementById('forgot-step-reset').classList.add('hidden');
+  document.getElementById('forgot-err').textContent = '';
+  document.getElementById('forgot-result').innerHTML = '';
+}
+function closeForgotModal(){ document.getElementById('forgot-modal').classList.remove('show'); }
+async function requestPasswordReset(){
+  const email = document.getElementById('forgot-email').value.trim();
+  const errEl = document.getElementById('forgot-err'); errEl.textContent = '';
+  if(!email){ errEl.textContent = 'Enter your email.'; return; }
+  try{
+    const res = await fetch(API + '/auth/forgot-password', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({email}) });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Something went wrong.');
+    let html = `<p style="font-size:12.5px;color:#555;margin-top:10px">${data.message}</p>`;
+    if(data.dev_reset_token){
+      html += `<div class="success-box">Reset code (valid ${data.expires_in_minutes} min): <strong>${data.dev_reset_token}</strong><br><span style="font-weight:400">Email delivery isn't connected yet — for now, copy this code and use it below.</span></div>`;
+    }
+    document.getElementById('forgot-result').innerHTML = html;
+    document.getElementById('forgot-step-request').classList.add('hidden');
+    document.getElementById('forgot-step-reset').classList.remove('hidden');
+    if(data.dev_reset_token) document.getElementById('reset-token').value = data.dev_reset_token;
+  }catch(e){ errEl.textContent = e.message; }
+}
+async function submitPasswordReset(){
+  const token = document.getElementById('reset-token').value.trim();
+  const newPassword = document.getElementById('reset-password').value;
+  const errEl = document.getElementById('reset-err'); errEl.textContent = '';
+  if(!token || !newPassword){ errEl.textContent = 'Enter the reset code and a new password.'; return; }
+  try{
+    const res = await fetch(API + '/auth/reset-password', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({token, new_password:newPassword}) });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Something went wrong.');
+    document.getElementById('reset-result').innerHTML = `<div class="success-box">${data.message}</div>`;
+    setTimeout(closeForgotModal, 1800);
+  }catch(e){ errEl.textContent = e.message; }
+}
+
+// ---------- API helper ----------
+async function api(path, opts={}){
+  const headers = opts.headers || {};
+  if(state.token) headers['Authorization'] = 'Bearer ' + state.token;
+  if(opts.json){ headers['Content-Type']='application/json'; opts.body = JSON.stringify(opts.json); }
+  const res = await fetch(API + path, { ...opts, headers });
+  if(res.status === 401){ logout(); throw new Error('Session expired'); }
+  let data;
+  try{ data = await res.json(); }catch(e){ data = null; }
+  if(!res.ok) throw new Error((data && data.detail) || 'Request failed');
+  return data;
+}
+
+// ---------- Auth ----------
+async function doLogin(){
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errEl = document.getElementById('login-err');
+  errEl.textContent = '';
+  if(!email || !password){ errEl.textContent = 'Enter email and password.'; return; }
+  try{
+    const body = new URLSearchParams({ username: email, password });
+    const res = await fetch(API + '/auth/login', { method:'POST', body });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Login failed');
+    state.token = data.access_token;
+    state.role = data.role;
+    state.name = data.full_name;
+    state.tenant_id = data.tenant_id;
+    state.branch_id = data.branch_id;
+    sessionStorage.setItem('osf_session', JSON.stringify(state));
+    enterApp();
+  }catch(e){
+    errEl.textContent = e.message;
+  }
+}
+function logout(){
+  state = { token:null, role:null, name:null, tenant_id:null, branch_id:null, view:'dashboard' };
+  sessionStorage.removeItem('osf_session');
+  document.getElementById('app').classList.remove('active');
+  document.getElementById('login-screen').style.display = 'flex';
+}
+
+// ---------- Nav per role ----------
+const NAV = {
+  superemeadmin: [
+    {id:'dashboard', label:'📊 Overview'},
+    {id:'applications', label:'📥 Applications'},
+    {id:'tenants', label:'🏢 Tenants'},
+    {id:'plans', label:'💳 Subscription Plans'},
+  ],
+  superadmin: [
+    {id:'dashboard', label:'📊 Overview'},
+    {id:'branches', label:'🏬 Branches'},
+    {id:'employees', label:'👥 Employees'},
+    {id:'loan-products', label:'📄 Loan Products'},
+    {id:'loans', label:'💰 Loans'},
+    {id:'reports', label:'📈 Reports'},
+  ],
+  employee: [
+    {id:'dashboard', label:'📊 Overview'},
+    {id:'customers', label:'🧑‍🤝‍🧑 Customers'},
+    {id:'loans', label:'💰 Loans'},
+    {id:'collections', label:'💵 Collections'},
+    {id:'attendance', label:'🕒 Attendance'},
+  ],
+};
+
+function enterApp(){
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app').classList.add('active');
+  document.getElementById('role-pill').textContent = state.role.replace('superemeadmin','Supreme Admin').replace('superadmin','Super Admin').replace('employee','Employee');
+  document.getElementById('user-name').textContent = state.name || '';
+  renderNav();
+  navigate('dashboard');
+}
+function renderNav(){
+  const nav = NAV[state.role] || [];
+  document.getElementById('nav-items').innerHTML = nav.map(n =>
+    `<div class="nav-item ${state.view===n.id?'active':''}" onclick="navigate('${n.id}')">${n.label}</div>`
+  ).join('');
+}
+function toggleSidebar(open){
+  document.getElementById('sidebar').classList.toggle('open', open);
+  document.getElementById('overlay').classList.toggle('show', open);
+}
+function navigate(view){
+  state.view = view;
+  toggleSidebar(false);
+  renderNav();
+  const titles = {dashboard:'Overview', tenants:'Tenants', plans:'Subscription Plans', branches:'Branches',
+    employees:'Employees', 'loan-products':'Loan Products', loans:'Loans', reports:'Reports & Accounts',
+    customers:'Customers', collections:'Collections', attendance:'Attendance', applications:'Applications'};
+  document.getElementById('page-title').textContent = titles[view] || view;
+  const renderers = {
+    dashboard: renderDashboard, tenants: renderTenants, plans: renderPlans, branches: renderBranches,
+    employees: renderEmployees, 'loan-products': renderLoanProducts, loans: renderLoans,
+    reports: renderReports, customers: renderCustomers, collections: renderCollections, attendance: renderAttendance,
+    applications: renderApplications,
+  };
+  (renderers[view] || renderDashboard)();
+}
+
+const content = () => document.getElementById('content');
+function esc(s){ return (s===undefined||s===null) ? '' : String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// ---------- Dashboard (Smart Garage style: stats + growth trend + recent activity) ----------
+function renderTrendBars(trend, valueKey, labelPrefix){
+  const max = Math.max(1, ...trend.map(d => d[valueKey]));
+  return `<div class="trend-bars">${trend.map(d => {
+    const h = Math.max(3, Math.round((d[valueKey] / max) * 100));
+    const label = new Date(d.date).toLocaleDateString(undefined, {weekday:'short'});
+    return `<div class="trend-bar-col">
+      <div class="trend-bar-value">${labelPrefix}${d[valueKey].toLocaleString()}</div>
+      <div class="trend-bar" style="height:${h}px"></div>
+      <div class="trend-bar-label">${label}</div>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+async function renderDashboard(){
+  content().innerHTML = `<div class="empty">Loading…</div>`;
+  try{
+    if(state.role === 'superemeadmin'){
+      const [tenants, overview] = await Promise.all([api('/tenants/'), api('/reports/platform-overview')]);
+      const active = tenants.filter(t=>t.status==='active').length;
+      const trial = tenants.filter(t=>t.status==='trial').length;
+      content().innerHTML = `
+        <div class="stat-grid">
+          <div class="stat-card"><div class="label">Total Tenants</div><div class="value">${tenants.length}</div></div>
+          <div class="stat-card"><div class="label">Active Subscriptions</div><div class="value">${active}</div><div style="font-size:11.5px;color:#888;margin-top:4px">${trial} on trial</div></div>
+          <div class="stat-card"><div class="label">Platform Disbursed</div><div class="value">₹${overview.platform_total_disbursed.toLocaleString()}</div></div>
+          <div class="stat-card"><div class="label">Platform Collected</div><div class="value">₹${overview.platform_total_collected.toLocaleString()}</div></div>
+        </div>
+        <div class="trend-card">
+          <h3 style="font-size:15px">New tenants — last 7 days</h3>
+          ${renderTrendBars(overview.tenant_growth_trend, 'new_tenants', '')}
+        </div>
+        <div class="panel"><h3>Platform snapshot</h3><p style="color:#555;font-size:13.5px">You manage every microfinance operator's subscription from the Tenants tab. Suspend a tenant to instantly block Super Admin and Employee logins for that organization.</p></div>
+      `;
+    } else {
+      const [r, trend, activity] = await Promise.all([
+        api('/reports/branch-summary'), api('/reports/collections-trend'), api('/reports/recent-activity')
+      ]);
+      content().innerHTML = `
+        <div class="stat-grid">
+          <div class="stat-card"><div class="label">Total Disbursed</div><div class="value">₹${r.total_disbursed.toLocaleString()}</div></div>
+          <div class="stat-card"><div class="label">Total Collected</div><div class="value">₹${r.total_collected.toLocaleString()}</div><div style="font-size:11.5px;color:#888;margin-top:4px">${r.collection_efficiency_pct}% efficiency</div></div>
+          <div class="stat-card"><div class="label">Active Loans</div><div class="value">${r.active_loans}</div><div style="font-size:11.5px;color:#888;margin-top:4px">${r.closed_loans} closed</div></div>
+          <div class="stat-card"><div class="label">Overdue Installments</div><div class="value" style="color:${r.overdue_installments>0?'#C0392B':'var(--trust)'}">${r.overdue_installments}</div><div style="font-size:11.5px;color:#888;margin-top:4px">₹${r.overdue_amount.toLocaleString()} outstanding</div></div>
+        </div>
+        <div class="trend-card">
+          <h3 style="font-size:15px">Collections — last 7 days</h3>
+          ${renderTrendBars(trend, 'amount', '₹')}
+        </div>
+        <div class="panel">
+          <h3>Recent activity</h3>
+          <div class="activity-grid">
+            <div>
+              <div style="font-size:12px;font-weight:600;color:#888;margin-bottom:6px;text-transform:uppercase">Recent loans</div>
+              ${activity.recent_loans.map(l => `<div class="activity-item"><div><div class="activity-main">${esc(l.customer)}</div><div class="activity-sub">${esc(l.loan_number)}</div></div><div style="text-align:right"><div class="activity-main">₹${l.amount.toLocaleString()}</div><span class="badge ${l.status}">${l.status.replace('_',' ')}</span></div></div>`).join('') || '<div class="empty" style="padding:12px">No loans yet</div>'}
+            </div>
+            <div>
+              <div style="font-size:12px;font-weight:600;color:#888;margin-bottom:6px;text-transform:uppercase">Recent payments</div>
+              ${activity.recent_payments.map(p => `<div class="activity-item"><div><div class="activity-main">${esc(p.receipt_number)}</div><div class="activity-sub">${p.method}</div></div><div class="activity-main">₹${p.amount.toLocaleString()}</div></div>`).join('') || '<div class="empty" style="padding:12px">No payments yet</div>'}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+  }catch(e){ content().innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+}
+
+// ---------- SuperEmeAdmin: Applications (pending signups) ----------
+async function renderApplications(){
+  content().innerHTML = `<div class="empty">Loading…</div>`;
+  const apps = await api('/tenants/applications/pending');
+  content().innerHTML = `
+    <div class="panel">
+      <h3>Pending applications</h3>
+      <table><thead><tr><th>Organization</th><th>Applicant</th><th>Plan</th><th>Tracking Code</th><th>Submitted</th><th>Action</th></tr></thead>
+      <tbody>${apps.map(a=>`
+        <tr>
+          <td>${esc(a.org_name)}</td>
+          <td>${esc(a.admin_name)}<br><span style="color:#888;font-size:11.5px">${esc(a.admin_email)}</span></td>
+          <td>${esc(a.plan||'—')}</td>
+          <td><code>${esc(a.tracking_code)}</code></td>
+          <td>${new Date(a.submitted_at).toLocaleDateString()}</td>
+          <td style="white-space:nowrap">
+            <button class="btn amber" style="padding:6px 10px;font-size:12px" onclick="approveApplication('${a.id}')">Approve</button>
+            <button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="rejectApplication('${a.id}')">Reject</button>
+          </td>
+        </tr>`).join('') || '<tr><td colspan="6" class="empty">No pending applications</td></tr>'}
+      </tbody></table>
+    </div>
+  `;
+}
+async function approveApplication(id){
+  await api(`/tenants/${id}/approve-application`, {method:'PATCH'});
+  renderApplications();
+}
+async function rejectApplication(id){
+  const reason = prompt('Reason for rejecting this application (optional):') || '';
+  await api(`/tenants/${id}/reject-application`, { method:'PATCH', json:{ reason } });
+  renderApplications();
+}
+
+// ---------- SuperEmeAdmin: Tenants ----------
+async function renderTenants(){
+  content().innerHTML = `<div class="empty">Loading…</div>`;
+  const tenants = await api('/tenants/');
+  const plans = await api('/tenants/plans');
+  const planOpts = plans.map(p=>`<option value="${p.id}">${esc(p.name)} — ₹${p.monthly_price_inr}/mo</option>`).join('');
+  content().innerHTML = `
+    <div class="panel">
+      <h3>Onboard a new microfinance operator</h3>
+      <div class="form-grid">
+        <div class="field"><label>Organization name</label><input id="t-org"></div>
+        <div class="field"><label>Slug</label><input id="t-slug" placeholder="acme-mf"></div>
+        <div class="field"><label>Plan</label><select id="t-plan">${planOpts || '<option>Create a plan first</option>'}</select></div>
+        <div class="field"><label>SuperAdmin name</label><input id="t-admin-name"></div>
+        <div class="field"><label>SuperAdmin email</label><input id="t-admin-email" type="email"></div>
+        <div class="field" style="grid-column:1/-1">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="t-auto-pw" checked onchange="toggleManualPw('t')"> Auto-generate a secure password</label>
+        </div>
+        <div class="field hidden" id="t-manual-pw-field"><label class="pw-label">SuperAdmin password</label><div class="pw-wrap"><input id="t-admin-pass" type="password"><button type="button" class="pw-toggle" onclick="togglePw('t-admin-pass', this)">👁</button></div></div>
+      </div>
+      <div class="row-actions"><button class="btn amber" onclick="createTenant()">Create tenant</button></div>
+      <div class="err" id="t-err"></div>
+    </div>
+    <div class="panel">
+      <h3>All tenants</h3>
+      <table><thead><tr><th>Organization</th><th>Plan</th><th>Branches</th><th>Status</th><th>Action</th></tr></thead>
+      <tbody>${tenants.map(t=>`
+        <tr><td>${esc(t.name)}</td><td>${esc(t.plan||'—')}</td><td>${t.branch_count}</td>
+        <td><span class="badge ${t.status}">${t.status.replace('_',' ')}</span></td>
+        <td>${t.is_suspended
+          ? `<button class="btn" style="padding:6px 12px;font-size:12px" onclick="reactivateTenant('${t.id}')">Reactivate</button>`
+          : `<button class="btn ghost" style="padding:6px 12px;font-size:12px" onclick="suspendTenant('${t.id}')">Suspend</button>`}
+        </td></tr>`).join('') || '<tr><td colspan="5" class="empty">No tenants yet</td></tr>'}
+      </tbody></table>
+    </div>
+  `;
+}
+function toggleManualPw(prefix){
+  const auto = document.getElementById(`${prefix}-auto-pw`).checked;
+  document.getElementById(`${prefix}-manual-pw-field`).classList.toggle('hidden', auto);
+}
+function credentialsBox(email, password){
+  return `<div class="success-box">
+    <strong>Login created — copy these now, they won't be shown again:</strong><br>
+    Email: <strong>${esc(email)}</strong><br>
+    Password: <strong>${esc(password)}</strong>
+    <div style="margin-top:8px"><button class="btn ghost" style="padding:6px 12px;font-size:12px" onclick="navigator.clipboard.writeText('Email: ${esc(email)}\\nPassword: ${esc(password)}')">Copy to clipboard</button></div>
+  </div>`;
+}
+
+async function createTenant(){
+  const errEl = document.getElementById('t-err');
+  const autoPw = document.getElementById('t-auto-pw').checked;
+  try{
+    const res = await api('/tenants/', { method:'POST', json:{
+      org_name: document.getElementById('t-org').value,
+      slug: document.getElementById('t-slug').value,
+      plan_id: document.getElementById('t-plan').value,
+      admin_full_name: document.getElementById('t-admin-name').value,
+      admin_email: document.getElementById('t-admin-email').value,
+      admin_password: autoPw ? null : document.getElementById('t-admin-pass').value,
+    }});
+    if(res.password_was_generated){
+      document.getElementById('t-err').innerHTML = credentialsBox(res.admin_email, res.admin_password) +
+        `<div class="row-actions"><button class="btn" onclick="renderTenants()">Done — refresh list</button></div>`;
+    } else {
+      renderTenants();
+    }
+  }catch(e){ errEl.textContent = e.message; }
+}
+async function suspendTenant(id){ await api(`/tenants/${id}/suspend`, {method:'PATCH'}); renderTenants(); }
+async function reactivateTenant(id){ await api(`/tenants/${id}/reactivate`, {method:'PATCH'}); renderTenants(); }
+
+async function renderPlans(){
+  content().innerHTML = `<div class="empty">Loading…</div>`;
+  const plans = await api('/tenants/plans');
+  content().innerHTML = `
+    <div class="panel">
+      <h3>Create a plan</h3>
+      <div class="form-grid">
+        <div class="field"><label>Name</label><input id="p-name" placeholder="Growth"></div>
+        <div class="field"><label>Max branches</label><input id="p-branches" type="number" value="3"></div>
+        <div class="field"><label>Max employees</label><input id="p-emp" type="number" value="25"></div>
+        <div class="field"><label>Monthly price (₹)</label><input id="p-price" type="number" value="4999"></div>
+      </div>
+      <div class="row-actions"><button class="btn amber" onclick="createPlan()">Create plan</button></div>
+    </div>
+    <div class="panel"><h3>Existing plans</h3>
+      <table><thead><tr><th>Name</th><th>Max branches</th><th>Max employees</th><th>Price / mo</th></tr></thead>
+      <tbody>${plans.map(p=>`<tr><td>${esc(p.name)}</td><td>${p.max_branches}</td><td>${p.max_employees}</td><td>₹${p.monthly_price_inr}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">No plans yet</td></tr>'}</tbody></table>
+    </div>
+  `;
+}
+async function createPlan(){
+  await api('/tenants/plans', { method:'POST', json:{
+    name: document.getElementById('p-name').value,
+    max_branches: Number(document.getElementById('p-branches').value),
+    max_employees: Number(document.getElementById('p-emp').value),
+    monthly_price_inr: Number(document.getElementById('p-price').value),
+  }});
+  renderPlans();
+}
+
+// ---------- SuperAdmin: Branches / Employees ----------
+async function renderBranches(){
+  content().innerHTML = `<div class="empty">Loading…</div>`;
+  const branches = await api('/branches/');
+  content().innerHTML = `
+    <div class="panel"><h3>Add a branch</h3>
+      <div class="form-grid">
+        <div class="field"><label>Name</label><input id="b-name"></div>
+        <div class="field"><label>Code</label><input id="b-code" placeholder="DGL"></div>
+        <div class="field"><label>City</label><input id="b-city"></div>
+        <div class="field"><label>State</label><input id="b-state"></div>
+      </div>
+      <div class="row-actions"><button class="btn amber" onclick="createBranch()">Create branch</button></div>
+      <div class="err" id="b-err"></div>
+    </div>
+    <div class="panel"><h3>All branches</h3>
+      <table><thead><tr><th>Name</th><th>Code</th><th>City</th><th>State</th></tr></thead>
+      <tbody>${branches.map(b=>`<tr><td>${esc(b.name)}</td><td>${esc(b.code)}</td><td>${esc(b.city||'—')}</td><td>${esc(b.state||'—')}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">No branches yet</td></tr>'}</tbody></table>
+    </div>
+  `;
+}
+async function createBranch(){
+  const errEl = document.getElementById('b-err');
+  try{
+    await api('/branches/', { method:'POST', json:{
+      name: document.getElementById('b-name').value, code: document.getElementById('b-code').value,
+      city: document.getElementById('b-city').value, state: document.getElementById('b-state').value,
+    }});
+    renderBranches();
+  }catch(e){ errEl.textContent = e.message; }
+}
+async function renderEmployees(){
+  content().innerHTML = `<div class="empty">Loading…</div>`;
+  const [employees, branches] = await Promise.all([api('/branches/employees'), api('/branches/')]);
+  const branchOpts = branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('');
+  content().innerHTML = `
+    <div class="panel"><h3>Add an employee</h3>
+      <div class="form-grid">
+        <div class="field"><label>Branch</label><select id="e-branch">${branchOpts || '<option>Create a branch first</option>'}</select></div>
+        <div class="field"><label>Full name</label><input id="e-name"></div>
+        <div class="field"><label>Email</label><input id="e-email" type="email"></div>
+        <div class="field"><label>Designation</label><input id="e-desig" placeholder="Loan Officer"></div>
+        <div class="field" style="grid-column:1/-1">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="e-auto-pw" checked onchange="toggleManualPw('e')"> Auto-generate a secure password</label>
+        </div>
+        <div class="field hidden" id="e-manual-pw-field"><label class="pw-label">Password</label><div class="pw-wrap"><input id="e-pass" type="password"><button type="button" class="pw-toggle" onclick="togglePw('e-pass', this)">👁</button></div></div>
+      </div>
+      <div class="row-actions"><button class="btn amber" onclick="createEmployee()">Create employee</button></div>
+      <div class="err" id="e-err"></div>
+    </div>
+    <div class="panel"><h3>All employees</h3>
+      <table><thead><tr><th>Name</th><th>Email</th><th>Designation</th></tr></thead>
+      <tbody>${employees.map(e=>`<tr><td>${esc(e.full_name)}</td><td>${esc(e.email)}</td><td>${esc(e.designation||'—')}</td></tr>`).join('') || '<tr><td colspan="3" class="empty">No employees yet</td></tr>'}</tbody></table>
+    </div>
+  `;
+}
+async function createEmployee(){
+  const errEl = document.getElementById('e-err');
+  const autoPw = document.getElementById('e-auto-pw').checked;
+  try{
+    const res = await api('/branches/employees', { method:'POST', json:{
+      branch_id: document.getElementById('e-branch').value, full_name: document.getElementById('e-name').value,
+      email: document.getElementById('e-email').value, password: autoPw ? null : document.getElementById('e-pass').value,
+      designation: document.getElementById('e-desig').value,
+    }});
+    if(res.password_was_generated){
+      document.getElementById('e-err').innerHTML = credentialsBox(res.email, res.password) +
+        `<div class="row-actions"><button class="btn" onclick="renderEmployees()">Done — refresh list</button></div>`;
+    } else {
+      renderEmployees();
+    }
+  }catch(e){ errEl.textContent = e.message; }
+}
+
+// ---------- Loan Products ----------
+async function renderLoanProducts(){
+  content().innerHTML = `<div class="empty">Loading…</div>`;
+  const products = await api('/loan-products');
+  content().innerHTML = `
+    <div class="panel"><h3>Create a loan product</h3>
+      <div class="form-grid">
+        <div class="field"><label>Name</label><input id="lp-name" placeholder="Weekly Group Loan"></div>
+        <div class="field"><label>Interest type</label><select id="lp-type"><option value="flat">Flat</option><option value="reducing">Reducing balance</option></select></div>
+        <div class="field"><label>Annual interest %</label><input id="lp-rate" type="number" value="24"></div>
+        <div class="field"><label>Min amount (₹)</label><input id="lp-min" type="number" value="5000"></div>
+        <div class="field"><label>Max amount (₹)</label><input id="lp-max" type="number" value="50000"></div>
+        <div class="field"><label>Tenure (months)</label><input id="lp-tenure" type="number" value="6"></div>
+        <div class="field"><label>Repayment frequency</label><select id="lp-freq"><option value="weekly">Weekly</option><option value="biweekly">Biweekly</option><option value="monthly">Monthly</option></select></div>
+      </div>
+      <div class="row-actions"><button class="btn amber" onclick="createLoanProduct()">Create product</button></div>
+    </div>
+    <div class="panel"><h3>Active products</h3>
+      <table><thead><tr><th>Name</th><th>Type</th><th>Rate</th><th>Range</th><th>Tenure</th></tr></thead>
+      <tbody>${products.map(p=>`<tr><td>${esc(p.name)}</td><td>${esc(p.interest_type)}</td><td>${p.interest_rate_annual}%</td><td>₹${p.min_amount}–₹${p.max_amount}</td><td>${p.tenure_months} mo</td></tr>`).join('') || '<tr><td colspan="5" class="empty">No loan products yet</td></tr>'}</tbody></table>
+    </div>
+  `;
+}
+async function createLoanProduct(){
+  await api('/loan-products', { method:'POST', json:{
+    name: document.getElementById('lp-name').value, interest_type: document.getElementById('lp-type').value,
+    interest_rate_annual: Number(document.getElementById('lp-rate').value), min_amount: Number(document.getElementById('lp-min').value),
+    max_amount: Number(document.getElementById('lp-max').value), tenure_months: Number(document.getElementById('lp-tenure').value),
+    repayment_frequency: document.getElementById('lp-freq').value,
+  }});
+  renderLoanProducts();
+}
+
+// ---------- Loans (shared: SuperAdmin approves/disburses, Employee applies) ----------
+async function renderLoans(){
+  content().innerHTML = `<div class="empty">Loading…</div>`;
+  const canManage = state.role === 'superadmin';
+  const canApply = state.role === 'employee' || state.role === 'superadmin';
+  const [loans, customers, products] = await Promise.all([
+    api('/loans'),
+    canApply ? api('/customers') : Promise.resolve([]),
+    canApply ? api('/loan-products') : Promise.resolve([]),
+  ]);
+
+  const applyPanel = canApply ? `
+    <div class="panel">
+      <h3>Apply for a new loan</h3>
+      ${!customers.length ? `<p class="empty" style="padding:12px 0">Onboard a customer first, from the Customers tab.</p>`
+        : !products.length ? `<p class="empty" style="padding:12px 0">No loan products available yet — ask your SuperAdmin to create one under Loan Products.</p>`
+        : `
+        <div class="form-grid">
+          <div class="field"><label>Customer</label><select id="la-customer">${customers.map(c=>`<option value="${c.id}">${esc(c.full_name)} (${esc(c.customer_code)})</option>`).join('')}</select></div>
+          <div class="field"><label>Loan product</label><select id="la-product" onchange="updateLoanAmountHint()">${products.map(p=>`<option value="${p.id}" data-min="${p.min_amount}" data-max="${p.max_amount}">${esc(p.name)} — ${p.interest_rate_annual}% p.a.</option>`).join('')}</select></div>
+          <div class="field"><label>Principal amount (₹)</label><input id="la-amount" type="number"><div id="la-hint" style="font-size:11px;color:#888;margin-top:4px"></div></div>
+        </div>
+        <div class="row-actions"><button class="btn amber" onclick="applyForLoan()">Submit application</button></div>
+        <div class="err" id="la-err"></div>
+        <div id="la-result"></div>
+      `}
+    </div>
+  ` : '';
+
+  content().innerHTML = `
+    ${applyPanel}
+    <div class="panel"><h3>All loans</h3>
+      <table><thead><tr><th>Loan #</th><th>Customer</th><th>Principal</th><th>Status</th>${canManage?'<th>Documents</th><th>Action</th>':''}</tr></thead>
+      <tbody>${loans.map(l=>`<tr><td>${esc(l.loan_number)}</td><td>${esc(l.customer_name)}</td><td>₹${l.principal_amount.toLocaleString()}</td>
+        <td><span class="badge ${l.status}">${l.status.replace('_',' ')}</span></td>
+        ${canManage ? `<td><button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="viewCustomerDocs('${l.customer_id}','${esc(l.customer_name)}')">Review KYC</button></td>
+        <td>${l.status==='pending_approval'?`<button class="btn" style="padding:6px 10px;font-size:12px" onclick="approveLoan('${l.id}')">Approve</button>`
+          : l.status==='approved'?`<button class="btn amber" style="padding:6px 10px;font-size:12px" onclick="disburseLoan('${l.id}')">Disburse</button>`:'—'}</td>`:''}
+        </tr>`).join('') || `<tr><td colspan="${canManage?6:4}" class="empty">No loans yet</td></tr>`}
+      </tbody></table>
+    </div>
+    <div class="modal-overlay" id="docs-modal">
+      <div class="modal-card" style="max-width:480px;max-height:85vh;overflow-y:auto">
+        <h3 id="docs-modal-title">Documents</h3>
+        <div id="docs-modal-body"></div>
+        <div class="row-actions"><button class="btn ghost" onclick="document.getElementById('docs-modal').classList.remove('show')">Close</button></div>
+      </div>
+    </div>
+  `;
+  if(canApply && products.length) updateLoanAmountHint();
+}
+function updateLoanAmountHint(){
+  const sel = document.getElementById('la-product');
+  if(!sel) return;
+  const opt = sel.options[sel.selectedIndex];
+  document.getElementById('la-hint').textContent = `Allowed range: ₹${Number(opt.dataset.min).toLocaleString()} – ₹${Number(opt.dataset.max).toLocaleString()}`;
+}
+async function applyForLoan(){
+  const errEl = document.getElementById('la-err'); errEl.textContent = '';
+  const customerId = document.getElementById('la-customer').value;
+  const productId = document.getElementById('la-product').value;
+  const amount = Number(document.getElementById('la-amount').value);
+  if(!customerId || !productId || !amount){ errEl.textContent = 'Fill in every field.'; return; }
+  try{
+    const res = await api('/loans/apply', { method:'POST', json:{
+      branch_id: state.branch_id, customer_id: customerId, loan_product_id: productId, principal_amount: amount,
+    }});
+    document.getElementById('la-result').innerHTML = `<div class="success-box">Loan application submitted — ${esc(res.loan_number)}. Waiting on SuperAdmin approval.</div>`;
+    document.getElementById('la-amount').value = '';
+    renderLoans();
+  }catch(e){ errEl.textContent = e.message; }
+}
+async function approveLoan(id){ await api(`/loans/${id}/approve`, {method:'PATCH'}); renderLoans(); }
+async function disburseLoan(id){ await api(`/loans/${id}/disburse`, {method:'PATCH'}); renderLoans(); }
+
+// ---------- Reports ----------
+async function renderReports(){
+  content().innerHTML = `<div class="empty">Loading…</div>`;
+  const [summary, par] = await Promise.all([api('/reports/branch-summary'), api('/reports/portfolio-at-risk')]);
+  content().innerHTML = `
+    <div class="row-actions" style="margin-bottom:16px">
+      <button class="btn amber" onclick="downloadReport()">⬇ Download report (PDF)</button>
+    </div>
+    <div class="err" id="report-download-err"></div>
+    <div class="stat-grid">
+      <div class="stat-card"><div class="label">Disbursed</div><div class="value">₹${summary.total_disbursed.toLocaleString()}</div></div>
+      <div class="stat-card"><div class="label">Collected</div><div class="value">₹${summary.total_collected.toLocaleString()}</div></div>
+      <div class="stat-card"><div class="label">Collection efficiency</div><div class="value">${summary.collection_efficiency_pct}%</div></div>
+    </div>
+    <div class="panel"><h3>Portfolio at risk (overdue amount by days-past-due)</h3>
+      <table><thead><tr><th>1–30 days</th><th>31–60 days</th><th>61–90 days</th><th>90+ days</th></tr></thead>
+      <tbody><tr><td>₹${par['1-30'].toLocaleString()}</td><td>₹${par['31-60'].toLocaleString()}</td><td>₹${par['61-90'].toLocaleString()}</td><td>₹${par['90+'].toLocaleString()}</td></tr></tbody></table>
+    </div>
+  `;
+}
+async function downloadReport(){
+  const errEl = document.getElementById('report-download-err'); errEl.textContent = '';
+  try{
+    const res = await fetch(API + '/reports/download', { headers: { 'Authorization': `Bearer ${state.token}` } });
+    if(!res.ok){ const data = await res.json().catch(()=>({})); throw new Error(data.detail || 'Could not generate report.'); }
+    const blob = await res.blob();
+    const disposition = res.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="?([^"]+)"?/);
+    const filename = match ? match[1] : 'os-finances-report.pdf';
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    window.URL.revokeObjectURL(url);
+  }catch(e){ errEl.textContent = e.message; }
+}
+
+// ---------- Employee: Customers ----------
+const KYC_DOC_TYPES = [
+  {key:'aadhaar', label:'Aadhaar'},
+  {key:'pan', label:'PAN Card'},
+  {key:'voter_id', label:'Voter ID'},
+  {key:'photo', label:'Photo'},
+  {key:'signed_application', label:'Signed Application (scanned)'},
+];
+
+async function renderCustomers(){
+  content().innerHTML = `<div class="empty">Loading…</div>`;
+  const customers = await api('/customers');
+  content().innerHTML = `
+    <div class="panel"><h3>Onboard a customer</h3>
+      <div class="form-grid">
+        <div class="field"><label>Full name</label><input id="c-name"></div>
+        <div class="field"><label>Phone</label>
+          <div style="display:flex;gap:8px">
+            <input id="c-phone" style="flex:1">
+            <button class="btn ghost" style="padding:9px 12px;font-size:12px;white-space:nowrap" onclick="sendCustomerOtp()">Send OTP</button>
+          </div>
+          <div id="c-otp-row" class="hidden" style="margin-top:8px;display:flex;gap:8px">
+            <input id="c-otp" placeholder="Enter OTP" style="flex:1">
+            <button class="btn amber" style="padding:9px 12px;font-size:12px;white-space:nowrap" onclick="verifyCustomerOtp()">Verify</button>
+          </div>
+          <div id="c-otp-status" style="font-size:11px;margin-top:4px"></div>
+        </div>
+        <div class="field"><label>Address</label><input id="c-address"></div>
+        <div class="field">
+          <label>Aadhaar Number</label>
+          <input id="c-aadhaar" placeholder="12 digits" maxlength="12" oninput="liveValidateAadhaar()">
+          <div id="c-aadhaar-status" style="font-size:11px;margin-top:4px"></div>
+        </div>
+        <div class="field">
+          <label>PAN Number</label>
+          <input id="c-pan" placeholder="AAAAA9999A" maxlength="10" style="text-transform:uppercase" oninput="liveValidatePan()">
+          <div id="c-pan-status" style="font-size:11px;margin-top:4px"></div>
+        </div>
+      </div>
+      <div class="row-actions"><button class="btn amber" onclick="createCustomer()">Add customer</button></div>
+      <div class="err" id="c-err"></div>
+      <div id="c-kyc-upload"></div>
+    </div>
+    <div class="panel"><h3>Customers</h3>
+      <table><thead><tr><th>Code</th><th>Name</th><th>Phone</th><th>Phone Verified</th><th>KYC</th><th>Documents</th><th>Credit Check</th></tr></thead>
+      <tbody id="customers-tbody">${customers.map(c=>`<tr><td>${esc(c.customer_code)}</td><td>${esc(c.full_name)}</td><td>${esc(c.phone)}</td><td>${c.phone_verified?'✅':'—'}</td><td>${c.kyc_verified?'✅':'Pending'}</td>
+        <td><button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="viewCustomerDocs('${c.id}','${esc(c.full_name)}')">View / Upload</button></td>
+        <td><button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="checkCreditScore('${c.id}','${esc(c.full_name)}')">Check</button></td></tr>`).join('') || '<tr><td colspan="7" class="empty">No customers yet</td></tr>'}</tbody></table>
+    </div>
+    <div class="modal-overlay" id="docs-modal">
+      <div class="modal-card" style="max-width:480px;max-height:85vh;overflow-y:auto">
+        <h3 id="docs-modal-title">Documents</h3>
+        <div id="docs-modal-body"></div>
+        <div class="row-actions"><button class="btn ghost" onclick="document.getElementById('docs-modal').classList.remove('show')">Close</button></div>
+      </div>
+    </div>
+    <div class="modal-overlay" id="credit-modal">
+      <div class="modal-card" style="max-width:420px">
+        <h3 id="credit-modal-title">Credit Check</h3>
+        <div id="credit-modal-body"></div>
+        <div class="row-actions"><button class="btn ghost" onclick="document.getElementById('credit-modal').classList.remove('show')">Close</button></div>
+      </div>
+    </div>
+  `;
+}
+function liveValidateAadhaar(){
+  const val = document.getElementById('c-aadhaar').value.replace(/\D/g,'');
+  document.getElementById('c-aadhaar').value = val;
+  const statusEl = document.getElementById('c-aadhaar-status');
+  if(!val){ statusEl.textContent = ''; return; }
+  if(val.length < 12){ statusEl.textContent = `${val.length}/12 digits`; statusEl.style.color = '#888'; return; }
+  statusEl.textContent = 'Will be validated on submit'; statusEl.style.color = '#888';
+}
+function liveValidatePan(){
+  const val = document.getElementById('c-pan').value.toUpperCase();
+  document.getElementById('c-pan').value = val;
+  const statusEl = document.getElementById('c-pan-status');
+  if(!val){ statusEl.textContent = ''; return; }
+  const pattern = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
+  if(val.length < 10){ statusEl.textContent = `${val.length}/10 characters`; statusEl.style.color = '#888'; return; }
+  statusEl.textContent = pattern.test(val) ? '✓ Valid format' : 'Invalid format — expected AAAAA9999A';
+  statusEl.style.color = pattern.test(val) ? '#5A6B00' : '#C0392B';
+}
+async function checkCreditScore(customerId, customerName){
+  document.getElementById('credit-modal-title').textContent = `Credit Check — ${customerName}`;
+  document.getElementById('credit-modal-body').innerHTML = '<div class="empty">Checking…</div>';
+  document.getElementById('credit-modal').classList.add('show');
+  try{
+    const res = await api(`/customers/${customerId}/credit-check`);
+    if(!res.configured){
+      document.getElementById('credit-modal-body').innerHTML = `
+        <p style="font-size:13.5px;color:#555;line-height:1.6">${esc(res.message)}</p>
+        <p style="font-size:12px;color:#888;margin-top:10px">This requires signing up with a licensed credit bureau or KYC aggregator (CIBIL, Karza, Signzy, Digio) — contact OS2 Studio once you have an account to enable live checks.</p>
+      `;
+    } else {
+      document.getElementById('credit-modal-body').innerHTML = `
+        <div class="stat-card"><div class="label">Credit Score</div><div class="value">${res.score}</div></div>
+        <p style="font-size:12px;color:#888;margin-top:10px">Source: ${esc(res.bureau)} · Pulled: ${new Date(res.pulled_at).toLocaleString()}</p>
+      `;
+    }
+  }catch(e){
+    document.getElementById('credit-modal-body').innerHTML = `<div class="err">${esc(e.message)}</div>`;
+  }
+}
+let customerOtpSessionId = null;
+let customerPhoneVerified = false;
+async function sendCustomerOtp(){
+  const phone = document.getElementById('c-phone').value.trim();
+  const statusEl = document.getElementById('c-otp-status');
+  if(!phone){ statusEl.textContent = 'Enter a phone number first.'; statusEl.style.color = '#C0392B'; return; }
+  customerPhoneVerified = false;
+  statusEl.textContent = 'Sending OTP…'; statusEl.style.color = '#888';
+  try{
+    const res = await api('/verification/send-otp', { method:'POST', json:{ phone } });
+    customerOtpSessionId = res.session_id;
+    document.getElementById('c-otp-row').classList.remove('hidden');
+    statusEl.textContent = 'OTP sent. Ask the customer for the code.'; statusEl.style.color = '#5A6B00';
+  }catch(e){ statusEl.textContent = e.message; statusEl.style.color = '#C0392B'; }
+}
+async function verifyCustomerOtp(){
+  const otp = document.getElementById('c-otp').value.trim();
+  const statusEl = document.getElementById('c-otp-status');
+  if(!customerOtpSessionId || !otp){ statusEl.textContent = 'Send an OTP first, then enter it.'; statusEl.style.color = '#C0392B'; return; }
+  try{
+    await api('/verification/verify-otp', { method:'POST', json:{ session_id: customerOtpSessionId, otp } });
+    customerPhoneVerified = true;
+    statusEl.textContent = '✓ Phone verified'; statusEl.style.color = '#5A6B00';
+    document.getElementById('c-otp-row').classList.add('hidden');
+  }catch(e){ statusEl.textContent = e.message; statusEl.style.color = '#C0392B'; }
+}
+async function createCustomer(){
+  const errEl = document.getElementById('c-err');
+  try{
+    const customer = await api('/customers', { method:'POST', json:{
+      branch_id: state.branch_id, full_name: document.getElementById('c-name').value,
+      phone: document.getElementById('c-phone').value, address: document.getElementById('c-address').value,
+      aadhaar_number: document.getElementById('c-aadhaar').value || null,
+      pan_number: document.getElementById('c-pan').value || null,
+      phone_verified: customerPhoneVerified,
+    }});
+    customerPhoneVerified = false; customerOtpSessionId = null;
+    document.getElementById('c-kyc-upload').innerHTML = `
+      <div class="success-box" style="background:#F6F5F2;border-color:var(--border);color:var(--ink)">
+        <strong>${esc(customer.full_name)} added.</strong> Upload their KYC documents now (optional, can also be done later from the Customers list):
+        <div class="form-grid" style="margin-top:10px">
+          ${KYC_DOC_TYPES.map(t => `
+            <div class="field">
+              <label>${t.label}</label>
+              <input type="file" id="kyc-${t.key}-${customer.id}" accept="image/*,.pdf">
+              <button class="btn ghost" style="padding:6px 10px;font-size:12px;margin-top:6px" onclick="uploadKycDoc('${customer.id}','${t.key}')">Upload</button>
+              <span id="kyc-${t.key}-${customer.id}-status" style="font-size:11px;margin-left:6px"></span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+    const fresh = await api('/customers');
+    document.getElementById('customers-tbody').innerHTML = fresh.map(c=>`<tr><td>${esc(c.customer_code)}</td><td>${esc(c.full_name)}</td><td>${esc(c.phone)}</td><td>${c.phone_verified?'✅':'—'}</td><td>${c.kyc_verified?'✅':'Pending'}</td>
+        <td><button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="viewCustomerDocs('${c.id}','${esc(c.full_name)}')">View / Upload</button></td>
+        <td><button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="checkCreditScore('${c.id}','${esc(c.full_name)}')">Check</button></td></tr>`).join('') || '<tr><td colspan="7" class="empty">No customers yet</td></tr>';
+  }catch(e){ errEl.textContent = e.message; }
+}
+async function uploadKycDoc(customerId, docType){
+  const fileInput = document.getElementById(`kyc-${docType}-${customerId}`);
+  const statusEl = document.getElementById(`kyc-${docType}-${customerId}-status`);
+  if(!fileInput.files.length){ statusEl.textContent = 'Choose a file first'; statusEl.style.color = '#C0392B'; return; }
+  statusEl.textContent = 'Uploading…'; statusEl.style.color = '#888';
+  const formData = new FormData();
+  formData.append('doc_type', docType);
+  formData.append('customer_id', customerId);
+  formData.append('file', fileInput.files[0]);
+  try{
+    const res = await fetch(API + '/documents/upload', {
+      method: 'POST', headers: { 'Authorization': `Bearer ${state.token}` }, body: formData,
+    });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Upload failed');
+    statusEl.textContent = '✓ Uploaded'; statusEl.style.color = '#5A6B00';
+  }catch(e){ statusEl.textContent = e.message; statusEl.style.color = '#C0392B'; }
+}
+async function viewCustomerDocs(customerId, customerName){
+  document.getElementById('docs-modal-title').textContent = `Documents — ${customerName}`;
+  document.getElementById('docs-modal-body').innerHTML = '<div class="empty">Loading…</div>';
+  document.getElementById('docs-modal').classList.add('show');
+  try{
+    const docs = await api(`/customers/${customerId}/documents`);
+    const uploadedTypes = new Set(docs.map(d => d.doc_type));
+    document.getElementById('docs-modal-body').innerHTML = `
+      ${docs.length ? `<div style="margin-bottom:16px">${docs.map(d => `
+        <div class="activity-item">
+          <div><div class="activity-main">${KYC_DOC_TYPES.find(t=>t.key===d.doc_type)?.label || d.doc_type}</div><div class="activity-sub">${esc(d.file_name)}</div></div>
+          <a href="${API}/documents/${d.id}/download" target="_blank" style="font-size:12px">Download</a>
+        </div>`).join('')}</div>` : '<p class="empty" style="padding:12px 0">No documents uploaded yet.</p>'}
+      <div style="border-top:1px solid var(--border);padding-top:14px">
+        <p style="font-size:12px;color:#888;margin:0 0 10px">Upload missing documents:</p>
+        ${KYC_DOC_TYPES.filter(t => !uploadedTypes.has(t.key)).map(t => `
+          <div class="field" style="margin-bottom:10px">
+            <label>${t.label}</label>
+            <input type="file" id="kyc2-${t.key}-${customerId}" accept="image/*,.pdf">
+            <button class="btn ghost" style="padding:6px 10px;font-size:12px;margin-top:6px" onclick="uploadKycDocModal('${customerId}','${t.key}','${customerName}')">Upload</button>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }catch(e){
+    document.getElementById('docs-modal-body').innerHTML = `<div class="err">${esc(e.message)}</div>`;
+  }
+}
+async function uploadKycDocModal(customerId, docType, customerName){
+  const fileInput = document.getElementById(`kyc2-${docType}-${customerId}`);
+  if(!fileInput.files.length) return;
+  const formData = new FormData();
+  formData.append('doc_type', docType);
+  formData.append('customer_id', customerId);
+  formData.append('file', fileInput.files[0]);
+  await fetch(API + '/documents/upload', { method:'POST', headers:{'Authorization':`Bearer ${state.token}`}, body: formData });
+  viewCustomerDocs(customerId, customerName);
+}
+
+// ---------- Employee: Collections ----------
+async function renderCollections(){
+  content().innerHTML = `<div class="empty">Loading…</div>`;
+  const loans = (await api('/loans')).filter(l=>l.status==='active');
+  const opts = loans.map(l=>`<option value="${l.id}">${esc(l.loan_number)} — ${esc(l.customer_name)}</option>`).join('');
+  content().innerHTML = `
+    <div class="panel"><h3>Record a collection</h3>
+      <div class="form-grid">
+        <div class="field"><label>Loan</label><select id="p-loan" onchange="loadSchedule()">${opts || '<option>No active loans</option>'}</select></div>
+        <div class="field"><label>Installment</label><select id="p-emi" onchange="updateCollectionAmount()"></select></div>
+        <div class="field"><label>Amount (₹)</label><input id="p-amount" type="number" readonly style="background:#F6F5F2;cursor:not-allowed"><div style="font-size:11px;color:#888;margin-top:4px">Auto-filled from the selected installment's remaining due — must match exactly, so it isn't editable.</div></div>
+      </div>
+      <div class="row-actions">
+        <button class="btn amber" onclick="collectCash()">Record cash payment</button>
+        <button class="btn" onclick="collectRazorpay()">Collect via Razorpay</button>
+      </div>
+      <div class="err" id="p-err"></div>
+      <div id="p-receipt"></div>
+    </div>
+  `;
+  if(loans.length) loadSchedule();
+}
+async function loadSchedule(){
+  const loanId = document.getElementById('p-loan').value;
+  if(!loanId) return;
+  const sched = await api(`/loans/${loanId}/schedule`);
+  document.getElementById('p-emi').innerHTML = sched.filter(s=>!s.is_paid).map(s=>
+    `<option value="${s.id}" data-due="${(s.total_due - (s.amount_paid||0)).toFixed(2)}">#${s.installment_no} — due ${s.due_date} — ₹${(s.total_due - (s.amount_paid||0)).toFixed(2)}</option>`
+  ).join('') || '<option value="">All installments paid</option>';
+  updateCollectionAmount();
+}
+function updateCollectionAmount(){
+  const sel = document.getElementById('p-emi');
+  const amountEl = document.getElementById('p-amount');
+  if(!sel || !sel.options.length || !sel.value){ if(amountEl) amountEl.value = ''; return; }
+  amountEl.value = sel.options[sel.selectedIndex].dataset.due || '';
+}
+async function collectCash(){
+  const errEl = document.getElementById('p-err'); errEl.textContent='';
+  try{
+    const res = await api('/payments/cash', { method:'POST', json:{
+      loan_id: document.getElementById('p-loan').value, emi_id: document.getElementById('p-emi').value,
+      amount: Number(document.getElementById('p-amount').value),
+    }});
+    document.getElementById('p-receipt').innerHTML = `<p style="margin-top:12px;font-size:13.5px">✅ Recorded — ${res.receipt_number}. <a href="${API}/payments/${res.payment_id}/receipt" target="_blank">Print / download receipt</a></p>`;
+  }catch(e){ errEl.textContent = e.message; }
+}
+async function collectRazorpay(){
+  const errEl = document.getElementById('p-err'); errEl.textContent='';
+  const loanId = document.getElementById('p-loan').value;
+  const emiId = document.getElementById('p-emi').value;
+  const amount = Number(document.getElementById('p-amount').value);
+  try{
+    const order = await api('/payments/razorpay/create-order', { method:'POST', json:{ loan_id: loanId, emi_id: emiId, amount }});
+    if(typeof Razorpay === 'undefined'){ errEl.textContent = 'Razorpay checkout script not loaded.'; return; }
+    const rzp = new Razorpay({
+      key: order.key_id, amount: order.amount, currency: order.currency, order_id: order.order_id,
+      name: 'OS Finances', description: 'Loan repayment',
+      handler: async function(response){
+        const res = await api('/payments/razorpay/verify', { method:'POST', json:{
+          razorpay_order_id: response.razorpay_order_id, razorpay_payment_id: response.razorpay_payment_id,
+          razorpay_signature: response.razorpay_signature, loan_id: loanId, emi_id: emiId, amount,
+        }});
+        document.getElementById('p-receipt').innerHTML = `<p style="margin-top:12px;font-size:13.5px">✅ Paid online — ${res.receipt_number}. <a href="${API}/payments/${res.payment_id}/receipt" target="_blank">Print / download receipt</a></p>`;
+      },
+    });
+    rzp.open();
+  }catch(e){ errEl.textContent = e.message; }
+}
+
+// ---------- Employee: Attendance ----------
+async function renderAttendance(){
+  content().innerHTML = `<div class="empty">Loading…</div>`;
+  const records = await api('/attendance');
+  content().innerHTML = `
+    <div class="panel"><h3>Today</h3>
+      <div class="row-actions">
+        <button class="btn amber" onclick="checkIn()">Check in</button>
+        <button class="btn ghost" onclick="checkOut()">Check out</button>
+      </div>
+      <div class="err" id="a-err"></div>
+    </div>
+    <div class="panel"><h3>My attendance history</h3>
+      <table><thead><tr><th>Date</th><th>Check in</th><th>Check out</th><th>Status</th></tr></thead>
+      <tbody>${records.map(r=>`<tr><td>${r.date}</td><td>${r.check_in?new Date(r.check_in).toLocaleTimeString():'—'}</td><td>${r.check_out?new Date(r.check_out).toLocaleTimeString():'—'}</td><td><span class="badge ${r.status}">${r.status}</span></td></tr>`).join('') || '<tr><td colspan="4" class="empty">No records yet</td></tr>'}</tbody></table>
+    </div>
+  `;
+}
+async function checkIn(){ try{ await api('/attendance/check-in', {method:'POST'}); renderAttendance(); }catch(e){ document.getElementById('a-err').textContent = e.message; } }
+async function checkOut(){ try{ await api('/attendance/check-out', {method:'POST'}); renderAttendance(); }catch(e){ document.getElementById('a-err').textContent = e.message; } }
+
+// ---------- PWA registration ----------
+if('serviceWorker' in navigator){
+  window.addEventListener('load', () => navigator.serviceWorker.register('service-worker.js').catch(()=>{}));
+}
+
+// Runs dead last, after every function/const above is defined — restoreSession
+// calls enterApp/navigate, which touch NAV, content(), and other consts
+// declared throughout this file, so this cannot run any earlier.
+(function restoreSession(){
+  const s = sessionStorage.getItem('osf_session');
+  if(s){ state = JSON.parse(s); enterApp(); }
+})();
+</script>
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+</body>
+</html>
