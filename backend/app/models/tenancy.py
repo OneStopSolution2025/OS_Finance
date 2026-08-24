@@ -70,6 +70,16 @@ class Branch(Base):
     tenant = relationship("Tenant", back_populates="branches")
 
 
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_tokens"
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    user_id = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=False)
+    token = Column(String, unique=True, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    used = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class User(Base):
     __tablename__ = "users"
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)

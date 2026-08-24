@@ -89,6 +89,31 @@
     .topbar{padding:12px 16px}
     .login-card{padding:30px 24px}
   }
+    label.pw-label{display:flex;justify-content:space-between;align-items:center}
+    .pw-wrap{position:relative}
+    .pw-wrap input{padding-right:40px}
+    .pw-toggle{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:16px;padding:2px;color:#888}
+    .link-btn{background:none;border:none;color:var(--trust);font-size:12.5px;cursor:pointer;padding:0;text-decoration:underline}
+    .forgot-link{text-align:right;margin-top:6px}
+    .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:50;align-items:center;justify-content:center;padding:20px}
+    .modal-overlay.show{display:flex}
+    .modal-card{background:#fff;border-radius:14px;padding:28px;width:100%;max-width:380px}
+    .modal-card h3{font-size:17px;margin-bottom:6px}
+    .modal-card p.sub{font-size:12.5px;color:#666;margin:0 0 16px}
+    .success-box{background:#E5F3E5;border:1px solid #C3E6C3;border-radius:8px;padding:12px;font-size:12.5px;color:#2A7A2A;margin-top:12px;word-break:break-all}
+    /* ---- Smart Garage style dashboard cards ---- */
+    .trend-card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:20px}
+    .trend-bars{display:flex;align-items:flex-end;gap:8px;height:120px;margin-top:16px}
+    .trend-bar-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%}
+    .trend-bar{width:100%;background:var(--trust);border-radius:4px 4px 0 0;min-height:3px;transition:height .3s}
+    .trend-bar-label{font-size:10px;color:#888;margin-top:6px}
+    .trend-bar-value{font-size:10px;color:var(--trust);font-weight:700;margin-bottom:4px}
+    .activity-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    @media(max-width:760px){.activity-grid{grid-template-columns:1fr}}
+    .activity-item{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--border);font-size:13px}
+    .activity-item:last-child{border-bottom:none}
+    .activity-main{font-weight:600}
+    .activity-sub{color:#888;font-size:11.5px}
   .overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:15}
   .overlay.show{display:block}
 </style>
@@ -104,10 +129,49 @@
     </div>
     <label>Email</label>
     <input id="login-email" type="email" placeholder="you@company.com" autocomplete="username">
-    <label>Password</label>
-    <input id="login-password" type="password" placeholder="••••••••" autocomplete="current-password">
+    <label class="pw-label">Password</label>
+    <div class="pw-wrap">
+      <input id="login-password" type="password" placeholder="••••••••" autocomplete="current-password">
+      <button type="button" class="pw-toggle" onclick="togglePw('login-password', this)">👁</button>
+    </div>
+    <div class="forgot-link"><button class="link-btn" onclick="openForgotModal()">Forgot password?</button></div>
     <button class="btn btn-block" onclick="doLogin()">Sign in</button>
     <div class="err" id="login-err"></div>
+  </div>
+</div>
+
+<!-- FORGOT PASSWORD MODAL -->
+<div class="modal-overlay" id="forgot-modal">
+  <div class="modal-card">
+    <div id="forgot-step-request">
+      <h3>Reset your password</h3>
+      <p class="sub">Enter the email on your OS Finances account.</p>
+      <label>Email</label>
+      <input id="forgot-email" type="email" placeholder="you@company.com">
+      <div class="row-actions">
+        <button class="btn amber" onclick="requestPasswordReset()">Send reset link</button>
+        <button class="btn ghost" onclick="closeForgotModal()">Cancel</button>
+      </div>
+      <div class="err" id="forgot-err"></div>
+      <div id="forgot-result"></div>
+    </div>
+    <div id="forgot-step-reset" class="hidden">
+      <h3>Set a new password</h3>
+      <p class="sub">Paste the reset code you were given, and choose a new password.</p>
+      <label>Reset code</label>
+      <input id="reset-token" type="text" placeholder="Reset code">
+      <label class="pw-label">New password</label>
+      <div class="pw-wrap">
+        <input id="reset-password" type="password" placeholder="At least 8 characters">
+        <button type="button" class="pw-toggle" onclick="togglePw('reset-password', this)">👁</button>
+      </div>
+      <div class="row-actions">
+        <button class="btn amber" onclick="submitPasswordReset()">Update password</button>
+        <button class="btn ghost" onclick="closeForgotModal()">Cancel</button>
+      </div>
+      <div class="err" id="reset-err"></div>
+      <div id="reset-result"></div>
+    </div>
   </div>
 </div>
 
@@ -142,6 +206,55 @@
 <script>
 const API = window.OSF_API_BASE || localStorage.getItem('osf_api_base') || 'http://localhost:8000';
 let state = { token:null, role:null, name:null, tenant_id:null, branch_id:null, view:'dashboard' };
+
+// ---------- Show/hide password ----------
+function togglePw(id, btn){
+  const input = document.getElementById(id);
+  const showing = input.type === 'text';
+  input.type = showing ? 'password' : 'text';
+  btn.textContent = showing ? '👁' : '🙈';
+}
+
+// ---------- Forgot password ----------
+function openForgotModal(){
+  document.getElementById('forgot-modal').classList.add('show');
+  document.getElementById('forgot-step-request').classList.remove('hidden');
+  document.getElementById('forgot-step-reset').classList.add('hidden');
+  document.getElementById('forgot-err').textContent = '';
+  document.getElementById('forgot-result').innerHTML = '';
+}
+function closeForgotModal(){ document.getElementById('forgot-modal').classList.remove('show'); }
+async function requestPasswordReset(){
+  const email = document.getElementById('forgot-email').value.trim();
+  const errEl = document.getElementById('forgot-err'); errEl.textContent = '';
+  if(!email){ errEl.textContent = 'Enter your email.'; return; }
+  try{
+    const res = await fetch(API + '/auth/forgot-password', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({email}) });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Something went wrong.');
+    let html = `<p style="font-size:12.5px;color:#555;margin-top:10px">${data.message}</p>`;
+    if(data.dev_reset_token){
+      html += `<div class="success-box">Reset code (valid ${data.expires_in_minutes} min): <strong>${data.dev_reset_token}</strong><br><span style="font-weight:400">Email delivery isn't connected yet — for now, copy this code and use it below.</span></div>`;
+    }
+    document.getElementById('forgot-result').innerHTML = html;
+    document.getElementById('forgot-step-request').classList.add('hidden');
+    document.getElementById('forgot-step-reset').classList.remove('hidden');
+    if(data.dev_reset_token) document.getElementById('reset-token').value = data.dev_reset_token;
+  }catch(e){ errEl.textContent = e.message; }
+}
+async function submitPasswordReset(){
+  const token = document.getElementById('reset-token').value.trim();
+  const newPassword = document.getElementById('reset-password').value;
+  const errEl = document.getElementById('reset-err'); errEl.textContent = '';
+  if(!token || !newPassword){ errEl.textContent = 'Enter the reset code and a new password.'; return; }
+  try{
+    const res = await fetch(API + '/auth/reset-password', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({token, new_password:newPassword}) });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Something went wrong.');
+    document.getElementById('reset-result').innerHTML = `<div class="success-box">${data.message}</div>`;
+    setTimeout(closeForgotModal, 1800);
+  }catch(e){ errEl.textContent = e.message; }
+}
 
 // ---------- API helper ----------
 async function api(path, opts={}){
@@ -217,7 +330,7 @@ const NAV = {
 function enterApp(){
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app').classList.add('active');
-  document.getElementById('role-pill').textContent = state.role.replace('superemeadmin','Super Eme Admin').replace('superadmin','Super Admin').replace('employee','Employee');
+  document.getElementById('role-pill').textContent = state.role.replace('superemeadmin','Supreme Admin').replace('superadmin','Super Admin').replace('employee','Employee');
   document.getElementById('user-name').textContent = state.name || '';
   renderNav();
   navigate('dashboard');
@@ -251,33 +364,68 @@ function navigate(view){
 const content = () => document.getElementById('content');
 function esc(s){ return (s===undefined||s===null) ? '' : String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-// ---------- Dashboard ----------
+// ---------- Dashboard (Smart Garage style: stats + growth trend + recent activity) ----------
+function renderTrendBars(trend, valueKey, labelPrefix){
+  const max = Math.max(1, ...trend.map(d => d[valueKey]));
+  return `<div class="trend-bars">${trend.map(d => {
+    const h = Math.max(3, Math.round((d[valueKey] / max) * 100));
+    const label = new Date(d.date).toLocaleDateString(undefined, {weekday:'short'});
+    return `<div class="trend-bar-col">
+      <div class="trend-bar-value">${labelPrefix}${d[valueKey].toLocaleString()}</div>
+      <div class="trend-bar" style="height:${h}px"></div>
+      <div class="trend-bar-label">${label}</div>
+    </div>`;
+  }).join('')}</div>`;
+}
+
 async function renderDashboard(){
   content().innerHTML = `<div class="empty">Loading…</div>`;
   try{
     if(state.role === 'superemeadmin'){
-      const tenants = await api('/tenants/');
+      const [tenants, overview] = await Promise.all([api('/tenants/'), api('/reports/platform-overview')]);
       const active = tenants.filter(t=>t.status==='active').length;
       const trial = tenants.filter(t=>t.status==='trial').length;
       content().innerHTML = `
         <div class="stat-grid">
           <div class="stat-card"><div class="label">Total Tenants</div><div class="value">${tenants.length}</div></div>
-          <div class="stat-card"><div class="label">Active Subscriptions</div><div class="value">${active}</div></div>
-          <div class="stat-card"><div class="label">On Trial</div><div class="value">${trial}</div></div>
-          <div class="stat-card"><div class="label">Total Branches</div><div class="value">${tenants.reduce((s,t)=>s+t.branch_count,0)}</div></div>
+          <div class="stat-card"><div class="label">Active Subscriptions</div><div class="value">${active}</div><div style="font-size:11.5px;color:#888;margin-top:4px">${trial} on trial</div></div>
+          <div class="stat-card"><div class="label">Platform Disbursed</div><div class="value">₹${overview.platform_total_disbursed.toLocaleString()}</div></div>
+          <div class="stat-card"><div class="label">Platform Collected</div><div class="value">₹${overview.platform_total_collected.toLocaleString()}</div></div>
         </div>
-        <div class="panel"><h3>Platform snapshot</h3><p style="color:#555;font-size:13.5px">You manage every microfinance operator's subscription from the Tenants tab. Suspend a tenant to instantly block SuperAdmin and Employee logins for that organization.</p></div>
+        <div class="trend-card">
+          <h3 style="font-size:15px">New tenants — last 7 days</h3>
+          ${renderTrendBars(overview.tenant_growth_trend, 'new_tenants', '')}
+        </div>
+        <div class="panel"><h3>Platform snapshot</h3><p style="color:#555;font-size:13.5px">You manage every microfinance operator's subscription from the Tenants tab. Suspend a tenant to instantly block Super Admin and Employee logins for that organization.</p></div>
       `;
     } else {
-      const r = await api('/reports/branch-summary');
+      const [r, trend, activity] = await Promise.all([
+        api('/reports/branch-summary'), api('/reports/collections-trend'), api('/reports/recent-activity')
+      ]);
       content().innerHTML = `
         <div class="stat-grid">
           <div class="stat-card"><div class="label">Total Disbursed</div><div class="value">₹${r.total_disbursed.toLocaleString()}</div></div>
-          <div class="stat-card"><div class="label">Total Collected</div><div class="value">₹${r.total_collected.toLocaleString()}</div></div>
-          <div class="stat-card"><div class="label">Active Loans</div><div class="value">${r.active_loans}</div></div>
-          <div class="stat-card"><div class="label">Overdue Installments</div><div class="value">${r.overdue_installments}</div></div>
+          <div class="stat-card"><div class="label">Total Collected</div><div class="value">₹${r.total_collected.toLocaleString()}</div><div style="font-size:11.5px;color:#888;margin-top:4px">${r.collection_efficiency_pct}% efficiency</div></div>
+          <div class="stat-card"><div class="label">Active Loans</div><div class="value">${r.active_loans}</div><div style="font-size:11.5px;color:#888;margin-top:4px">${r.closed_loans} closed</div></div>
+          <div class="stat-card"><div class="label">Overdue Installments</div><div class="value" style="color:${r.overdue_installments>0?'#C0392B':'var(--trust)'}">${r.overdue_installments}</div><div style="font-size:11.5px;color:#888;margin-top:4px">₹${r.overdue_amount.toLocaleString()} outstanding</div></div>
         </div>
-        <div class="panel"><h3>Collection efficiency</h3><p style="font-size:22px;font-weight:700;color:var(--trust)">${r.collection_efficiency_pct}%</p><p style="color:#555;font-size:13px">Overdue amount outstanding: ₹${r.overdue_amount.toLocaleString()}</p></div>
+        <div class="trend-card">
+          <h3 style="font-size:15px">Collections — last 7 days</h3>
+          ${renderTrendBars(trend, 'amount', '₹')}
+        </div>
+        <div class="panel">
+          <h3>Recent activity</h3>
+          <div class="activity-grid">
+            <div>
+              <div style="font-size:12px;font-weight:600;color:#888;margin-bottom:6px;text-transform:uppercase">Recent loans</div>
+              ${activity.recent_loans.map(l => `<div class="activity-item"><div><div class="activity-main">${esc(l.customer)}</div><div class="activity-sub">${esc(l.loan_number)}</div></div><div style="text-align:right"><div class="activity-main">₹${l.amount.toLocaleString()}</div><span class="badge ${l.status}">${l.status.replace('_',' ')}</span></div></div>`).join('') || '<div class="empty" style="padding:12px">No loans yet</div>'}
+            </div>
+            <div>
+              <div style="font-size:12px;font-weight:600;color:#888;margin-bottom:6px;text-transform:uppercase">Recent payments</div>
+              ${activity.recent_payments.map(p => `<div class="activity-item"><div><div class="activity-main">${esc(p.receipt_number)}</div><div class="activity-sub">${p.method}</div></div><div class="activity-main">₹${p.amount.toLocaleString()}</div></div>`).join('') || '<div class="empty" style="padding:12px">No payments yet</div>'}
+            </div>
+          </div>
+        </div>
       `;
     }
   }catch(e){ content().innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
@@ -298,7 +446,7 @@ async function renderTenants(){
         <div class="field"><label>Plan</label><select id="t-plan">${planOpts || '<option>Create a plan first</option>'}</select></div>
         <div class="field"><label>SuperAdmin name</label><input id="t-admin-name"></div>
         <div class="field"><label>SuperAdmin email</label><input id="t-admin-email" type="email"></div>
-        <div class="field"><label>SuperAdmin password</label><input id="t-admin-pass" type="password"></div>
+        <div class="field"><label class="pw-label">SuperAdmin password</label><div class="pw-wrap"><input id="t-admin-pass" type="password"><button type="button" class="pw-toggle" onclick="togglePw('t-admin-pass', this)">👁</button></div></div>
       </div>
       <div class="row-actions"><button class="btn amber" onclick="createTenant()">Create tenant</button></div>
       <div class="err" id="t-err"></div>
@@ -405,7 +553,7 @@ async function renderEmployees(){
         <div class="field"><label>Branch</label><select id="e-branch">${branchOpts || '<option>Create a branch first</option>'}</select></div>
         <div class="field"><label>Full name</label><input id="e-name"></div>
         <div class="field"><label>Email</label><input id="e-email" type="email"></div>
-        <div class="field"><label>Password</label><input id="e-pass" type="password"></div>
+        <div class="field"><label class="pw-label">Password</label><div class="pw-wrap"><input id="e-pass" type="password"><button type="button" class="pw-toggle" onclick="togglePw('e-pass', this)">👁</button></div></div>
         <div class="field"><label>Designation</label><input id="e-desig" placeholder="Loan Officer"></div>
       </div>
       <div class="row-actions"><button class="btn amber" onclick="createEmployee()">Create employee</button></div>
