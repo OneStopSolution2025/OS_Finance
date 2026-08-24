@@ -7,7 +7,7 @@ from pydantic import BaseModel, EmailStr
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import verify_password, create_access_token, hash_password
-from app.models.tenancy import User, Tenant, SubscriptionStatus, UserRole, PasswordResetToken
+from app.models.tenancy import User, Tenant, SubscriptionStatus, UserRole, PasswordResetToken, ApplicationStatus
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -21,7 +21,22 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     # Block login if tenant subscription is suspended/cancelled (superemeadmin always allowed)
     if user.tenant_id:
         tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
-        if not tenant or tenant.is_suspended or tenant.subscription_status in (
+        if not tenant:
+            raise HTTPException(status_code=402, detail="Your organization could not be found.")
+
+        if tenant.application_status == ApplicationStatus.pending:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Your application is still under review. Tracking ID: {tenant.tracking_code}. "
+                       f"You'll be able to sign in once OS2 Studio approves it."
+            )
+        if tenant.application_status == ApplicationStatus.rejected:
+            raise HTTPException(
+                status_code=403,
+                detail="Your application was not approved. Contact OS2 Studio for details."
+                       + (f" Reason: {tenant.rejection_reason}" if tenant.rejection_reason else "")
+            )
+        if tenant.is_suspended or tenant.subscription_status in (
             SubscriptionStatus.suspended, SubscriptionStatus.cancelled
         ):
             raise HTTPException(

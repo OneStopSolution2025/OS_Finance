@@ -25,6 +25,12 @@ class UserRole(str, enum.Enum):
     employee = "employee"             # branch staff
 
 
+class ApplicationStatus(str, enum.Enum):
+    pending = "pending"     # self-signup, awaiting SuperEmeAdmin review
+    approved = "approved"   # can log in and use the platform
+    rejected = "rejected"   # signup declined
+
+
 class SubscriptionPlan(Base):
     __tablename__ = "subscription_plans"
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
@@ -50,6 +56,12 @@ class Tenant(Base):
     current_period_end = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     is_suspended = Column(Boolean, default=False)  # manual kill-switch by SuperEmeAdmin
+
+    # Self-signup approval workflow. Tenants created directly by SuperEmeAdmin are
+    # approved immediately; tenants from the public signup form start pending.
+    application_status = Column(Enum(ApplicationStatus), default=ApplicationStatus.approved)
+    tracking_code = Column(String, unique=True, nullable=True)  # e.g. "APP-4F82K1", given to the applicant
+    rejection_reason = Column(String, nullable=True)
 
     branches = relationship("Branch", back_populates="tenant", cascade="all, delete-orphan")
     plan = relationship("SubscriptionPlan")

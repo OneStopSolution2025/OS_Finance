@@ -137,6 +137,55 @@
     <div class="forgot-link"><button class="link-btn" onclick="openForgotModal()">Forgot password?</button></div>
     <button class="btn btn-block" onclick="doLogin()">Sign in</button>
     <div class="err" id="login-err"></div>
+    <div style="text-align:center;margin-top:16px;font-size:12.5px;color:#666;border-top:1px solid var(--border);padding-top:14px">
+      Running a microfinance business? <button class="link-btn" onclick="openSignupModal()">Sign up</button>
+      &nbsp;·&nbsp; <button class="link-btn" onclick="openTrackingModal()">Check application status</button>
+    </div>
+  </div>
+</div>
+
+<!-- SIGN UP MODAL -->
+<div class="modal-overlay" id="signup-modal">
+  <div class="modal-card" style="max-width:420px;max-height:90vh;overflow-y:auto">
+    <h3>Apply for OS Finances</h3>
+    <p class="sub">Tell us about your organization. OS2 Studio reviews every application before access is granted — you'll get a tracking code to check your status.</p>
+    <label>Organization name</label>
+    <input id="su-org" placeholder="Sunrise Microfinance">
+    <label>Organization URL slug</label>
+    <input id="su-slug" placeholder="sunrise-mf">
+    <label>Subscription plan</label>
+    <select id="su-plan"></select>
+    <label>Your full name</label>
+    <input id="su-admin-name">
+    <label>Your email</label>
+    <input id="su-admin-email" type="email">
+    <label class="pw-label">Choose a password</label>
+    <div class="pw-wrap">
+      <input id="su-admin-pass" type="password" placeholder="At least 8 characters">
+      <button type="button" class="pw-toggle" onclick="togglePw('su-admin-pass', this)">👁</button>
+    </div>
+    <div class="row-actions">
+      <button class="btn amber" onclick="submitSignup()">Submit application</button>
+      <button class="btn ghost" onclick="closeSignupModal()">Cancel</button>
+    </div>
+    <div class="err" id="signup-err"></div>
+    <div id="signup-result"></div>
+  </div>
+</div>
+
+<!-- TRACKING STATUS MODAL -->
+<div class="modal-overlay" id="tracking-modal">
+  <div class="modal-card">
+    <h3>Check application status</h3>
+    <p class="sub">Enter the tracking code you received when you applied.</p>
+    <label>Tracking code</label>
+    <input id="track-code" placeholder="APP-XXXXXX">
+    <div class="row-actions">
+      <button class="btn amber" onclick="checkTrackingStatus()">Check status</button>
+      <button class="btn ghost" onclick="closeTrackingModal()">Close</button>
+    </div>
+    <div class="err" id="track-err"></div>
+    <div id="track-result"></div>
   </div>
 </div>
 
@@ -206,6 +255,71 @@
 <script>
 const API = window.OSF_API_BASE || localStorage.getItem('osf_api_base') || 'http://localhost:8000';
 let state = { token:null, role:null, name:null, tenant_id:null, branch_id:null, view:'dashboard' };
+
+// ---------- Public signup ----------
+async function openSignupModal(){
+  document.getElementById('signup-modal').classList.add('show');
+  document.getElementById('signup-err').textContent = '';
+  document.getElementById('signup-result').innerHTML = '';
+  try{
+    const res = await fetch(API + '/tenants/plans/public');
+    const plans = await res.json();
+    document.getElementById('su-plan').innerHTML = plans.map(p =>
+      `<option value="${p.id}">${esc(p.name)} — ₹${p.monthly_price_inr}/mo · up to ${p.max_branches} branches</option>`
+    ).join('') || '<option value="">No plans available yet — contact OS2 Studio</option>';
+  }catch(e){
+    document.getElementById('signup-err').textContent = 'Could not load plans. Try again shortly.';
+  }
+}
+function closeSignupModal(){ document.getElementById('signup-modal').classList.remove('show'); }
+async function submitSignup(){
+  const errEl = document.getElementById('signup-err'); errEl.textContent = '';
+  const payload = {
+    org_name: document.getElementById('su-org').value,
+    slug: document.getElementById('su-slug').value,
+    plan_id: document.getElementById('su-plan').value,
+    admin_full_name: document.getElementById('su-admin-name').value,
+    admin_email: document.getElementById('su-admin-email').value,
+    admin_password: document.getElementById('su-admin-pass').value,
+  };
+  if(!payload.org_name || !payload.slug || !payload.plan_id || !payload.admin_full_name || !payload.admin_email || !payload.admin_password){
+    errEl.textContent = 'Please fill in every field.'; return;
+  }
+  try{
+    const res = await fetch(API + '/tenants/signup', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Something went wrong.');
+    document.getElementById('signup-result').innerHTML = `<div class="success-box">
+      Application submitted! Your tracking code: <strong>${esc(data.tracking_code)}</strong><br>
+      Save this code — you'll need it to check your approval status. You'll be able to sign in once OS2 Studio approves your application.
+    </div>`;
+  }catch(e){ errEl.textContent = e.message; }
+}
+
+// ---------- Track application status ----------
+function openTrackingModal(){
+  document.getElementById('tracking-modal').classList.add('show');
+  document.getElementById('track-err').textContent = '';
+  document.getElementById('track-result').innerHTML = '';
+}
+function closeTrackingModal(){ document.getElementById('tracking-modal').classList.remove('show'); }
+async function checkTrackingStatus(){
+  const code = document.getElementById('track-code').value.trim();
+  const errEl = document.getElementById('track-err'); errEl.textContent = '';
+  if(!code){ errEl.textContent = 'Enter your tracking code.'; return; }
+  try{
+    const res = await fetch(API + '/tenants/application-status/' + encodeURIComponent(code));
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Not found.');
+    const statusColor = {pending:'#8A6200', approved:'#2A7A2A', rejected:'#C0392B'}[data.status] || '#333';
+    document.getElementById('track-result').innerHTML = `<div class="success-box" style="color:${statusColor};background:#F6F5F2;border-color:var(--border)">
+      <strong>${esc(data.org_name)}</strong><br>
+      Status: <strong style="text-transform:capitalize">${data.status}</strong><br>
+      Submitted: ${new Date(data.submitted_at).toLocaleDateString()}
+      ${data.rejection_reason ? `<br>Reason: ${esc(data.rejection_reason)}` : ''}
+    </div>`;
+  }catch(e){ errEl.textContent = e.message; }
+}
 
 // ---------- Show/hide password ----------
 function togglePw(id, btn){
@@ -307,6 +421,7 @@ function logout(){
 const NAV = {
   superemeadmin: [
     {id:'dashboard', label:'📊 Overview'},
+    {id:'applications', label:'📥 Applications'},
     {id:'tenants', label:'🏢 Tenants'},
     {id:'plans', label:'💳 Subscription Plans'},
   ],
@@ -351,12 +466,13 @@ function navigate(view){
   renderNav();
   const titles = {dashboard:'Overview', tenants:'Tenants', plans:'Subscription Plans', branches:'Branches',
     employees:'Employees', 'loan-products':'Loan Products', loans:'Loans', reports:'Reports & Accounts',
-    customers:'Customers', collections:'Collections', attendance:'Attendance'};
+    customers:'Customers', collections:'Collections', attendance:'Attendance', applications:'Applications'};
   document.getElementById('page-title').textContent = titles[view] || view;
   const renderers = {
     dashboard: renderDashboard, tenants: renderTenants, plans: renderPlans, branches: renderBranches,
     employees: renderEmployees, 'loan-products': renderLoanProducts, loans: renderLoans,
     reports: renderReports, customers: renderCustomers, collections: renderCollections, attendance: renderAttendance,
+    applications: renderApplications,
   };
   (renderers[view] || renderDashboard)();
 }
@@ -429,6 +545,40 @@ async function renderDashboard(){
       `;
     }
   }catch(e){ content().innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+}
+
+// ---------- SuperEmeAdmin: Applications (pending signups) ----------
+async function renderApplications(){
+  content().innerHTML = `<div class="empty">Loading…</div>`;
+  const apps = await api('/tenants/applications/pending');
+  content().innerHTML = `
+    <div class="panel">
+      <h3>Pending applications</h3>
+      <table><thead><tr><th>Organization</th><th>Applicant</th><th>Plan</th><th>Tracking Code</th><th>Submitted</th><th>Action</th></tr></thead>
+      <tbody>${apps.map(a=>`
+        <tr>
+          <td>${esc(a.org_name)}</td>
+          <td>${esc(a.admin_name)}<br><span style="color:#888;font-size:11.5px">${esc(a.admin_email)}</span></td>
+          <td>${esc(a.plan||'—')}</td>
+          <td><code>${esc(a.tracking_code)}</code></td>
+          <td>${new Date(a.submitted_at).toLocaleDateString()}</td>
+          <td style="white-space:nowrap">
+            <button class="btn amber" style="padding:6px 10px;font-size:12px" onclick="approveApplication('${a.id}')">Approve</button>
+            <button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="rejectApplication('${a.id}')">Reject</button>
+          </td>
+        </tr>`).join('') || '<tr><td colspan="6" class="empty">No pending applications</td></tr>'}
+      </tbody></table>
+    </div>
+  `;
+}
+async function approveApplication(id){
+  await api(`/tenants/${id}/approve-application`, {method:'PATCH'});
+  renderApplications();
+}
+async function rejectApplication(id){
+  const reason = prompt('Reason for rejecting this application (optional):') || '';
+  await api(`/tenants/${id}/reject-application`, { method:'PATCH', json:{ reason } });
+  renderApplications();
 }
 
 // ---------- SuperEmeAdmin: Tenants ----------
