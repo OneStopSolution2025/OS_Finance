@@ -446,7 +446,10 @@ async function renderTenants(){
         <div class="field"><label>Plan</label><select id="t-plan">${planOpts || '<option>Create a plan first</option>'}</select></div>
         <div class="field"><label>SuperAdmin name</label><input id="t-admin-name"></div>
         <div class="field"><label>SuperAdmin email</label><input id="t-admin-email" type="email"></div>
-        <div class="field"><label class="pw-label">SuperAdmin password</label><div class="pw-wrap"><input id="t-admin-pass" type="password"><button type="button" class="pw-toggle" onclick="togglePw('t-admin-pass', this)">👁</button></div></div>
+        <div class="field" style="grid-column:1/-1">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="t-auto-pw" checked onchange="toggleManualPw('t')"> Auto-generate a secure password</label>
+        </div>
+        <div class="field hidden" id="t-manual-pw-field"><label class="pw-label">SuperAdmin password</label><div class="pw-wrap"><input id="t-admin-pass" type="password"><button type="button" class="pw-toggle" onclick="togglePw('t-admin-pass', this)">👁</button></div></div>
       </div>
       <div class="row-actions"><button class="btn amber" onclick="createTenant()">Create tenant</button></div>
       <div class="err" id="t-err"></div>
@@ -465,18 +468,37 @@ async function renderTenants(){
     </div>
   `;
 }
+function toggleManualPw(prefix){
+  const auto = document.getElementById(`${prefix}-auto-pw`).checked;
+  document.getElementById(`${prefix}-manual-pw-field`).classList.toggle('hidden', auto);
+}
+function credentialsBox(email, password){
+  return `<div class="success-box">
+    <strong>Login created — copy these now, they won't be shown again:</strong><br>
+    Email: <strong>${esc(email)}</strong><br>
+    Password: <strong>${esc(password)}</strong>
+    <div style="margin-top:8px"><button class="btn ghost" style="padding:6px 12px;font-size:12px" onclick="navigator.clipboard.writeText('Email: ${esc(email)}\\nPassword: ${esc(password)}')">Copy to clipboard</button></div>
+  </div>`;
+}
+
 async function createTenant(){
   const errEl = document.getElementById('t-err');
+  const autoPw = document.getElementById('t-auto-pw').checked;
   try{
-    await api('/tenants/', { method:'POST', json:{
+    const res = await api('/tenants/', { method:'POST', json:{
       org_name: document.getElementById('t-org').value,
       slug: document.getElementById('t-slug').value,
       plan_id: document.getElementById('t-plan').value,
       admin_full_name: document.getElementById('t-admin-name').value,
       admin_email: document.getElementById('t-admin-email').value,
-      admin_password: document.getElementById('t-admin-pass').value,
+      admin_password: autoPw ? null : document.getElementById('t-admin-pass').value,
     }});
-    renderTenants();
+    if(res.password_was_generated){
+      document.getElementById('t-err').innerHTML = credentialsBox(res.admin_email, res.admin_password) +
+        `<div class="row-actions"><button class="btn" onclick="renderTenants()">Done — refresh list</button></div>`;
+    } else {
+      renderTenants();
+    }
   }catch(e){ errEl.textContent = e.message; }
 }
 async function suspendTenant(id){ await api(`/tenants/${id}/suspend`, {method:'PATCH'}); renderTenants(); }
@@ -553,8 +575,11 @@ async function renderEmployees(){
         <div class="field"><label>Branch</label><select id="e-branch">${branchOpts || '<option>Create a branch first</option>'}</select></div>
         <div class="field"><label>Full name</label><input id="e-name"></div>
         <div class="field"><label>Email</label><input id="e-email" type="email"></div>
-        <div class="field"><label class="pw-label">Password</label><div class="pw-wrap"><input id="e-pass" type="password"><button type="button" class="pw-toggle" onclick="togglePw('e-pass', this)">👁</button></div></div>
         <div class="field"><label>Designation</label><input id="e-desig" placeholder="Loan Officer"></div>
+        <div class="field" style="grid-column:1/-1">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="e-auto-pw" checked onchange="toggleManualPw('e')"> Auto-generate a secure password</label>
+        </div>
+        <div class="field hidden" id="e-manual-pw-field"><label class="pw-label">Password</label><div class="pw-wrap"><input id="e-pass" type="password"><button type="button" class="pw-toggle" onclick="togglePw('e-pass', this)">👁</button></div></div>
       </div>
       <div class="row-actions"><button class="btn amber" onclick="createEmployee()">Create employee</button></div>
       <div class="err" id="e-err"></div>
@@ -567,13 +592,19 @@ async function renderEmployees(){
 }
 async function createEmployee(){
   const errEl = document.getElementById('e-err');
+  const autoPw = document.getElementById('e-auto-pw').checked;
   try{
-    await api('/branches/employees', { method:'POST', json:{
+    const res = await api('/branches/employees', { method:'POST', json:{
       branch_id: document.getElementById('e-branch').value, full_name: document.getElementById('e-name').value,
-      email: document.getElementById('e-email').value, password: document.getElementById('e-pass').value,
+      email: document.getElementById('e-email').value, password: autoPw ? null : document.getElementById('e-pass').value,
       designation: document.getElementById('e-desig').value,
     }});
-    renderEmployees();
+    if(res.password_was_generated){
+      document.getElementById('e-err').innerHTML = credentialsBox(res.email, res.password) +
+        `<div class="row-actions"><button class="btn" onclick="renderEmployees()">Done — refresh list</button></div>`;
+    } else {
+      renderEmployees();
+    }
   }catch(e){ errEl.textContent = e.message; }
 }
 

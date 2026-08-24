@@ -5,6 +5,7 @@ from pydantic import BaseModel, EmailStr
 from app.core.database import get_db
 from app.core.security import require_superadmin, require_superadmin_or_above, get_current_user, hash_password
 from app.models.tenancy import Branch, User, UserRole, Tenant, SubscriptionPlan
+from app.utils.passwords import generate_password
 
 router = APIRouter(prefix="/branches", tags=["branches"])
 
@@ -49,7 +50,7 @@ class EmployeeCreate(BaseModel):
     full_name: str
     email: EmailStr
     phone: str | None = None
-    password: str
+    password: str | None = None  # omit to auto-generate a secure password
     designation: str | None = None
     employee_code: str | None = None
 
@@ -62,13 +63,16 @@ def create_employee(payload: EmployeeCreate, db: Session = Depends(get_db), user
     if db.query(User).filter(User.email == payload.email).first():
         raise HTTPException(status_code=400, detail="Email already registered")
 
+    was_generated = not payload.password
+    plaintext_password = payload.password or generate_password()
+
     employee = User(
         tenant_id=user.tenant_id,
         branch_id=branch.id,
         full_name=payload.full_name,
         email=payload.email,
         phone=payload.phone,
-        hashed_password=hash_password(payload.password),
+        hashed_password=hash_password(plaintext_password),
         role=UserRole.employee,
         designation=payload.designation,
         employee_code=payload.employee_code,
@@ -76,7 +80,13 @@ def create_employee(payload: EmployeeCreate, db: Session = Depends(get_db), user
     db.add(employee)
     db.commit()
     db.refresh(employee)
-    return {"id": employee.id, "email": employee.email}
+    return {
+        "id": employee.id,
+        "email": employee.email,
+        # Only returned once, right after creation.
+        "password": plaintext_password if was_generated else None,
+        "password_was_generated": was_generated,
+    }
 
 
 @router.get("/employees")

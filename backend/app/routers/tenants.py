@@ -6,6 +6,7 @@ from pydantic import BaseModel, EmailStr
 from app.core.database import get_db
 from app.core.security import require_superemeadmin, hash_password
 from app.models.tenancy import Tenant, SubscriptionPlan, SubscriptionStatus, User, UserRole
+from app.utils.passwords import generate_password
 
 router = APIRouter(prefix="/tenants", tags=["tenants (SuperEmeAdmin)"])
 
@@ -16,7 +17,7 @@ class TenantCreate(BaseModel):
     plan_id: str
     admin_full_name: str
     admin_email: EmailStr
-    admin_password: str
+    admin_password: str | None = None  # omit to auto-generate a secure password
     trial_days: int = 14
 
 
@@ -41,17 +42,29 @@ def create_tenant(payload: TenantCreate, db: Session = Depends(get_db)):
     db.add(tenant)
     db.flush()
 
+    was_generated = not payload.admin_password
+    plaintext_password = payload.admin_password or generate_password()
+
     admin = User(
         tenant_id=tenant.id,
         full_name=payload.admin_full_name,
         email=payload.admin_email,
-        hashed_password=hash_password(payload.admin_password),
+        hashed_password=hash_password(plaintext_password),
         role=UserRole.superadmin,
     )
     db.add(admin)
     db.commit()
     db.refresh(tenant)
-    return {"tenant_id": tenant.id, "slug": tenant.slug, "status": tenant.subscription_status.value}
+    return {
+        "tenant_id": tenant.id,
+        "slug": tenant.slug,
+        "status": tenant.subscription_status.value,
+        "admin_email": admin.email,
+        # Only returned once, right after creation — never retrievable again after this response.
+        "admin_password": plaintext_password if was_generated else None,
+        "password_was_generated": was_generated,
+    }
+
 
 
 @router.get("/", dependencies=[Depends(require_superemeadmin)])
