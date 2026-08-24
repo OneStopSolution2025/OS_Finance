@@ -97,9 +97,16 @@
     .forgot-link{text-align:right;margin-top:6px}
     .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:50;align-items:center;justify-content:center;padding:20px}
     .modal-overlay.show{display:flex}
-    .modal-card{background:#fff;border-radius:14px;padding:28px;width:100%;max-width:380px}
-    .modal-card h3{font-size:17px;margin-bottom:6px}
-    .modal-card p.sub{font-size:12.5px;color:#666;margin:0 0 16px}
+    .modal-card{background:#fff;border-radius:16px;padding:32px;width:100%;max-width:440px}
+    .modal-card h3{font-size:19px;margin-bottom:6px;font-family:Georgia,'Times New Roman',serif;letter-spacing:-0.01em}
+    .modal-card p.sub{font-size:12.5px;color:#666;margin:0 0 20px;line-height:1.55}
+    .modal-card label{display:block;font-size:12.5px;font-weight:600;margin:14px 0 6px;color:#555;text-transform:uppercase;letter-spacing:.03em}
+    .modal-card label:first-of-type{margin-top:0}
+    .modal-card input,.modal-card select{width:100%;padding:11px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;background:#fff;display:block;box-sizing:border-box}
+    .modal-card input:focus,.modal-card select:focus{outline:2px solid var(--trust);outline-offset:1px;border-color:var(--trust)}
+    .modal-card select{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="12" height="8"><path d="M1 1l5 5 5-5" stroke="%23888" stroke-width="1.5" fill="none"/></svg>');background-repeat:no-repeat;background-position:right 12px center;padding-right:34px}
+    .modal-card .row-actions{margin-top:22px}
+    .modal-card .pw-wrap input{padding-right:40px}
     .success-box{background:#E5F3E5;border:1px solid #C3E6C3;border-radius:8px;padding:12px;font-size:12.5px;color:#2A7A2A;margin-top:12px;word-break:break-all}
     /* ---- Smart Garage style dashboard cards ---- */
     .trend-card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:20px}
@@ -146,27 +153,33 @@
 
 <!-- SIGN UP MODAL -->
 <div class="modal-overlay" id="signup-modal">
-  <div class="modal-card" style="max-width:420px;max-height:90vh;overflow-y:auto">
+  <div class="modal-card" style="max-width:440px;max-height:90vh;overflow-y:auto">
     <h3>Apply for OS Finances</h3>
     <p class="sub">Tell us about your organization. OS2 Studio reviews every application before access is granted — you'll get a tracking code to check your status.</p>
-    <label>Organization name</label>
-    <input id="su-org" placeholder="Sunrise Microfinance">
-    <label>Organization URL slug</label>
-    <input id="su-slug" placeholder="sunrise-mf">
-    <label>Subscription plan</label>
-    <select id="su-plan"></select>
-    <label>Your full name</label>
-    <input id="su-admin-name">
-    <label>Your email</label>
-    <input id="su-admin-email" type="email">
-    <label class="pw-label">Choose a password</label>
-    <div class="pw-wrap">
-      <input id="su-admin-pass" type="password" placeholder="At least 8 characters">
-      <button type="button" class="pw-toggle" onclick="togglePw('su-admin-pass', this)">👁</button>
+    <div id="signup-form-fields">
+      <label>Organization name</label>
+      <input id="su-org" placeholder="Sunrise Microfinance">
+      <label>Organization URL slug</label>
+      <input id="su-slug" placeholder="sunrise-mf">
+      <label>Subscription plan</label>
+      <select id="su-plan"></select>
+      <label>Your full name</label>
+      <input id="su-admin-name" placeholder="Full name">
+      <label>Your email</label>
+      <input id="su-admin-email" type="email" placeholder="you@company.com">
+      <label class="pw-label">Choose a password</label>
+      <div class="pw-wrap">
+        <input id="su-admin-pass" type="password" placeholder="At least 8 characters">
+        <button type="button" class="pw-toggle" onclick="togglePw('su-admin-pass', this)">👁</button>
+      </div>
+      <div class="row-actions">
+        <button class="btn amber" onclick="submitSignup()">Submit application</button>
+        <button class="btn ghost" onclick="closeSignupModal()">Cancel</button>
+      </div>
     </div>
-    <div class="row-actions">
-      <button class="btn amber" onclick="submitSignup()">Submit application</button>
-      <button class="btn ghost" onclick="closeSignupModal()">Cancel</button>
+    <div class="hidden" id="signup-no-plans">
+      <p style="font-size:13.5px;color:#555;line-height:1.6">No subscription plans are available to apply for yet. Please check back shortly, or contact OS2 Studio directly.</p>
+      <div class="row-actions"><button class="btn ghost" onclick="closeSignupModal()">Close</button></div>
     </div>
     <div class="err" id="signup-err"></div>
     <div id="signup-result"></div>
@@ -261,12 +274,19 @@ async function openSignupModal(){
   document.getElementById('signup-modal').classList.add('show');
   document.getElementById('signup-err').textContent = '';
   document.getElementById('signup-result').innerHTML = '';
+  document.getElementById('signup-form-fields').classList.remove('hidden');
+  document.getElementById('signup-no-plans').classList.add('hidden');
   try{
     const res = await fetch(API + '/tenants/plans/public');
     const plans = await res.json();
+    if(!plans.length){
+      document.getElementById('signup-form-fields').classList.add('hidden');
+      document.getElementById('signup-no-plans').classList.remove('hidden');
+      return;
+    }
     document.getElementById('su-plan').innerHTML = plans.map(p =>
       `<option value="${p.id}">${esc(p.name)} — ₹${p.monthly_price_inr}/mo · up to ${p.max_branches} branches</option>`
-    ).join('') || '<option value="">No plans available yet — contact OS2 Studio</option>';
+    ).join('');
   }catch(e){
     document.getElementById('signup-err').textContent = 'Could not load plans. Try again shortly.';
   }
@@ -289,10 +309,12 @@ async function submitSignup(){
     const res = await fetch(API + '/tenants/signup', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
     const data = await res.json();
     if(!res.ok) throw new Error(data.detail || 'Something went wrong.');
+    document.getElementById('signup-form-fields').classList.add('hidden');
     document.getElementById('signup-result').innerHTML = `<div class="success-box">
       Application submitted! Your tracking code: <strong>${esc(data.tracking_code)}</strong><br>
       Save this code — you'll need it to check your approval status. You'll be able to sign in once OS2 Studio approves your application.
-    </div>`;
+    </div>
+    <div class="row-actions"><button class="btn" onclick="closeSignupModal()">Done</button></div>`;
   }catch(e){ errEl.textContent = e.message; }
 }
 
