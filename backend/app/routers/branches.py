@@ -45,6 +45,63 @@ def list_branches(db: Session = Depends(get_db), user: User = Depends(require_su
     return q.all()
 
 
+class BranchUpdate(BaseModel):
+    name: str | None = None
+    code: str | None = None
+    address: str | None = None
+    city: str | None = None
+    state: str | None = None
+
+
+@router.patch("/{branch_id}")
+def update_branch(branch_id: str, payload: BranchUpdate, db: Session = Depends(get_db), user: User = Depends(require_superadmin)):
+    branch = db.query(Branch).filter(Branch.id == branch_id, Branch.tenant_id == user.tenant_id).first()
+    if not branch:
+        raise HTTPException(status_code=404, detail="Branch not found")
+    for field, value in payload.dict(exclude_unset=True).items():
+        setattr(branch, field, value)
+    db.commit()
+    return {"status": "updated"}
+
+
+@router.patch("/{branch_id}/deactivate")
+def deactivate_branch(branch_id: str, db: Session = Depends(get_db), user: User = Depends(require_superadmin)):
+    branch = db.query(Branch).filter(Branch.id == branch_id, Branch.tenant_id == user.tenant_id).first()
+    if not branch:
+        raise HTTPException(status_code=404, detail="Branch not found")
+    branch.is_active = False
+    db.commit()
+    return {"status": "inactive"}
+
+
+@router.patch("/{branch_id}/activate")
+def activate_branch(branch_id: str, db: Session = Depends(get_db), user: User = Depends(require_superadmin)):
+    branch = db.query(Branch).filter(Branch.id == branch_id, Branch.tenant_id == user.tenant_id).first()
+    if not branch:
+        raise HTTPException(status_code=404, detail="Branch not found")
+    branch.is_active = True
+    db.commit()
+    return {"status": "active"}
+
+
+@router.delete("/{branch_id}")
+def delete_branch(branch_id: str, db: Session = Depends(get_db), user: User = Depends(require_superadmin)):
+    branch = db.query(Branch).filter(Branch.id == branch_id, Branch.tenant_id == user.tenant_id).first()
+    if not branch:
+        raise HTTPException(status_code=404, detail="Branch not found")
+    try:
+        db.delete(branch)
+        db.commit()
+        return {"status": "deleted"}
+    except Exception:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="This branch has employees, customers, or loans tied to it and can't be deleted. "
+                   "Deactivate it instead to stop new activity while keeping its history intact."
+        )
+
+
 class EmployeeCreate(BaseModel):
     branch_id: str
     full_name: str

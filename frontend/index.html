@@ -61,6 +61,8 @@
   /* ---- Cards / grids ---- */
   .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:24px}
   .stat-card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:18px}
+  .stat-card.clickable{cursor:pointer;transition:transform .12s,box-shadow .12s}
+  .stat-card.clickable:hover{transform:translateY(-2px);box-shadow:0 4px 14px rgba(0,0,0,.08);border-color:var(--amber)}
   .stat-card .label{font-size:12px;color:#777;text-transform:uppercase;letter-spacing:.04em}
   .stat-card .value{font-size:26px;font-weight:700;margin-top:6px;color:var(--trust)}
   .panel{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:20px}
@@ -521,10 +523,10 @@ async function renderDashboard(){
       const trial = tenants.filter(t=>t.status==='trial').length;
       content().innerHTML = `
         <div class="stat-grid">
-          <div class="stat-card"><div class="label">Total Tenants</div><div class="value">${tenants.length}</div></div>
-          <div class="stat-card"><div class="label">Active Subscriptions</div><div class="value">${active}</div><div style="font-size:11.5px;color:#888;margin-top:4px">${trial} on trial</div></div>
-          <div class="stat-card"><div class="label">Platform Disbursed</div><div class="value">₹${overview.platform_total_disbursed.toLocaleString()}</div></div>
-          <div class="stat-card"><div class="label">Platform Collected</div><div class="value">₹${overview.platform_total_collected.toLocaleString()}</div></div>
+          <div class="stat-card clickable" onclick="navigate('tenants')"><div class="label">Total Tenants</div><div class="value">${tenants.length}</div></div>
+          <div class="stat-card clickable" onclick="navigate('tenants')"><div class="label">Active Subscriptions</div><div class="value">${active}</div><div style="font-size:11.5px;color:#888;margin-top:4px">${trial} on trial</div></div>
+          <div class="stat-card clickable" onclick="navigate('tenants')"><div class="label">Platform Disbursed</div><div class="value">₹${overview.platform_total_disbursed.toLocaleString()}</div></div>
+          <div class="stat-card clickable" onclick="navigate('tenants')"><div class="label">Platform Collected</div><div class="value">₹${overview.platform_total_collected.toLocaleString()}</div></div>
         </div>
         <div class="trend-card">
           <h3 style="font-size:15px">New tenants — last 7 days</h3>
@@ -538,10 +540,10 @@ async function renderDashboard(){
       ]);
       content().innerHTML = `
         <div class="stat-grid">
-          <div class="stat-card"><div class="label">Total Disbursed</div><div class="value">₹${r.total_disbursed.toLocaleString()}</div></div>
-          <div class="stat-card"><div class="label">Total Collected</div><div class="value">₹${r.total_collected.toLocaleString()}</div><div style="font-size:11.5px;color:#888;margin-top:4px">${r.collection_efficiency_pct}% efficiency</div></div>
-          <div class="stat-card"><div class="label">Active Loans</div><div class="value">${r.active_loans}</div><div style="font-size:11.5px;color:#888;margin-top:4px">${r.closed_loans} closed</div></div>
-          <div class="stat-card"><div class="label">Overdue Installments</div><div class="value" style="color:${r.overdue_installments>0?'#C0392B':'var(--trust)'}">${r.overdue_installments}</div><div style="font-size:11.5px;color:#888;margin-top:4px">₹${r.overdue_amount.toLocaleString()} outstanding</div></div>
+          <div class="stat-card clickable" onclick="navigate('reports')"><div class="label">Total Disbursed</div><div class="value">₹${r.total_disbursed.toLocaleString()}</div></div>
+          <div class="stat-card clickable" onclick="navigate('collections')"><div class="label">Total Collected</div><div class="value">₹${r.total_collected.toLocaleString()}</div><div style="font-size:11.5px;color:#888;margin-top:4px">${r.collection_efficiency_pct}% efficiency</div></div>
+          <div class="stat-card clickable" onclick="navigate('loans')"><div class="label">Active Loans</div><div class="value">${r.active_loans}</div><div style="font-size:11.5px;color:#888;margin-top:4px">${r.closed_loans} closed</div></div>
+          <div class="stat-card clickable" onclick="navigate('reports')"><div class="label">Overdue Installments</div><div class="value" style="color:${r.overdue_installments>0?'#C0392B':'var(--trust)'}">${r.overdue_installments}</div><div style="font-size:11.5px;color:#888;margin-top:4px">₹${r.overdue_amount.toLocaleString()} outstanding</div></div>
         </div>
         <div class="trend-card">
           <h3 style="font-size:15px">Collections — last 7 days</h3>
@@ -718,10 +720,71 @@ async function renderBranches(){
       <div class="err" id="b-err"></div>
     </div>
     <div class="panel"><h3>All branches</h3>
-      <table><thead><tr><th>Name</th><th>Code</th><th>City</th><th>State</th></tr></thead>
-      <tbody>${branches.map(b=>`<tr><td>${esc(b.name)}</td><td>${esc(b.code)}</td><td>${esc(b.city||'—')}</td><td>${esc(b.state||'—')}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">No branches yet</td></tr>'}</tbody></table>
+      <table><thead><tr><th>Name</th><th>Code</th><th>City</th><th>State</th><th>Status</th><th>Actions</th></tr></thead>
+      <tbody id="branches-tbody">${branches.map(b=>branchRow(b)).join('') || '<tr><td colspan="6" class="empty">No branches yet</td></tr>'}</tbody></table>
+    </div>
+    <div class="modal-overlay" id="edit-branch-modal">
+      <div class="modal-card">
+        <h3>Edit Branch</h3>
+        <label>Name</label><input id="eb-name">
+        <label>Code</label><input id="eb-code">
+        <label>City</label><input id="eb-city">
+        <label>State</label><input id="eb-state">
+        <div class="row-actions">
+          <button class="btn amber" onclick="submitEditBranch()">Save</button>
+          <button class="btn ghost" onclick="document.getElementById('edit-branch-modal').classList.remove('show')">Cancel</button>
+        </div>
+        <div class="err" id="eb-err"></div>
+      </div>
     </div>
   `;
+}
+function branchRow(b){
+  return `<tr>
+    <td>${esc(b.name)}</td><td>${esc(b.code)}</td><td>${esc(b.city||'—')}</td><td>${esc(b.state||'—')}</td>
+    <td><span class="badge ${b.is_active?'active':'suspended'}">${b.is_active?'Active':'Inactive'}</span></td>
+    <td style="white-space:nowrap">
+      <button class="btn ghost" style="padding:6px 8px;font-size:12px" onclick='openEditBranch(${JSON.stringify(b)})'>Edit</button>
+      ${b.is_active
+        ? `<button class="btn ghost" style="padding:6px 8px;font-size:12px" onclick="deactivateBranch('${b.id}')">Deactivate</button>`
+        : `<button class="btn amber" style="padding:6px 8px;font-size:12px" onclick="activateBranch('${b.id}')">Activate</button>`}
+      <button class="btn ghost" style="padding:6px 8px;font-size:12px;color:#C0392B" onclick="deleteBranch('${b.id}')">Delete</button>
+    </td>
+  </tr>`;
+}
+async function refreshBranchesTable(){
+  const branches = await api('/branches/');
+  document.getElementById('branches-tbody').innerHTML = branches.map(b=>branchRow(b)).join('') || '<tr><td colspan="6" class="empty">No branches yet</td></tr>';
+}
+let editingBranchId = null;
+function openEditBranch(b){
+  editingBranchId = b.id;
+  document.getElementById('eb-name').value = b.name;
+  document.getElementById('eb-code').value = b.code;
+  document.getElementById('eb-city').value = b.city || '';
+  document.getElementById('eb-state').value = b.state || '';
+  document.getElementById('eb-err').textContent = '';
+  document.getElementById('edit-branch-modal').classList.add('show');
+}
+async function submitEditBranch(){
+  const errEl = document.getElementById('eb-err');
+  try{
+    await api(`/branches/${editingBranchId}`, { method:'PATCH', json:{
+      name: document.getElementById('eb-name').value, code: document.getElementById('eb-code').value,
+      city: document.getElementById('eb-city').value, state: document.getElementById('eb-state').value,
+    }});
+    document.getElementById('edit-branch-modal').classList.remove('show');
+    refreshBranchesTable();
+  }catch(e){ errEl.textContent = e.message; }
+}
+async function activateBranch(id){ await api(`/branches/${id}/activate`, {method:'PATCH'}); refreshBranchesTable(); }
+async function deactivateBranch(id){ await api(`/branches/${id}/deactivate`, {method:'PATCH'}); refreshBranchesTable(); }
+async function deleteBranch(id){
+  if(!confirm('Delete this branch? This cannot be undone.')) return;
+  try{
+    await api(`/branches/${id}`, {method:'DELETE'});
+    refreshBranchesTable();
+  }catch(e){ alert(e.message); }
 }
 async function createBranch(){
   const errEl = document.getElementById('b-err');

@@ -20,6 +20,27 @@ def is_configured() -> bool:
     return bool(settings.CREDIT_BUREAU_API_KEY)
 
 
+def eligible_amount_for_score(score: int, product_max) -> "Decimal":
+    """
+    Caps how much of a loan product's max_amount a customer is eligible for,
+    based on their credit score. Standard tiering used by most Indian lenders;
+    adjust the thresholds/percentages to your own risk policy if needed.
+    """
+    from decimal import Decimal
+    product_max = Decimal(str(product_max))
+    if score >= 750:
+        pct = Decimal("1.00")
+    elif score >= 700:
+        pct = Decimal("0.75")
+    elif score >= 650:
+        pct = Decimal("0.50")
+    elif score >= 600:
+        pct = Decimal("0.25")
+    else:
+        pct = Decimal("0")
+    return (product_max * pct).quantize(Decimal("0.01"))
+
+
 def check_credit_score(pan_number: str) -> dict:
     """
     Returns {"score": int, "bureau": str, "pulled_at": iso timestamp} once a

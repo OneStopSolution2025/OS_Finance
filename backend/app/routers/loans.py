@@ -10,7 +10,7 @@ from app.models.tenancy import User, UserRole
 from app.models.finance import Customer, LoanProduct, Loan, EMISchedule, LoanStatus, InterestType
 from app.utils.whatsapp import send_loan_status_notification
 from app.utils.kyc_validation import validate_aadhaar, validate_pan
-from app.utils.credit_check import check_credit_score, is_configured as credit_check_configured
+from app.utils.credit_check import check_credit_score, eligible_amount_for_score, is_configured as credit_check_configured
 
 router = APIRouter(tags=["customers & loans"])
 
@@ -278,6 +278,24 @@ def apply_loan(payload: LoanApply, db: Session = Depends(get_db), user: User = D
         raise HTTPException(status_code=404, detail="Loan product not found")
     if not (product.min_amount <= Decimal(str(payload.principal_amount)) <= product.max_amount):
         raise HTTPException(status_code=400, detail=f"Amount must be between {product.min_amount} and {product.max_amount}")
+
+    # Credit-score-based cap — only actually restricts anything once a real bureau/KYC
+    # provider is connected (CREDIT_BUREAU_API_KEY set). Until then this silently
+    # no-ops, exactly like every other credit_check.py call site.
+    if credit_check_configured():
+        customer = db.query(Customer).filter(Customer.id == payload.customer_id, Customer.tenant_id == user.tenant_id).first()
+        if customer and customer.pan_number:
+            try:
+                result = check_credit_score(customer.pan_number)
+                cap = eligible_amount_for_score(result["score"], product.max_amount)
+                if Decimal(str(payload.principal_amount)) > cap:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Based on this customer's credit score ({result['score']}), the maximum amount "
+                               f"eligible on this product is ₹{cap}."
+                    )
+            except (RuntimeError, NotImplementedError):
+                pass  # bureau call itself failed/unavailable — don't block the application on that
 
     branch_count = db.query(Loan).filter(Loan.branch_id == payload.branch_id).count()
     loan_number = f"LN-{branch_count + 1:06d}"
