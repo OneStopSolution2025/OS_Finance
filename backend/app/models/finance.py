@@ -37,6 +37,8 @@ class DocumentType(str, enum.Enum):
     aadhaar = "aadhaar"
     pan = "pan"
     photo = "photo"
+    voter_id = "voter_id"
+    signed_application = "signed_application"
     address_proof = "address_proof"
     guarantor_id = "guarantor_id"
     income_proof = "income_proof"

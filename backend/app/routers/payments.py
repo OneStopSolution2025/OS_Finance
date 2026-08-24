@@ -2,6 +2,7 @@ import os
 import hmac
 import hashlib
 from datetime import datetime
+from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
@@ -17,6 +18,30 @@ from app.utils.receipts import generate_receipt_pdf
 router = APIRouter(prefix="/payments", tags=["payments"])
 
 
+def validate_emi_amount(db: Session, loan_id: str, emi_id: str | None, amount: float):
+    """
+    If a specific installment is selected, the amount collected must match what's
+    actually still owed on it (within a paisa of rounding tolerance) — prevents
+    accidental overcollection or a mistyped figure that doesn't reconcile against
+    the EMI schedule.
+    """
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be greater than zero.")
+    if not emi_id:
+        return
+    emi = db.query(EMISchedule).filter(EMISchedule.id == emi_id, EMISchedule.loan_id == loan_id).first()
+    if not emi:
+        raise HTTPException(status_code=404, detail="Installment not found on this loan.")
+    if emi.is_paid:
+        raise HTTPException(status_code=400, detail="This installment is already fully paid.")
+    remaining_due = Decimal(str(emi.total_due)) - Decimal(str(emi.amount_paid or 0))
+    if abs(Decimal(str(amount)) - remaining_due) > Decimal("0.01"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Amount must match the installment's remaining due of ₹{remaining_due:.2f}."
+        )
+
+
 class CashPayment(BaseModel):
     loan_id: str
     emi_id: str | None = None
@@ -29,6 +54,8 @@ def record_cash_payment(payload: CashPayment, db: Session = Depends(get_db), use
     loan = db.query(Loan).filter(Loan.id == payload.loan_id, Loan.tenant_id == user.tenant_id).first()
     if not loan:
         raise HTTPException(status_code=404, detail="Loan not found")
+
+    validate_emi_amount(db, payload.loan_id, payload.emi_id, payload.amount)
 
     count = db.query(Payment).filter(Payment.tenant_id == user.tenant_id).count()
     receipt_number = f"RCPT-{count + 1:06d}"
@@ -48,13 +75,16 @@ def record_cash_payment(payload: CashPayment, db: Session = Depends(get_db), use
                 emi.is_paid = True
                 emi.paid_at = datetime.utcnow()
 
-    db.commit()
-    db.refresh(payment)
-
-    customer = db.query(Customer).filter(Customer.id == loan.customer_id).first()
-    pdf_path = generate_receipt_pdf(payment, loan, customer)
-    payment.receipt_pdf_path = pdf_path
-    db.commit()
+    try:
+        db.commit()
+        db.refresh(payment)
+        customer = db.query(Customer).filter(Customer.id == loan.customer_id).first()
+        pdf_path = generate_receipt_pdf(payment, loan, customer)
+        payment.receipt_pdf_path = pdf_path
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Could not record payment: {e}")
 
     return {"payment_id": payment.id, "receipt_number": receipt_number}
 
@@ -77,13 +107,26 @@ class RazorpayOrderRequest(BaseModel):
 
 @router.post("/razorpay/create-order")
 def create_razorpay_order(payload: RazorpayOrderRequest, db: Session = Depends(get_db), user: User = Depends(require_any)):
+    loan = db.query(Loan).filter(Loan.id == payload.loan_id, Loan.tenant_id == user.tenant_id).first()
+    if not loan:
+        raise HTTPException(status_code=404, detail="Loan not found")
+
+    validate_emi_amount(db, payload.loan_id, payload.emi_id, payload.amount)
+
+    if not settings.RAZORPAY_KEY_ID or not settings.RAZORPAY_KEY_SECRET:
+        raise HTTPException(status_code=500, detail="Razorpay isn't configured yet. Contact OS2 Studio to enable online payments.")
+
     import razorpay
-    client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
-    order = client.order.create({
-        "amount": int(payload.amount * 100),  # paise
-        "currency": "INR",
-        "notes": {"loan_id": payload.loan_id, "emi_id": payload.emi_id or ""},
-    })
+    try:
+        client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
+        order = client.order.create({
+            "amount": int(round(payload.amount * 100)),  # paise
+            "currency": "INR",
+            "notes": {"loan_id": payload.loan_id, "emi_id": payload.emi_id or ""},
+        })
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Razorpay could not create the order: {e}")
+
     return {"order_id": order["id"], "amount": order["amount"], "currency": order["currency"], "key_id": settings.RAZORPAY_KEY_ID}
 
 
@@ -98,6 +141,9 @@ class RazorpayVerify(BaseModel):
 
 @router.post("/razorpay/verify")
 def verify_razorpay_payment(payload: RazorpayVerify, db: Session = Depends(get_db), user: User = Depends(require_any)):
+    if not settings.RAZORPAY_KEY_SECRET:
+        raise HTTPException(status_code=500, detail="Razorpay isn't configured yet. Contact OS2 Studio to enable online payments.")
+
     body = f"{payload.razorpay_order_id}|{payload.razorpay_payment_id}"
     expected_signature = hmac.new(
         settings.RAZORPAY_KEY_SECRET.encode(), body.encode(), hashlib.sha256
@@ -128,12 +174,15 @@ def verify_razorpay_payment(payload: RazorpayVerify, db: Session = Depends(get_d
                 emi.is_paid = True
                 emi.paid_at = datetime.utcnow()
 
-    db.commit()
-    db.refresh(payment)
-
-    customer = db.query(Customer).filter(Customer.id == loan.customer_id).first()
-    pdf_path = generate_receipt_pdf(payment, loan, customer)
-    payment.receipt_pdf_path = pdf_path
-    db.commit()
+    try:
+        db.commit()
+        db.refresh(payment)
+        customer = db.query(Customer).filter(Customer.id == loan.customer_id).first()
+        pdf_path = generate_receipt_pdf(payment, loan, customer)
+        payment.receipt_pdf_path = pdf_path
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Could not record payment: {e}")
 
     return {"payment_id": payment.id, "receipt_number": receipt_number, "status": "verified"}
