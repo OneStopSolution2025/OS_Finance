@@ -9,6 +9,17 @@ This is intentionally minimal (not a replacement for Alembic on a larger
 project) — it just walks each table's expected columns, checks what actually
 exists via information_schema, and ALTERs in whatever's missing with a safe
 default so existing rows don't break.
+
+IMPORTANT — Postgres type matching: any column that's a foreign key to
+users.id/tenants.id/etc. must be added as UUID here, not VARCHAR. The Python
+model declares these as UUID(as_uuid=False), and SQLAlchemy binds query
+parameters against UUID columns with an explicit ::UUID cast — Postgres then
+refuses to compare that against a VARCHAR column ("operator does not exist:
+character varying = uuid"). This bit us once already (loans.applied_by /
+loans.rejected_by) — fix_mistyped_columns() below retroactively corrects any
+column that was already created with the wrong type by an earlier version of
+this file, since simply fixing the DDL text here doesn't touch a column that
+already exists on a live database.
 """
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
@@ -33,10 +44,10 @@ def run_safe_migrations(engine: Engine):
             ("calculation_basis", "VARCHAR"),
         ],
         "loans": [
-            ("rejected_by", "VARCHAR"),
+            ("rejected_by", "UUID"),
             ("rejected_at", "TIMESTAMP"),
             ("rejection_reason", "VARCHAR"),
-            ("applied_by", "VARCHAR"),
+            ("applied_by", "UUID"),
         ],
     }
 
@@ -48,3 +59,33 @@ def run_safe_migrations(engine: Engine):
             for col_name, ddl in columns:
                 if col_name not in existing_columns:
                     conn.execute(text(f'ALTER TABLE "{table}" ADD COLUMN "{col_name}" {ddl}'))
+
+    fix_mistyped_columns(engine)
+
+
+def fix_mistyped_columns(engine: Engine):
+    """
+    Retroactively corrects columns that an earlier version of run_safe_migrations
+    created with the wrong type (VARCHAR instead of UUID) before this file's DDL
+    was fixed. Only applies to Postgres — SQLite doesn't distinguish these types,
+    so there's nothing to fix there, and this must never run against it.
+    """
+    if engine.dialect.name != "postgresql":
+        return
+
+    inspector = inspect(engine)
+    # table -> [column names that must be UUID type]
+    should_be_uuid = {
+        "loans": ["applied_by", "rejected_by"],
+    }
+
+    with engine.begin() as conn:
+        for table, columns in should_be_uuid.items():
+            if table not in inspector.get_table_names():
+                continue
+            current = {c["name"]: str(c["type"]).upper() for c in inspector.get_columns(table)}
+            for col in columns:
+                if col in current and current[col] != "UUID":
+                    conn.execute(text(
+                        f'ALTER TABLE "{table}" ALTER COLUMN "{col}" TYPE UUID USING "{col}"::uuid'
+                    ))
