@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from app.core.database import get_db
 from app.core.security import require_any, require_superadmin_or_above
-from app.models.tenancy import User, UserRole
+from app.models.tenancy import User, UserRole, Tenant
 from app.models.finance import Customer, LoanProduct, Loan, EMISchedule, LoanStatus, InterestType
 from app.utils.whatsapp import send_loan_status_notification
 from app.utils.kyc_validation import validate_aadhaar, validate_pan
@@ -392,10 +392,11 @@ def disburse_loan(loan_id: str, payload: LoanDisburse = LoanDisburse(), db: Sess
                 detail="This customer has no bank account details on file — required for bank transfer disbursal. "
                        "Add their bank details, or disburse as cash instead."
             )
-        if payout_configured():
+        tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
+        if payout_configured(tenant):
             try:
                 result = send_payout(
-                    customer.bank_account_number, customer.bank_ifsc,
+                    tenant, customer.bank_account_number, customer.bank_ifsc,
                     customer.bank_account_holder_name or customer.full_name,
                     float(loan.principal_amount), f"Loan disbursal {loan.loan_number}", loan.id,
                 )
@@ -405,8 +406,8 @@ def disburse_loan(loan_id: str, payload: LoanDisburse = LoanDisburse(), db: Sess
         elif not payload.disbursal_reference:
             raise HTTPException(
                 status_code=400,
-                detail="Bank payouts aren't automated yet — enter the bank transaction reference (UTR) "
-                       "after transferring the funds manually."
+                detail="Bank payouts aren't connected yet — enter the bank transaction reference (UTR) "
+                       "after transferring the funds manually, or connect RazorpayX under Payment Settings."
             )
 
     product = db.query(LoanProduct).filter(LoanProduct.id == loan.loan_product_id).first()

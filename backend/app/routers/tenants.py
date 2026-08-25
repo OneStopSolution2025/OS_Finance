@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
 
 from app.core.database import get_db
-from app.core.security import require_superemeadmin, hash_password
+from app.core.security import require_superemeadmin, require_superadmin, hash_password
 from app.models.tenancy import Tenant, SubscriptionPlan, SubscriptionStatus, User, UserRole, ApplicationStatus
 from app.utils.passwords import generate_password
 
@@ -262,3 +262,52 @@ def create_plan(payload: PlanCreate, db: Session = Depends(get_db)):
 @router.get("/plans", dependencies=[Depends(require_superemeadmin)])
 def list_plans(db: Session = Depends(get_db)):
     return db.query(SubscriptionPlan).all()
+
+
+# ---------- Payment settings (SuperAdmin, per-tenant) ----------
+
+def _mask(secret: str | None) -> str | None:
+    """Never send a saved secret back to the browser in full — show only the last 4 characters."""
+    if not secret:
+        return None
+    return f"{'•' * max(len(secret) - 4, 0)}{secret[-4:]}"
+
+
+@router.get("/payment-settings", dependencies=[Depends(require_superadmin)])
+def get_payment_settings(db: Session = Depends(get_db), user: User = Depends(require_superadmin)):
+    tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    return {
+        "razorpay_configured": bool(tenant.razorpay_key_id and tenant.razorpay_key_secret),
+        "razorpay_key_id": tenant.razorpay_key_id,
+        "razorpay_key_secret_masked": _mask(tenant.razorpay_key_secret),
+        "razorpayx_configured": bool(tenant.razorpayx_account_number and tenant.razorpayx_key_id and tenant.razorpayx_key_secret),
+        "razorpayx_account_number": tenant.razorpayx_account_number,
+        "razorpayx_key_id": tenant.razorpayx_key_id,
+        "razorpayx_key_secret_masked": _mask(tenant.razorpayx_key_secret),
+    }
+
+
+class PaymentSettingsUpdate(BaseModel):
+    razorpay_key_id: str | None = None
+    razorpay_key_secret: str | None = None
+    razorpayx_account_number: str | None = None
+    razorpayx_key_id: str | None = None
+    razorpayx_key_secret: str | None = None
+
+
+@router.put("/payment-settings", dependencies=[Depends(require_superadmin)])
+def update_payment_settings(payload: PaymentSettingsUpdate, db: Session = Depends(get_db), user: User = Depends(require_superadmin)):
+    tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    # Only overwrite a field if a new value was actually sent — this lets the
+    # frontend save the Razorpay half without accidentally blanking RazorpayX
+    # (since secrets are masked in the GET response and shouldn't round-trip).
+    updates = payload.dict(exclude_unset=True, exclude_none=True)
+    for field, value in updates.items():
+        setattr(tenant, field, value)
+    db.commit()
+    return {"status": "updated"}

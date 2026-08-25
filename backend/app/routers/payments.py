@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from app.core.database import get_db
 from app.core.security import require_any
 from app.core.config import settings
-from app.models.tenancy import User
+from app.models.tenancy import User, Tenant
 from app.models.finance import Payment, EMISchedule, Loan, Customer, PaymentMethod
 from app.utils.receipts import generate_receipt_pdf
 from app.utils.whatsapp import send_payment_receipt_notification
@@ -121,12 +121,17 @@ def create_razorpay_order(payload: RazorpayOrderRequest, db: Session = Depends(g
 
     validate_emi_amount(db, payload.loan_id, payload.emi_id, payload.amount)
 
-    if not settings.RAZORPAY_KEY_ID or not settings.RAZORPAY_KEY_SECRET:
-        raise HTTPException(status_code=500, detail="Razorpay isn't configured yet. Contact OS2 Studio to enable online payments.")
+    tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
+    if not tenant or not tenant.razorpay_key_id or not tenant.razorpay_key_secret:
+        raise HTTPException(
+            status_code=500,
+            detail="Online payments aren't set up for your account yet. Ask your SuperAdmin to add "
+                   "Razorpay credentials under Payment Settings."
+        )
 
     import razorpay
     try:
-        client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
+        client = razorpay.Client(auth=(tenant.razorpay_key_id, tenant.razorpay_key_secret))
         order = client.order.create({
             "amount": int(round(payload.amount * 100)),  # paise
             "currency": "INR",
@@ -135,7 +140,7 @@ def create_razorpay_order(payload: RazorpayOrderRequest, db: Session = Depends(g
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Razorpay could not create the order: {e}")
 
-    return {"order_id": order["id"], "amount": order["amount"], "currency": order["currency"], "key_id": settings.RAZORPAY_KEY_ID}
+    return {"order_id": order["id"], "amount": order["amount"], "currency": order["currency"], "key_id": tenant.razorpay_key_id}
 
 
 class RazorpayVerify(BaseModel):
@@ -149,12 +154,17 @@ class RazorpayVerify(BaseModel):
 
 @router.post("/razorpay/verify")
 def verify_razorpay_payment(payload: RazorpayVerify, db: Session = Depends(get_db), user: User = Depends(require_any)):
-    if not settings.RAZORPAY_KEY_SECRET:
-        raise HTTPException(status_code=500, detail="Razorpay isn't configured yet. Contact OS2 Studio to enable online payments.")
+    tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
+    if not tenant or not tenant.razorpay_key_secret:
+        raise HTTPException(
+            status_code=500,
+            detail="Online payments aren't set up for your account yet. Ask your SuperAdmin to add "
+                   "Razorpay credentials under Payment Settings."
+        )
 
     body = f"{payload.razorpay_order_id}|{payload.razorpay_payment_id}"
     expected_signature = hmac.new(
-        settings.RAZORPAY_KEY_SECRET.encode(), body.encode(), hashlib.sha256
+        tenant.razorpay_key_secret.encode(), body.encode(), hashlib.sha256
     ).hexdigest()
     if expected_signature != payload.razorpay_signature:
         raise HTTPException(status_code=400, detail="Payment signature verification failed")

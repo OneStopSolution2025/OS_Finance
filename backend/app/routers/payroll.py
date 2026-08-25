@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from app.core.database import get_db
 from app.core.security import require_superadmin
-from app.models.tenancy import User, UserRole
+from app.models.tenancy import User, UserRole, Tenant
 from app.models.payroll import SalaryStructure, PayrollRun, Payslip, PayslipStatus
 from app.utils.payouts import send_payout, is_configured as payout_configured
 from app.utils.payroll_pdf import generate_payslip_pdf
@@ -160,10 +160,11 @@ def pay_payslip(payslip_id: str, payload: PayslipPay, db: Session = Depends(get_
                 detail="This employee has no bank account details on file — required for bank transfer. "
                        "Add their bank details, or pay as cash instead."
             )
-        if payout_configured():
+        tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
+        if payout_configured(tenant):
             try:
                 result = send_payout(
-                    employee.bank_account_number, employee.bank_ifsc,
+                    tenant, employee.bank_account_number, employee.bank_ifsc,
                     employee.bank_account_holder_name or employee.full_name,
                     float(payslip.net_pay), f"Salary {payslip.payroll_run_id}", payslip.id,
                 )
@@ -173,8 +174,8 @@ def pay_payslip(payslip_id: str, payload: PayslipPay, db: Session = Depends(get_
         elif not reference:
             raise HTTPException(
                 status_code=400,
-                detail="Bank payouts aren't automated yet — enter the bank transaction reference (UTR) "
-                       "after transferring the funds manually."
+                detail="Bank payouts aren't connected yet — enter the bank transaction reference (UTR) "
+                       "after transferring the funds manually, or connect RazorpayX under Payment Settings."
             )
 
     payslip.status = PayslipStatus.paid

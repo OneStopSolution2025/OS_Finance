@@ -63,6 +63,15 @@ class Tenant(Base):
     tracking_code = Column(String, unique=True, nullable=True)  # e.g. "APP-4F82K1", given to the applicant
     rejection_reason = Column(String, nullable=True)
 
+    # Per-tenant payment credentials — each microfinance operator collects into
+    # THEIR OWN Razorpay account, not a shared platform-wide one. Set by the
+    # tenant's own SuperAdmin from the Payment Settings screen, never by OS2 Studio.
+    razorpay_key_id = Column(String, nullable=True)
+    razorpay_key_secret = Column(String, nullable=True)
+    razorpayx_account_number = Column(String, nullable=True)
+    razorpayx_key_id = Column(String, nullable=True)
+    razorpayx_key_secret = Column(String, nullable=True)
+
     branches = relationship("Branch", back_populates="tenant", cascade="all, delete-orphan")
     plan = relationship("SubscriptionPlan")
 

@@ -32,10 +32,4 @@ class Settings:
     # until you've signed with a real provider; see app/utils/credit_check.py
     CREDIT_BUREAU_API_KEY: str = os.getenv("CREDIT_BUREAU_API_KEY", "")
 
-    # RazorpayX Payouts — separate from standard Razorpay above, needs its own
-    # business KYC/approval; see app/utils/payouts.py
-    RAZORPAYX_ACCOUNT_NUMBER: str = os.getenv("RAZORPAYX_ACCOUNT_NUMBER", "")
-    RAZORPAYX_KEY_ID: str = os.getenv("RAZORPAYX_KEY_ID", "")
-    RAZORPAYX_KEY_SECRET: str = os.getenv("RAZORPAYX_KEY_SECRET", "")
-
 settings = Settings()

@@ -7,6 +7,9 @@
 <meta name="theme-color" content="#231F20">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="config.js"></script>
 <style>
   :root{
@@ -23,20 +26,23 @@
     --radius:10px;
   }
   *{box-sizing:border-box}
-  body{margin:0;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--ink)}
-  h1,h2,h3{font-family:Georgia,'Times New Roman',serif;letter-spacing:-0.01em;margin:0}
+  body{margin:0;font-family:'Space Grotesk',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--ink)}
+  h1,h2,h3{font-family:'Archivo Black','Space Grotesk',sans-serif;letter-spacing:-0.01em;margin:0;font-weight:400}
   .app{display:none;min-height:100vh}
   .app.active{display:flex}
   /* ---- Login ---- */
-  #login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(160deg,var(--charcoal) 0%,#100D0C 100%);padding:20px}
-  .login-card{background:var(--surface);border-radius:16px;padding:40px 36px;width:100%;max-width:380px;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+  #login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(160deg,var(--charcoal) 0%,#100D0C 100%);padding:20px;position:relative;overflow:hidden}
+  #login-screen::before{content:'';position:absolute;inset:0;background-image:radial-gradient(circle,rgba(255,182,0,.08) 1.5px,transparent 1.5px);background-size:28px 28px;pointer-events:none}
+  #login-screen::after{content:'';position:absolute;width:420px;height:420px;border-radius:50%;background:radial-gradient(circle,rgba(255,182,0,.15) 0%,transparent 70%);top:-120px;right:-120px;pointer-events:none}
+  .login-card{background:var(--surface);border-radius:20px;padding:40px 36px;width:100%;max-width:380px;box-shadow:0 24px 70px rgba(0,0,0,.4);position:relative;z-index:1;border-top:4px solid var(--amber)}
   .login-card .brand{display:flex;align-items:center;gap:10px;margin-bottom:28px}
-  .brand-mark{width:38px;height:38px;border-radius:8px;background:var(--amber);display:flex;align-items:center;justify-content:center;color:var(--ink);font-weight:700;font-family:Georgia,serif}
-  .brand-name{font-size:19px;font-weight:700}
+  .brand-mark{width:38px;height:38px;border-radius:8px;background:var(--amber);display:flex;align-items:center;justify-content:center;color:var(--ink);font-weight:400;font-family:'Archivo Black',sans-serif;box-shadow:0 2px 8px rgba(255,182,0,.35)}
+  .brand-name{font-size:19px;font-weight:700;font-family:'Archivo Black',sans-serif;letter-spacing:-0.01em}
   .login-card label{display:block;font-size:13px;font-weight:600;margin:14px 0 6px;color:#555}
   .login-card input{width:100%;padding:11px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px}
   .login-card input:focus{outline:2px solid var(--amber);outline-offset:1px;border-color:var(--amber)}
-  .btn{background:var(--amber);color:var(--ink);border:none;padding:12px 18px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;transition:background .15s}
+  .btn{background:var(--amber);color:var(--ink);border:none;padding:12px 18px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;transition:background .15s,transform .1s,box-shadow .15s;box-shadow:0 2px 0 rgba(0,0,0,.08)}
+  .btn:active{transform:translateY(1px);box-shadow:0 1px 0 rgba(0,0,0,.08)}
   .btn:hover{background:#E6A500}
   .btn.amber{background:var(--amber);color:var(--ink)}
   .btn.amber:hover{background:#e6a500}
@@ -48,30 +54,34 @@
   .sidebar{width:230px;background:var(--charcoal);color:#EFEAE0;flex-shrink:0;display:flex;flex-direction:column;padding:20px 14px}
   .sidebar .brand{display:flex;align-items:center;gap:10px;padding:0 6px 20px;border-bottom:1px solid rgba(255,255,255,.1);margin-bottom:14px}
   .sidebar .brand-name{color:#fff;font-size:16px}
-  .role-pill{font-size:10px;text-transform:uppercase;letter-spacing:.06em;background:var(--amber);color:var(--ink);padding:2px 8px;border-radius:20px;display:inline-block;margin-top:4px}
-  .nav-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;cursor:pointer;font-size:14px;color:#D8D3C8;margin-bottom:2px}
+  .role-pill{font-size:10px;text-transform:uppercase;letter-spacing:.06em;background:var(--amber);color:var(--ink);padding:3px 9px;border-radius:20px;display:inline-block;margin-top:4px;font-weight:700;box-shadow:0 1px 4px rgba(255,182,0,.4)}
+  .nav-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;cursor:pointer;font-size:14px;color:#D8D3C8;margin-bottom:2px;transition:background .12s,transform .1s}
+  .nav-item:hover{transform:translateX(2px)}
   .nav-item:hover{background:rgba(255,255,255,.06)}
-  .nav-item.active{background:var(--amber);color:var(--ink)}
+  .nav-item.active{background:var(--amber);color:var(--ink);font-weight:600;box-shadow:0 2px 8px rgba(255,182,0,.3)}
   .sidebar-footer{margin-top:auto;padding-top:14px;border-top:1px solid rgba(255,255,255,.1)}
   .main{flex:1;min-width:0;display:flex;flex-direction:column}
-  .topbar{background:#fff;border-bottom:1px solid var(--border);padding:14px 24px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:5}
+  .topbar{background:#fff;border-bottom:2px solid var(--amber);padding:14px 24px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:5}
   .topbar h2{font-size:20px}
   .content{padding:24px;flex:1;overflow-y:auto}
   .mobile-topbar{display:none}
   /* ---- Cards / grids ---- */
   .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:24px}
-  .stat-card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:18px}
+  .stat-card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:18px;position:relative;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+  .stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--amber),var(--lime))}
   .stat-card.clickable{cursor:pointer;transition:transform .12s,box-shadow .12s}
   .stat-card.clickable:hover{transform:translateY(-2px);box-shadow:0 4px 14px rgba(0,0,0,.08);border-color:var(--amber)}
   .stat-card .label{font-size:12px;color:#777;text-transform:uppercase;letter-spacing:.04em}
   .stat-card .value{font-size:26px;font-weight:700;margin-top:6px;color:var(--trust)}
-  .panel{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:20px}
+  .panel{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:20px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+  .panel h3{position:relative;padding-left:12px}
+  .panel h3::before{content:'';position:absolute;left:0;top:2px;bottom:2px;width:3px;background:var(--amber);border-radius:2px}
   .panel h3{font-size:16px;margin-bottom:14px}
   table{width:100%;border-collapse:collapse;font-size:13.5px}
   th{text-align:left;padding:10px 8px;border-bottom:2px solid var(--border);color:#666;font-weight:600;font-size:12px;text-transform:uppercase}
   td{padding:10px 8px;border-bottom:1px solid var(--border)}
   tr:hover td{background:#FAFAF8}
-  .badge{padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600;text-transform:capitalize}
+  .badge{padding:4px 10px;border-radius:20px;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em}
   .badge.active,.badge.approved,.badge.disbursed,.badge.present{background:#EEF5C4;color:#5A6B00}
   .badge.pending_approval,.badge.trial{background:#FFF3D6;color:#8A6200}
   .badge.suspended,.badge.rejected,.badge.overdue{background:#FBE4E1;color:var(--danger)}
@@ -80,7 +90,7 @@
   .field label{display:block;font-size:12px;font-weight:600;color:#555;margin-bottom:5px}
   .field input,.field select{width:100%;padding:9px 10px;border:1px solid var(--border);border-radius:7px;font-size:13.5px}
   .row-actions{display:flex;gap:8px;margin-top:16px}
-  .empty{color:#999;font-size:13.5px;padding:24px;text-align:center}
+  .empty{color:#999;font-size:13.5px;padding:32px 24px;text-align:center;line-height:1.6}
   .hidden{display:none !important}
   .menu-toggle{display:none;background:none;border:none;font-size:22px;cursor:pointer}
   @media(max-width:860px){
@@ -100,7 +110,7 @@
     .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:50;align-items:center;justify-content:center;padding:20px}
     .modal-overlay.show{display:flex}
     .modal-card{background:#fff;border-radius:16px;padding:32px;width:100%;max-width:440px}
-    .modal-card h3{font-size:19px;margin-bottom:6px;font-family:Georgia,'Times New Roman',serif;letter-spacing:-0.01em}
+    .modal-card h3{font-size:19px;margin-bottom:6px;font-family:'Archivo Black','Space Grotesk',sans-serif;letter-spacing:-0.01em;font-weight:400}
     .modal-card p.sub{font-size:12.5px;color:#666;margin:0 0 20px;line-height:1.55}
     .modal-card label{display:block;font-size:12.5px;font-weight:600;margin:14px 0 6px;color:#555;text-transform:uppercase;letter-spacing:.03em}
     .modal-card label:first-of-type{margin-top:0}
@@ -453,6 +463,7 @@ const NAV = {
     {id:'loans', label:'💰 Loans'},
     {id:'payroll', label:'🧾 Payroll'},
     {id:'reports', label:'📈 Reports'},
+    {id:'payment-settings', label:'🔑 Payment Settings'},
   ],
   employee: [
     {id:'dashboard', label:'📊 Overview'},
@@ -486,13 +497,13 @@ function navigate(view){
   renderNav();
   const titles = {dashboard:'Overview', tenants:'Tenants', plans:'Subscription Plans', branches:'Branches',
     employees:'Employees', 'loan-products':'Loan Products', loans:'Loans', reports:'Reports & Accounts',
-    customers:'Customers', collections:'Collections', applications:'Applications', payroll:'Payroll'};
+    customers:'Customers', collections:'Collections', applications:'Applications', payroll:'Payroll', 'payment-settings':'Payment Settings'};
   document.getElementById('page-title').textContent = titles[view] || view;
   const renderers = {
     dashboard: renderDashboard, tenants: renderTenants, plans: renderPlans, branches: renderBranches,
     employees: renderEmployees, 'loan-products': renderLoanProducts, loans: renderLoans,
     reports: renderReports, customers: renderCustomers, collections: renderCollections,
-    applications: renderApplications, payroll: renderPayroll,
+    applications: renderApplications, payroll: renderPayroll, 'payment-settings': renderPaymentSettings,
   };
   (renderers[view] || renderDashboard)();
 }
@@ -1382,6 +1393,66 @@ async function downloadLeads(){
 }
 
 // ---------- SuperAdmin: Payroll ----------
+// ---------- SuperAdmin: Payment Settings ----------
+async function renderPaymentSettings(){
+  content().innerHTML = `<div class="empty">Loading…</div>`;
+  const s = await api('/tenants/payment-settings');
+  content().innerHTML = `
+    <div class="panel">
+      <h3>Razorpay — collect loan repayments</h3>
+      <p style="font-size:12.5px;color:#666;margin:0 0 14px">Your own Razorpay account, used when a customer pays an EMI online. Each tenant connects their own account — payments go straight to you, not through OS2 Studio.</p>
+      <div class="stat-card" style="margin-bottom:14px;display:inline-block">
+        <div class="label">Status</div>
+        <div class="value" style="font-size:16px;color:${s.razorpay_configured?'#5A6B00':'#C0392B'}">${s.razorpay_configured?'✅ Connected':'Not connected'}</div>
+      </div>
+      <div class="form-grid">
+        <div class="field"><label>Key ID</label><input id="ps-rzp-id" value="${esc(s.razorpay_key_id||'')}" placeholder="rzp_live_xxxxxxxx"></div>
+        <div class="field"><label>Key Secret</label><input id="ps-rzp-secret" type="password" placeholder="${s.razorpay_key_secret_masked ? esc(s.razorpay_key_secret_masked) : 'Enter your Razorpay key secret'}"></div>
+      </div>
+      <div class="row-actions"><button class="btn amber" onclick="saveRazorpaySettings()">Save Razorpay settings</button></div>
+      <div class="err" id="ps-rzp-err"></div>
+    </div>
+    <div class="panel">
+      <h3>RazorpayX — automated bank transfers</h3>
+      <p style="font-size:12.5px;color:#666;margin:0 0 14px">A separate product from Razorpay above, with its own business KYC — needed to automate payroll and loan disbursal via bank transfer. Until connected, those still work using a manual reference-number entry.</p>
+      <div class="stat-card" style="margin-bottom:14px;display:inline-block">
+        <div class="label">Status</div>
+        <div class="value" style="font-size:16px;color:${s.razorpayx_configured?'#5A6B00':'#C0392B'}">${s.razorpayx_configured?'✅ Connected':'Not connected (manual reference entry still works)'}</div>
+      </div>
+      <div class="form-grid">
+        <div class="field"><label>Account Number</label><input id="ps-rzpx-account" value="${esc(s.razorpayx_account_number||'')}"></div>
+        <div class="field"><label>Key ID</label><input id="ps-rzpx-id" value="${esc(s.razorpayx_key_id||'')}"></div>
+        <div class="field"><label>Key Secret</label><input id="ps-rzpx-secret" type="password" placeholder="${s.razorpayx_key_secret_masked ? esc(s.razorpayx_key_secret_masked) : 'Enter your RazorpayX key secret'}"></div>
+      </div>
+      <div class="row-actions"><button class="btn amber" onclick="saveRazorpayXSettings()">Save RazorpayX settings</button></div>
+      <div class="err" id="ps-rzpx-err"></div>
+    </div>
+  `;
+}
+async function saveRazorpaySettings(){
+  const errEl = document.getElementById('ps-rzp-err'); errEl.textContent = '';
+  const secret = document.getElementById('ps-rzp-secret').value;
+  const payload = { razorpay_key_id: document.getElementById('ps-rzp-id').value };
+  if(secret) payload.razorpay_key_secret = secret;  // only send if the user actually typed a new one
+  try{
+    await api('/tenants/payment-settings', { method:'PUT', json: payload });
+    renderPaymentSettings();
+  }catch(e){ errEl.textContent = e.message; }
+}
+async function saveRazorpayXSettings(){
+  const errEl = document.getElementById('ps-rzpx-err'); errEl.textContent = '';
+  const secret = document.getElementById('ps-rzpx-secret').value;
+  const payload = {
+    razorpayx_account_number: document.getElementById('ps-rzpx-account').value,
+    razorpayx_key_id: document.getElementById('ps-rzpx-id').value,
+  };
+  if(secret) payload.razorpayx_key_secret = secret;
+  try{
+    await api('/tenants/payment-settings', { method:'PUT', json: payload });
+    renderPaymentSettings();
+  }catch(e){ errEl.textContent = e.message; }
+}
+
 async function renderPayroll(){
   content().innerHTML = `<div class="empty">Loading…</div>`;
   const [structures, runs, employees] = await Promise.all([

@@ -35,6 +35,11 @@ def run_safe_migrations(engine: Engine):
             ("application_status", "VARCHAR DEFAULT 'approved' NOT NULL"),
             ("tracking_code", "VARCHAR"),
             ("rejection_reason", "VARCHAR"),
+            ("razorpay_key_id", "VARCHAR"),
+            ("razorpay_key_secret", "VARCHAR"),
+            ("razorpayx_account_number", "VARCHAR"),
+            ("razorpayx_key_id", "VARCHAR"),
+            ("razorpayx_key_secret", "VARCHAR"),
         ],
         "customers": [
             ("phone_verified", "BOOLEAN DEFAULT FALSE"),
