@@ -38,6 +38,10 @@ def run_safe_migrations(engine: Engine):
         ],
         "customers": [
             ("phone_verified", "BOOLEAN DEFAULT FALSE"),
+            ("bank_account_holder_name", "VARCHAR"),
+            ("bank_account_number", "VARCHAR"),
+            ("bank_ifsc", "VARCHAR"),
+            ("bank_name", "VARCHAR"),
         ],
         "loan_products": [
             ("custom_interest_label", "VARCHAR"),
@@ -48,6 +52,18 @@ def run_safe_migrations(engine: Engine):
             ("rejected_at", "TIMESTAMP"),
             ("rejection_reason", "VARCHAR"),
             ("applied_by", "UUID"),
+            ("disbursal_method", "VARCHAR"),
+            ("disbursal_reference", "VARCHAR"),
+        ],
+        "users": [
+            ("address", "VARCHAR"),
+            ("bank_account_holder_name", "VARCHAR"),
+            ("bank_account_number", "VARCHAR"),
+            ("bank_ifsc", "VARCHAR"),
+            ("bank_name", "VARCHAR"),
+        ],
+        "documents": [
+            ("employee_id", "UUID"),
         ],
     }
 
@@ -77,6 +93,7 @@ def fix_mistyped_columns(engine: Engine):
     # table -> [column names that must be UUID type]
     should_be_uuid = {
         "loans": ["applied_by", "rejected_by"],
+        "documents": ["employee_id"],
     }
 
     with engine.begin() as conn:

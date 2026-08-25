@@ -451,6 +451,7 @@ const NAV = {
     {id:'employees', label:'👥 Employees'},
     {id:'loan-products', label:'📄 Loan Products'},
     {id:'loans', label:'💰 Loans'},
+    {id:'payroll', label:'🧾 Payroll'},
     {id:'reports', label:'📈 Reports'},
   ],
   employee: [
@@ -485,13 +486,13 @@ function navigate(view){
   renderNav();
   const titles = {dashboard:'Overview', tenants:'Tenants', plans:'Subscription Plans', branches:'Branches',
     employees:'Employees', 'loan-products':'Loan Products', loans:'Loans', reports:'Reports & Accounts',
-    customers:'Customers', collections:'Collections', applications:'Applications'};
+    customers:'Customers', collections:'Collections', applications:'Applications', payroll:'Payroll'};
   document.getElementById('page-title').textContent = titles[view] || view;
   const renderers = {
     dashboard: renderDashboard, tenants: renderTenants, plans: renderPlans, branches: renderBranches,
     employees: renderEmployees, 'loan-products': renderLoanProducts, loans: renderLoans,
     reports: renderReports, customers: renderCustomers, collections: renderCollections,
-    applications: renderApplications,
+    applications: renderApplications, payroll: renderPayroll,
   };
   (renderers[view] || renderDashboard)();
 }
@@ -840,7 +841,18 @@ async function renderEmployees(){
         <div class="field"><label>Branch</label><select id="e-branch">${branchOpts || '<option>Create a branch first</option>'}</select></div>
         <div class="field"><label>Full name</label><input id="e-name"></div>
         <div class="field"><label>Email</label><input id="e-email" type="email"></div>
+        <div class="field"><label>Contact number</label><input id="e-phone"></div>
         <div class="field"><label>Designation</label><input id="e-desig" placeholder="Loan Officer"></div>
+        <div class="field" style="grid-column:1/-1"><label>Address</label><input id="e-address"></div>
+      </div>
+      <h3 style="font-size:14px;margin:18px 0 10px">Bank details (for payroll)</h3>
+      <div class="form-grid">
+        <div class="field"><label>Account holder name</label><input id="e-bank-holder"></div>
+        <div class="field"><label>Account number</label><input id="e-bank-account"></div>
+        <div class="field"><label>IFSC code</label><input id="e-bank-ifsc" style="text-transform:uppercase"></div>
+        <div class="field"><label>Bank name</label><input id="e-bank-name"></div>
+      </div>
+      <div class="form-grid" style="margin-top:14px">
         <div class="field" style="grid-column:1/-1">
           <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;width:fit-content"><input type="checkbox" id="e-auto-pw" checked onchange="toggleManualPw('e')" style="margin:0"><span>Auto-generate a secure password</span></label>
         </div>
@@ -848,17 +860,24 @@ async function renderEmployees(){
       </div>
       <div class="row-actions"><button class="btn amber" onclick="createEmployee()">Create employee</button></div>
       <div class="err" id="e-err"></div>
+      <div id="e-doc-upload"></div>
     </div>
     <div class="panel"><h3>All employees</h3>
-      <table><thead><tr><th>Name</th><th>Email</th><th>Branch</th><th>Designation</th><th>Status</th><th>Actions</th></tr></thead>
-      <tbody id="employees-tbody">${employees.map(e=>employeeRow(e, branchName)).join('') || '<tr><td colspan="6" class="empty">No employees yet</td></tr>'}</tbody></table>
+      <table><thead><tr><th>Name</th><th>Email</th><th>Branch</th><th>Designation</th><th>Bank</th><th>Status</th><th>Actions</th></tr></thead>
+      <tbody id="employees-tbody">${employees.map(e=>employeeRow(e, branchName)).join('') || '<tr><td colspan="7" class="empty">No employees yet</td></tr>'}</tbody></table>
     </div>
     <div class="modal-overlay" id="edit-employee-modal">
-      <div class="modal-card">
+      <div class="modal-card" style="max-width:480px;max-height:85vh;overflow-y:auto">
         <h3>Edit Employee</h3>
         <label>Full name</label><input id="ee-name">
+        <label>Contact number</label><input id="ee-phone">
         <label>Designation</label><input id="ee-desig">
         <label>Branch</label><select id="ee-branch">${branchOpts}</select>
+        <label>Address</label><input id="ee-address">
+        <label>Bank account holder</label><input id="ee-bank-holder">
+        <label>Bank account number</label><input id="ee-bank-account">
+        <label>IFSC code</label><input id="ee-bank-ifsc" style="text-transform:uppercase">
+        <label>Bank name</label><input id="ee-bank-name">
         <div class="row-actions">
           <button class="btn amber" onclick="submitEditEmployee()">Save</button>
           <button class="btn ghost" onclick="document.getElementById('edit-employee-modal').classList.remove('show')">Cancel</button>
@@ -871,6 +890,7 @@ async function renderEmployees(){
 function employeeRow(e, branchName){
   return `<tr>
     <td>${esc(e.full_name)}</td><td>${esc(e.email)}</td><td>${esc(branchName(e.branch_id))}</td><td>${esc(e.designation||'—')}</td>
+    <td>${e.bank_account_number ? '✅' : '—'}</td>
     <td><span class="badge ${e.is_active?'active':'suspended'}">${e.is_active?'Active':'Suspended'}</span></td>
     <td style="white-space:nowrap">
       <button class="btn ghost" style="padding:6px 8px;font-size:12px" onclick='openEditEmployee(${JSON.stringify(e)})'>Edit</button>
@@ -884,14 +904,20 @@ function employeeRow(e, branchName){
 async function refreshEmployeesTable(){
   const [employees, branches] = await Promise.all([api('/branches/employees'), api('/branches/')]);
   const branchName = id => (branches.find(b=>b.id===id)||{}).name || '—';
-  document.getElementById('employees-tbody').innerHTML = employees.map(e=>employeeRow(e, branchName)).join('') || '<tr><td colspan="6" class="empty">No employees yet</td></tr>';
+  document.getElementById('employees-tbody').innerHTML = employees.map(e=>employeeRow(e, branchName)).join('') || '<tr><td colspan="7" class="empty">No employees yet</td></tr>';
 }
 let editingEmployeeId = null;
 function openEditEmployee(e){
   editingEmployeeId = e.id;
   document.getElementById('ee-name').value = e.full_name;
+  document.getElementById('ee-phone').value = e.phone || '';
   document.getElementById('ee-desig').value = e.designation || '';
   document.getElementById('ee-branch').value = e.branch_id;
+  document.getElementById('ee-address').value = e.address || '';
+  document.getElementById('ee-bank-holder').value = e.bank_account_holder_name || '';
+  document.getElementById('ee-bank-account').value = e.bank_account_number || '';
+  document.getElementById('ee-bank-ifsc').value = e.bank_ifsc || '';
+  document.getElementById('ee-bank-name').value = e.bank_name || '';
   document.getElementById('ee-err').textContent = '';
   document.getElementById('edit-employee-modal').classList.add('show');
 }
@@ -900,8 +926,14 @@ async function submitEditEmployee(){
   try{
     await api(`/branches/employees/${editingEmployeeId}`, { method:'PATCH', json:{
       full_name: document.getElementById('ee-name').value,
+      phone: document.getElementById('ee-phone').value,
       designation: document.getElementById('ee-desig').value,
       branch_id: document.getElementById('ee-branch').value,
+      address: document.getElementById('ee-address').value,
+      bank_account_holder_name: document.getElementById('ee-bank-holder').value,
+      bank_account_number: document.getElementById('ee-bank-account').value,
+      bank_ifsc: document.getElementById('ee-bank-ifsc').value,
+      bank_name: document.getElementById('ee-bank-name').value,
     }});
     document.getElementById('edit-employee-modal').classList.remove('show');
     refreshEmployeesTable();
@@ -922,16 +954,39 @@ async function createEmployee(){
   try{
     const res = await api('/branches/employees', { method:'POST', json:{
       branch_id: document.getElementById('e-branch').value, full_name: document.getElementById('e-name').value,
-      email: document.getElementById('e-email').value, password: autoPw ? null : document.getElementById('e-pass').value,
-      designation: document.getElementById('e-desig').value,
+      email: document.getElementById('e-email').value, phone: document.getElementById('e-phone').value,
+      password: autoPw ? null : document.getElementById('e-pass').value,
+      designation: document.getElementById('e-desig').value, address: document.getElementById('e-address').value,
+      bank_account_holder_name: document.getElementById('e-bank-holder').value,
+      bank_account_number: document.getElementById('e-bank-account').value,
+      bank_ifsc: document.getElementById('e-bank-ifsc').value, bank_name: document.getElementById('e-bank-name').value,
     }});
-    if(res.password_was_generated){
-      document.getElementById('e-err').innerHTML = credentialsBox(res.email, res.password) +
-        `<div class="row-actions"><button class="btn" onclick="renderEmployees()">Done — refresh list</button></div>`;
-    } else {
-      renderEmployees();
-    }
+    const credentialsHtml = res.password_was_generated ? credentialsBox(res.email, res.password) : `<div class="success-box">Employee created.</div>`;
+    document.getElementById('e-doc-upload').innerHTML = `
+      ${credentialsHtml}
+      <div style="margin-top:12px">
+        <label>Upload address proof (optional)</label>
+        <input type="file" id="e-address-proof-file" accept="image/*,.pdf">
+        <button class="btn ghost" style="padding:6px 10px;font-size:12px;margin-top:6px" onclick="uploadEmployeeDoc('${res.id}')">Upload</button>
+        <span id="e-address-proof-status" style="font-size:11px;margin-left:6px"></span>
+      </div>
+      <div class="row-actions" style="margin-top:12px"><button class="btn" onclick="renderEmployees()">Done — refresh list</button></div>
+    `;
   }catch(e){ errEl.textContent = e.message; }
+}
+async function uploadEmployeeDoc(employeeId){
+  const fileInput = document.getElementById('e-address-proof-file');
+  const statusEl = document.getElementById('e-address-proof-status');
+  if(!fileInput.files.length){ statusEl.textContent = 'Choose a file first'; statusEl.style.color = '#C0392B'; return; }
+  const formData = new FormData();
+  formData.append('doc_type', 'address_proof');
+  formData.append('employee_id', employeeId);
+  formData.append('file', fileInput.files[0]);
+  try{
+    const res = await fetch(API + '/documents/upload', { method:'POST', headers:{'Authorization':`Bearer ${state.token}`}, body: formData });
+    if(!res.ok) throw new Error('Upload failed');
+    statusEl.textContent = '✓ Uploaded'; statusEl.style.color = '#5A6B00';
+  }catch(e){ statusEl.textContent = e.message; statusEl.style.color = '#C0392B'; }
 }
 
 // ---------- Loan Products ----------
@@ -1119,9 +1174,30 @@ async function renderLoans(){
         ${canManage ? `<td><button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="viewCustomerDocs('${l.customer_id}','${esc(l.customer_name)}')">Review KYC</button></td>
         <td style="white-space:nowrap">${l.status==='pending_approval'?`<button class="btn" style="padding:6px 10px;font-size:12px" onclick="approveLoan('${l.id}')">Approve</button>
           <button class="btn ghost" style="padding:6px 10px;font-size:12px;color:#C0392B" onclick="rejectLoan('${l.id}')">Reject</button>`
-          : l.status==='approved'?`<button class="btn amber" style="padding:6px 10px;font-size:12px" onclick="disburseLoan('${l.id}')">Disburse</button>`:'—'}</td>`:''}
+          : l.status==='approved'?`<button class="btn amber" style="padding:6px 10px;font-size:12px" onclick="openDisburseModal('${l.id}','${l.customer_id}')">Disburse</button>`:'—'}</td>`:''}
         </tr>`).join('') || `<tr><td colspan="${canManage?6:4}" class="empty">No loans yet</td></tr>`}
       </tbody></table>
+    </div>
+    <div class="modal-overlay" id="disburse-loan-modal">
+      <div class="modal-card">
+        <h3>Disburse Loan</h3>
+        <label>Disbursal method</label>
+        <select id="disburse-method" onchange="toggleDisburseReference()">
+          <option value="cash">Cash</option>
+          <option value="bank_transfer">Bank transfer</option>
+        </select>
+        <div id="disburse-bank-warning" class="hidden" style="font-size:12px;color:#C0392B;margin-top:8px"></div>
+        <div id="disburse-reference-field" class="hidden">
+          <label>Bank transaction reference (UTR)</label>
+          <input id="disburse-reference" placeholder="After transferring manually, enter the UTR here">
+          <p style="font-size:11px;color:#888;margin-top:4px">Automated payouts aren't connected yet — transfer the funds yourself, then record the reference here.</p>
+        </div>
+        <div class="row-actions">
+          <button class="btn amber" onclick="submitDisburse()">Confirm disbursal</button>
+          <button class="btn ghost" onclick="document.getElementById('disburse-loan-modal').classList.remove('show')">Cancel</button>
+        </div>
+        <div class="err" id="disburse-err"></div>
+      </div>
     </div>
     <div class="modal-overlay" id="reject-loan-modal">
       <div class="modal-card">
@@ -1185,7 +1261,45 @@ async function submitRejectLoan(){
     renderLoans();
   }catch(e){ errEl.textContent = e.message; }
 }
-async function disburseLoan(id){ await api(`/loans/${id}/disburse`, {method:'PATCH'}); renderLoans(); }
+let disbursingLoanId = null;
+let disbursingCustomerId = null;
+async function openDisburseModal(loanId, customerId){
+  disbursingLoanId = loanId;
+  disbursingCustomerId = customerId;
+  document.getElementById('disburse-method').value = 'cash';
+  document.getElementById('disburse-reference').value = '';
+  document.getElementById('disburse-err').textContent = '';
+  toggleDisburseReference();
+  document.getElementById('disburse-loan-modal').classList.add('show');
+}
+async function toggleDisburseReference(){
+  const isBank = document.getElementById('disburse-method').value === 'bank_transfer';
+  document.getElementById('disburse-reference-field').classList.toggle('hidden', !isBank);
+  const warningEl = document.getElementById('disburse-bank-warning');
+  warningEl.classList.add('hidden');
+  if(isBank){
+    try{
+      const customers = await api('/customers');
+      const customer = customers.find(c => c.id === disbursingCustomerId);
+      if(!customer || !customer.bank_account_number){
+        warningEl.textContent = 'This customer has no bank account details on file. Add them from the Customers tab, or choose Cash instead.';
+        warningEl.classList.remove('hidden');
+      }
+    }catch(e){}
+  }
+}
+async function submitDisburse(){
+  const method = document.getElementById('disburse-method').value;
+  const reference = document.getElementById('disburse-reference').value;
+  const errEl = document.getElementById('disburse-err'); errEl.textContent = '';
+  try{
+    await api(`/loans/${disbursingLoanId}/disburse`, { method:'PATCH', json:{
+      disbursal_method: method, disbursal_reference: reference || null,
+    }});
+    document.getElementById('disburse-loan-modal').classList.remove('show');
+    renderLoans();
+  }catch(e){ errEl.textContent = e.message; }
+}
 
 // ---------- Reports ----------
 async function renderReports(){
@@ -1266,6 +1380,150 @@ async function downloadLeads(){
     await downloadAuthenticatedFile(`/reports/customer-leads/export?${params}`, `customer-leads.${format}`);
   }catch(e){ errEl.textContent = e.message; }
 }
+
+// ---------- SuperAdmin: Payroll ----------
+async function renderPayroll(){
+  content().innerHTML = `<div class="empty">Loading…</div>`;
+  const [structures, runs, employees] = await Promise.all([
+    api('/payroll/salary-structures'), api('/payroll/runs'), api('/branches/employees')
+  ]);
+  const employeeOpts = employees.map(e=>`<option value="${e.id}">${esc(e.full_name)}</option>`).join('');
+  content().innerHTML = `
+    <div class="panel"><h3>Set employee salary</h3>
+      <div class="form-grid">
+        <div class="field"><label>Employee</label><select id="ss-employee">${employeeOpts || '<option>No employees yet</option>'}</select></div>
+        <div class="field"><label>Basic salary (₹)</label><input id="ss-basic" type="number"></div>
+        <div class="field"><label>Allowances (₹)</label><input id="ss-allowances" type="number" value="0"></div>
+        <div class="field"><label>Deductions (₹)</label><input id="ss-deductions" type="number" value="0"></div>
+      </div>
+      <div class="row-actions"><button class="btn amber" onclick="setSalaryStructure()">Save salary</button></div>
+      <div class="err" id="ss-err"></div>
+    </div>
+    <div class="panel"><h3>Current salaries</h3>
+      <table><thead><tr><th>Employee</th><th>Basic</th><th>Allowances</th><th>Deductions</th><th>Net Pay</th></tr></thead>
+      <tbody>${structures.map(s=>`<tr><td>${esc(s.employee_name)}</td><td>₹${s.basic_salary.toLocaleString()}</td><td>₹${s.allowances.toLocaleString()}</td><td>₹${s.deductions.toLocaleString()}</td><td><strong>₹${s.net_pay.toLocaleString()}</strong></td></tr>`).join('') || '<tr><td colspan="5" class="empty">No salaries set yet</td></tr>'}</tbody></table>
+    </div>
+    <div class="panel"><h3>Generate payroll run</h3>
+      <div class="form-grid">
+        <div class="field"><label>Month</label><input type="month" id="pr-month"></div>
+      </div>
+      <div class="row-actions"><button class="btn amber" onclick="generatePayrollRun()">Generate run</button></div>
+      <div class="err" id="pr-err"></div>
+    </div>
+    <div class="panel"><h3>Payroll history</h3>
+      <table><thead><tr><th>Month</th><th>Payslips</th><th>Paid</th><th>Total Net Pay</th><th>Action</th></tr></thead>
+      <tbody>${runs.map(r=>`<tr><td>${esc(r.month)}</td><td>${r.payslip_count}</td><td>${r.paid_count}/${r.payslip_count}</td><td>₹${r.total_net_pay.toLocaleString()}</td>
+        <td><button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="viewPayrollRun('${r.id}','${esc(r.month)}')">View payslips</button></td></tr>`).join('') || '<tr><td colspan="5" class="empty">No payroll runs yet</td></tr>'}</tbody></table>
+    </div>
+    <div class="modal-overlay" id="payslips-modal">
+      <div class="modal-card" style="max-width:600px;max-height:85vh;overflow-y:auto">
+        <h3 id="payslips-modal-title">Payslips</h3>
+        <div id="payslips-modal-body"></div>
+        <div class="row-actions"><button class="btn ghost" onclick="document.getElementById('payslips-modal').classList.remove('show')">Close</button></div>
+      </div>
+    </div>
+    <div class="modal-overlay" id="pay-payslip-modal">
+      <div class="modal-card">
+        <h3>Pay Employee</h3>
+        <label>Payment method</label>
+        <select id="pay-method" onchange="togglePayReference()">
+          <option value="bank_transfer">Bank transfer</option>
+          <option value="cash">Cash</option>
+        </select>
+        <div id="pay-bank-warning" class="hidden" style="font-size:12px;color:#C0392B;margin-top:8px"></div>
+        <div id="pay-reference-field">
+          <label>Bank transaction reference (UTR)</label>
+          <input id="pay-reference" placeholder="After transferring manually, enter the UTR here">
+        </div>
+        <div class="row-actions">
+          <button class="btn amber" onclick="submitPayPayslip()">Confirm payment</button>
+          <button class="btn ghost" onclick="document.getElementById('pay-payslip-modal').classList.remove('show')">Cancel</button>
+        </div>
+        <div class="err" id="pay-payslip-err"></div>
+      </div>
+    </div>
+  `;
+}
+async function setSalaryStructure(){
+  const errEl = document.getElementById('ss-err');
+  try{
+    await api('/payroll/salary-structure', { method:'POST', json:{
+      employee_id: document.getElementById('ss-employee').value,
+      basic_salary: Number(document.getElementById('ss-basic').value),
+      allowances: Number(document.getElementById('ss-allowances').value || 0),
+      deductions: Number(document.getElementById('ss-deductions').value || 0),
+    }});
+    renderPayroll();
+  }catch(e){ errEl.textContent = e.message; }
+}
+async function generatePayrollRun(){
+  const errEl = document.getElementById('pr-err');
+  const month = document.getElementById('pr-month').value;
+  if(!month){ errEl.textContent = 'Pick a month first.'; return; }
+  try{
+    await api('/payroll/runs', { method:'POST', json:{ month } });
+    renderPayroll();
+  }catch(e){ errEl.textContent = e.message; }
+}
+let currentPayrollRunId = null;
+async function viewPayrollRun(runId, month){
+  currentPayrollRunId = runId;
+  document.getElementById('payslips-modal-title').textContent = `Payslips — ${month}`;
+  document.getElementById('payslips-modal-body').innerHTML = '<div class="empty">Loading…</div>';
+  document.getElementById('payslips-modal').classList.add('show');
+  try{
+    const payslips = await api(`/payroll/runs/${runId}/payslips`);
+    document.getElementById('payslips-modal-body').innerHTML = `
+      <table><thead><tr><th>Employee</th><th>Net Pay</th><th>Status</th><th>Action</th></tr></thead>
+      <tbody>${payslips.map(p=>`<tr>
+        <td>${esc(p.employee_name)}</td><td>₹${p.net_pay.toLocaleString()}</td>
+        <td><span class="badge ${p.status==='paid'?'active':'pending_approval'}">${p.status}</span>${p.payment_reference?`<div style="font-size:11px;color:#888;margin-top:2px">${esc(p.payment_reference)}</div>`:''}</td>
+        <td style="white-space:nowrap">
+          ${p.status==='pending'?`<button class="btn amber" style="padding:6px 10px;font-size:12px" onclick="openPayModal('${p.id}',${p.has_bank_details})">Pay</button>`:''}
+          <button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="downloadAuthenticatedFile('/payroll/payslips/${p.id}/download','payslip.pdf')">PDF</button>
+        </td>
+      </tr>`).join('') || '<tr><td colspan="4" class="empty">No payslips</td></tr>'}</tbody></table>
+    `;
+  }catch(e){
+    document.getElementById('payslips-modal-body').innerHTML = `<div class="err">${esc(e.message)}</div>`;
+  }
+}
+let payingPayslipId = null;
+let payingHasBankDetails = false;
+function openPayModal(payslipId, hasBankDetails){
+  payingPayslipId = payslipId;
+  payingHasBankDetails = hasBankDetails;
+  document.getElementById('pay-method').value = 'bank_transfer';
+  document.getElementById('pay-reference').value = '';
+  document.getElementById('pay-payslip-err').textContent = '';
+  togglePayReference();
+  document.getElementById('pay-payslip-modal').classList.add('show');
+}
+function togglePayReference(){
+  const isBank = document.getElementById('pay-method').value === 'bank_transfer';
+  document.getElementById('pay-reference-field').classList.toggle('hidden', !isBank);
+  const warningEl = document.getElementById('pay-bank-warning');
+  if(isBank && !payingHasBankDetails){
+    warningEl.textContent = 'This employee has no bank account details on file. Add them from the Employees tab, or choose Cash instead.';
+    warningEl.classList.remove('hidden');
+  } else {
+    warningEl.classList.add('hidden');
+  }
+}
+async function submitPayPayslip(){
+  const method = document.getElementById('pay-method').value;
+  const reference = document.getElementById('pay-reference').value;
+  const errEl = document.getElementById('pay-payslip-err'); errEl.textContent = '';
+  try{
+    await api(`/payroll/payslips/${payingPayslipId}/pay`, { method:'PATCH', json:{
+      payment_method: method, payment_reference: reference || null,
+    }});
+    document.getElementById('pay-payslip-modal').classList.remove('show');
+    const run = document.getElementById('payslips-modal-title').textContent.replace('Payslips — ','');
+    viewPayrollRun(currentPayrollRunId, run);
+  }catch(e){ errEl.textContent = e.message; }
+}
+
 async function downloadBreakdown(){
   const groupBy = document.getElementById('export-groupby').value;
   const format = document.getElementById('export-format').value;
@@ -1320,6 +1578,7 @@ const KYC_DOC_TYPES = [
   {key:'pan', label:'PAN Card'},
   {key:'voter_id', label:'Voter ID'},
   {key:'photo', label:'Photo'},
+  {key:'bank_passbook', label:'Bank Passbook'},
   {key:'signed_application', label:'Signed Application (scanned)'},
 ];
 
@@ -1353,15 +1612,23 @@ async function renderCustomers(){
           <div id="c-pan-status" style="font-size:11px;margin-top:4px"></div>
         </div>
       </div>
+      <h3 style="font-size:14px;margin:18px 0 10px">Bank details (for loan disbursal)</h3>
+      <p style="font-size:12px;color:#888;margin:0 0 10px">Needed if the customer will be paid by bank transfer instead of cash. Also upload their bank passbook below.</p>
+      <div class="form-grid">
+        <div class="field"><label>Account holder name</label><input id="c-bank-holder"></div>
+        <div class="field"><label>Account number</label><input id="c-bank-account"></div>
+        <div class="field"><label>IFSC code</label><input id="c-bank-ifsc" style="text-transform:uppercase"></div>
+        <div class="field"><label>Bank name</label><input id="c-bank-name"></div>
+      </div>
       <div class="row-actions"><button class="btn amber" onclick="createCustomer()">Add customer</button></div>
       <div class="err" id="c-err"></div>
       <div id="c-kyc-upload"></div>
     </div>
     <div class="panel"><h3>Customers</h3>
-      <table><thead><tr><th>Code</th><th>Name</th><th>Phone</th><th>Phone Verified</th><th>KYC</th><th>Documents</th><th>Credit Check</th></tr></thead>
-      <tbody id="customers-tbody">${customers.map(c=>`<tr><td>${esc(c.customer_code)}</td><td>${esc(c.full_name)}</td><td>${esc(c.phone)}</td><td>${c.phone_verified?'✅':'—'}</td><td>${c.kyc_verified?'✅':'Pending'}</td>
+      <table><thead><tr><th>Code</th><th>Name</th><th>Phone</th><th>Phone Verified</th><th>KYC</th><th>Bank</th><th>Documents</th><th>Credit Check</th></tr></thead>
+      <tbody id="customers-tbody">${customers.map(c=>`<tr><td>${esc(c.customer_code)}</td><td>${esc(c.full_name)}</td><td>${esc(c.phone)}</td><td>${c.phone_verified?'✅':'—'}</td><td>${c.kyc_verified?'✅':'Pending'}</td><td>${c.bank_account_number?'✅':'—'}</td>
         <td><button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="viewCustomerDocs('${c.id}','${esc(c.full_name)}')">View / Upload</button></td>
-        <td><button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="checkCreditScore('${c.id}','${esc(c.full_name)}')">Check</button></td></tr>`).join('') || '<tr><td colspan="7" class="empty">No customers yet</td></tr>'}</tbody></table>
+        <td><button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="checkCreditScore('${c.id}','${esc(c.full_name)}')">Check</button></td></tr>`).join('') || '<tr><td colspan="8" class="empty">No customers yet</td></tr>'}</tbody></table>
     </div>
     <div class="modal-overlay" id="docs-modal">
       <div class="modal-card" style="max-width:480px;max-height:85vh;overflow-y:auto">
@@ -1453,6 +1720,10 @@ async function createCustomer(){
       aadhaar_number: document.getElementById('c-aadhaar').value || null,
       pan_number: document.getElementById('c-pan').value || null,
       phone_verified: customerPhoneVerified,
+      bank_account_holder_name: document.getElementById('c-bank-holder').value || null,
+      bank_account_number: document.getElementById('c-bank-account').value || null,
+      bank_ifsc: document.getElementById('c-bank-ifsc').value || null,
+      bank_name: document.getElementById('c-bank-name').value || null,
     }});
     customerPhoneVerified = false; customerOtpSessionId = null;
     document.getElementById('c-kyc-upload').innerHTML = `
@@ -1471,9 +1742,9 @@ async function createCustomer(){
       </div>
     `;
     const fresh = await api('/customers');
-    document.getElementById('customers-tbody').innerHTML = fresh.map(c=>`<tr><td>${esc(c.customer_code)}</td><td>${esc(c.full_name)}</td><td>${esc(c.phone)}</td><td>${c.phone_verified?'✅':'—'}</td><td>${c.kyc_verified?'✅':'Pending'}</td>
+    document.getElementById('customers-tbody').innerHTML = fresh.map(c=>`<tr><td>${esc(c.customer_code)}</td><td>${esc(c.full_name)}</td><td>${esc(c.phone)}</td><td>${c.phone_verified?'✅':'—'}</td><td>${c.kyc_verified?'✅':'Pending'}</td><td>${c.bank_account_number?'✅':'—'}</td>
         <td><button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="viewCustomerDocs('${c.id}','${esc(c.full_name)}')">View / Upload</button></td>
-        <td><button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="checkCreditScore('${c.id}','${esc(c.full_name)}')">Check</button></td></tr>`).join('') || '<tr><td colspan="7" class="empty">No customers yet</td></tr>';
+        <td><button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="checkCreditScore('${c.id}','${esc(c.full_name)}')">Check</button></td></tr>`).join('') || '<tr><td colspan="8" class="empty">No customers yet</td></tr>';
   }catch(e){ errEl.textContent = e.message; }
 }
 async function uploadKycDoc(customerId, docType){

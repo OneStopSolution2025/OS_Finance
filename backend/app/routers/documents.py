@@ -26,6 +26,7 @@ async def upload_document(
     doc_type: DocumentType = Form(...),
     customer_id: str | None = Form(None),
     loan_id: str | None = Form(None),
+    employee_id: str | None = Form(None),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     user: User = Depends(require_any),
@@ -46,7 +47,7 @@ async def upload_document(
         f.write(contents)
 
     doc = Document(
-        tenant_id=user.tenant_id, customer_id=customer_id, loan_id=loan_id,
+        tenant_id=user.tenant_id, customer_id=customer_id, loan_id=loan_id, employee_id=employee_id,
         doc_type=doc_type, file_name=file.filename, storage_path=full_path,
         uploaded_by=user.id,
     )
@@ -67,3 +68,8 @@ def download_document(document_id: str, db: Session = Depends(get_db), user: Use
 @router.get("/customers/{customer_id}/documents")
 def list_customer_documents(customer_id: str, db: Session = Depends(get_db), user: User = Depends(require_any)):
     return db.query(Document).filter(Document.customer_id == customer_id, Document.tenant_id == user.tenant_id).all()
+
+
+@router.get("/employees/{employee_id}/documents")
+def list_employee_documents(employee_id: str, db: Session = Depends(get_db), user: User = Depends(require_any)):
+    return db.query(Document).filter(Document.employee_id == employee_id, Document.tenant_id == user.tenant_id).all()

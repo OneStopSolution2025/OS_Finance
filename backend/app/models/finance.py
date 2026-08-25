@@ -44,6 +44,7 @@ class DocumentType(str, enum.Enum):
     guarantor_id = "guarantor_id"
     income_proof = "income_proof"
     loan_agreement = "loan_agreement"
+    bank_passbook = "bank_passbook"
     other = "other"
 
 
@@ -66,6 +67,10 @@ class Customer(Base):
     guarantor_name = Column(String, nullable=True)
     guarantor_phone = Column(String, nullable=True)
     photo_document_id = Column(UUID(as_uuid=False), nullable=True)
+    bank_account_holder_name = Column(String, nullable=True)
+    bank_account_number = Column(String, nullable=True)
+    bank_ifsc = Column(String, nullable=True)
+    bank_name = Column(String, nullable=True)
     created_by = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     is_active = Column(Boolean, default=True)
@@ -114,6 +119,8 @@ class Loan(Base):
     rejected_at = Column(DateTime, nullable=True)
     rejection_reason = Column(String, nullable=True)
     applied_by = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=True)  # employee who submitted the application
+    disbursal_method = Column(String, nullable=True)  # 'cash' | 'bank_transfer'
+    disbursal_reference = Column(String, nullable=True)  # bank transaction ref / UTR, if bank_transfer
 
 
 class EMISchedule(Base):
@@ -154,6 +161,7 @@ class Document(Base):
     tenant_id = Column(UUID(as_uuid=False), ForeignKey("tenants.id"), nullable=False)
     customer_id = Column(UUID(as_uuid=False), ForeignKey("customers.id"), nullable=True)
     loan_id = Column(UUID(as_uuid=False), ForeignKey("loans.id"), nullable=True)
+    employee_id = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=True)
     doc_type = Column(Enum(DocumentType), nullable=False)
     file_name = Column(String, nullable=False)
     storage_path = Column(String, nullable=False)

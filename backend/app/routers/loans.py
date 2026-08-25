@@ -11,6 +11,7 @@ from app.models.finance import Customer, LoanProduct, Loan, EMISchedule, LoanSta
 from app.utils.whatsapp import send_loan_status_notification
 from app.utils.kyc_validation import validate_aadhaar, validate_pan
 from app.utils.credit_check import check_credit_score, eligible_amount_for_score, is_configured as credit_check_configured
+from app.utils.payouts import send_payout, is_configured as payout_configured
 
 router = APIRouter(tags=["customers & loans"])
 
@@ -36,6 +37,10 @@ class CustomerCreate(BaseModel):
     guarantor_name: str | None = None
     guarantor_phone: str | None = None
     phone_verified: bool = False  # set true by the frontend only after a successful OTP check
+    bank_account_holder_name: str | None = None
+    bank_account_number: str | None = None
+    bank_ifsc: str | None = None
+    bank_name: str | None = None
 
 
 @router.post("/customers")
@@ -365,11 +370,45 @@ def reject_loan(loan_id: str, payload: LoanRejectRequest, db: Session = Depends(
     return {"status": "rejected", "reason": loan.rejection_reason}
 
 
+class LoanDisburse(BaseModel):
+    disbursal_method: str = "cash"  # 'cash' | 'bank_transfer'
+    disbursal_reference: str | None = None  # required if bank_transfer, e.g. UTR number
+
+
 @router.patch("/loans/{loan_id}/disburse")
-def disburse_loan(loan_id: str, db: Session = Depends(get_db), user: User = Depends(require_superadmin_or_above)):
+def disburse_loan(loan_id: str, payload: LoanDisburse = LoanDisburse(), db: Session = Depends(get_db), user: User = Depends(require_superadmin_or_above)):
     loan = db.query(Loan).filter(Loan.id == loan_id, Loan.tenant_id == user.tenant_id).first()
     if not loan or loan.status != LoanStatus.approved:
         raise HTTPException(status_code=400, detail="Loan must be approved before disbursement")
+    if payload.disbursal_method not in ("cash", "bank_transfer"):
+        raise HTTPException(status_code=400, detail="disbursal_method must be 'cash' or 'bank_transfer'")
+
+    customer = db.query(Customer).filter(Customer.id == loan.customer_id).first()
+
+    if payload.disbursal_method == "bank_transfer":
+        if not (customer and customer.bank_account_number and customer.bank_ifsc):
+            raise HTTPException(
+                status_code=400,
+                detail="This customer has no bank account details on file — required for bank transfer disbursal. "
+                       "Add their bank details, or disburse as cash instead."
+            )
+        if payout_configured():
+            try:
+                result = send_payout(
+                    customer.bank_account_number, customer.bank_ifsc,
+                    customer.bank_account_holder_name or customer.full_name,
+                    float(loan.principal_amount), f"Loan disbursal {loan.loan_number}", loan.id,
+                )
+                payload.disbursal_reference = result.get("utr") or result.get("payout_id")
+            except (RuntimeError, NotImplementedError) as e:
+                raise HTTPException(status_code=502, detail=str(e))
+        elif not payload.disbursal_reference:
+            raise HTTPException(
+                status_code=400,
+                detail="Bank payouts aren't automated yet — enter the bank transaction reference (UTR) "
+                       "after transferring the funds manually."
+            )
+
     product = db.query(LoanProduct).filter(LoanProduct.id == loan.loan_product_id).first()
 
     from datetime import datetime
@@ -377,17 +416,18 @@ def disburse_loan(loan_id: str, db: Session = Depends(get_db), user: User = Depe
     loan.disbursed_amount = loan.principal_amount
     loan.disbursed_by = user.id
     loan.disbursed_at = datetime.utcnow()
+    loan.disbursal_method = payload.disbursal_method
+    loan.disbursal_reference = payload.disbursal_reference
     build_emi_schedule(loan, product, db)
     db.commit()
 
     try:
-        customer = db.query(Customer).filter(Customer.id == loan.customer_id).first()
         if customer and customer.phone:
             send_loan_status_notification(customer.phone, customer.full_name, loan.loan_number, "active")
     except Exception:
         pass
 
-    return {"status": "disbursed", "loan_number": loan.loan_number}
+    return {"status": "disbursed", "loan_number": loan.loan_number, "disbursal_method": loan.disbursal_method}
 
 
 @router.get("/loans")

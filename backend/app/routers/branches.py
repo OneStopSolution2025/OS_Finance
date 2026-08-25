@@ -110,6 +110,11 @@ class EmployeeCreate(BaseModel):
     password: str | None = None  # omit to auto-generate a secure password
     designation: str | None = None
     employee_code: str | None = None
+    address: str | None = None
+    bank_account_holder_name: str | None = None
+    bank_account_number: str | None = None
+    bank_ifsc: str | None = None
+    bank_name: str | None = None
 
 
 @router.post("/employees")
@@ -133,6 +138,11 @@ def create_employee(payload: EmployeeCreate, db: Session = Depends(get_db), user
         role=UserRole.employee,
         designation=payload.designation,
         employee_code=payload.employee_code,
+        address=payload.address,
+        bank_account_holder_name=payload.bank_account_holder_name,
+        bank_account_number=payload.bank_account_number,
+        bank_ifsc=payload.bank_ifsc,
+        bank_name=payload.bank_name,
     )
     db.add(employee)
     db.commit()
@@ -159,6 +169,8 @@ def list_employees(db: Session = Depends(get_db), user: User = Depends(require_s
             "id": e.id, "full_name": e.full_name, "email": e.email, "phone": e.phone,
             "designation": e.designation, "employee_code": e.employee_code,
             "branch_id": e.branch_id, "is_active": e.is_active, "created_at": e.created_at.isoformat(),
+            "address": e.address, "bank_account_holder_name": e.bank_account_holder_name,
+            "bank_account_number": e.bank_account_number, "bank_ifsc": e.bank_ifsc, "bank_name": e.bank_name,
         }
         for e in employees
     ]
@@ -170,6 +182,11 @@ class EmployeeUpdate(BaseModel):
     designation: str | None = None
     employee_code: str | None = None
     branch_id: str | None = None
+    address: str | None = None
+    bank_account_holder_name: str | None = None
+    bank_account_number: str | None = None
+    bank_ifsc: str | None = None
+    bank_name: str | None = None
 
 
 @router.patch("/employees/{employee_id}")
