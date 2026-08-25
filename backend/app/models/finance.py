@@ -113,6 +113,7 @@ class Loan(Base):
     rejected_by = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=True)
     rejected_at = Column(DateTime, nullable=True)
     rejection_reason = Column(String, nullable=True)
+    applied_by = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=True)  # employee who submitted the application
 
 
 class EMISchedule(Base):

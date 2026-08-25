@@ -196,3 +196,30 @@ def export_breakdown(
 
     filename = f"{tenant_name.replace(' ', '_')}_{group_by}_breakdown.{ext}"
     return FileResponse(file_path, media_type=media_type, filename=filename)
+
+
+@router.get("/my-activity")
+def my_activity(db: Session = Depends(get_db), user: User = Depends(require_any)):
+    """
+    An individual staff member's own numbers — loans they personally applied for,
+    and payments they personally collected. Distinct from branch-summary, which
+    shows the whole branch/tenant regardless of who did the work.
+    """
+    my_loans = db.query(Loan).filter(Loan.applied_by == user.id)
+    active_loans = my_loans.filter(Loan.status == LoanStatus.active).count()
+    pending_loans = my_loans.filter(Loan.status == LoanStatus.pending_approval).count()
+    closed_loans = my_loans.filter(Loan.status == LoanStatus.closed).count()
+    rejected_loans = my_loans.filter(Loan.status == LoanStatus.rejected).count()
+
+    my_payments = db.query(Payment).filter(Payment.collected_by == user.id)
+    total_collected = my_payments.with_entities(func.coalesce(func.sum(Payment.amount), 0)).scalar()
+    payment_count = my_payments.count()
+
+    return {
+        "active_loans": active_loans,
+        "pending_loans": pending_loans,
+        "closed_loans": closed_loans,
+        "rejected_loans": rejected_loans,
+        "total_collected": float(total_collected),
+        "payment_count": payment_count,
+    }

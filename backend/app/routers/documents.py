@@ -1,6 +1,5 @@
 import os
 import uuid
-from datetime import datetime, date
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
@@ -9,9 +8,9 @@ from app.core.database import get_db
 from app.core.security import require_any
 from app.core.config import settings
 from app.models.tenancy import User
-from app.models.finance import Document, DocumentType, Attendance
+from app.models.finance import Document, DocumentType
 
-router = APIRouter(tags=["documents & attendance"])
+router = APIRouter(tags=["documents"])
 
 DOCS_DIR = os.path.join(settings.LOCAL_STORAGE_PATH, "kyc")
 os.makedirs(DOCS_DIR, exist_ok=True)
@@ -68,42 +67,3 @@ def download_document(document_id: str, db: Session = Depends(get_db), user: Use
 @router.get("/customers/{customer_id}/documents")
 def list_customer_documents(customer_id: str, db: Session = Depends(get_db), user: User = Depends(require_any)):
     return db.query(Document).filter(Document.customer_id == customer_id, Document.tenant_id == user.tenant_id).all()
-
-
-# ---------- Attendance ----------
-
-@router.post("/attendance/check-in")
-def check_in(db: Session = Depends(get_db), user: User = Depends(require_any)):
-    today = date.today()
-    existing = db.query(Attendance).filter(Attendance.user_id == user.id, Attendance.date == today).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="Already checked in today")
-    record = Attendance(
-        tenant_id=user.tenant_id, branch_id=user.branch_id, user_id=user.id,
-        date=today, check_in=datetime.utcnow(), status="present",
-    )
-    db.add(record)
-    db.commit()
-    db.refresh(record)
-    return {"status": "checked_in", "time": record.check_in}
-
-
-@router.post("/attendance/check-out")
-def check_out(db: Session = Depends(get_db), user: User = Depends(require_any)):
-    today = date.today()
-    record = db.query(Attendance).filter(Attendance.user_id == user.id, Attendance.date == today).first()
-    if not record:
-        raise HTTPException(status_code=400, detail="No check-in found for today")
-    record.check_out = datetime.utcnow()
-    db.commit()
-    return {"status": "checked_out", "time": record.check_out}
-
-
-@router.get("/attendance")
-def list_attendance(db: Session = Depends(get_db), user: User = Depends(require_any)):
-    q = db.query(Attendance).filter(Attendance.tenant_id == user.tenant_id)
-    if user.role.value == "employee":
-        q = q.filter(Attendance.user_id == user.id)
-    elif user.role.value == "superadmin":
-        pass  # sees whole tenant
-    return q.order_by(Attendance.date.desc()).limit(200).all()

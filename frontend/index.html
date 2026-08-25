@@ -458,7 +458,6 @@ const NAV = {
     {id:'customers', label:'🧑‍🤝‍🧑 Customers'},
     {id:'loans', label:'💰 Loans'},
     {id:'collections', label:'💵 Collections'},
-    {id:'attendance', label:'🕒 Attendance'},
   ],
 };
 
@@ -486,12 +485,12 @@ function navigate(view){
   renderNav();
   const titles = {dashboard:'Overview', tenants:'Tenants', plans:'Subscription Plans', branches:'Branches',
     employees:'Employees', 'loan-products':'Loan Products', loans:'Loans', reports:'Reports & Accounts',
-    customers:'Customers', collections:'Collections', attendance:'Attendance', applications:'Applications'};
+    customers:'Customers', collections:'Collections', applications:'Applications'};
   document.getElementById('page-title').textContent = titles[view] || view;
   const renderers = {
     dashboard: renderDashboard, tenants: renderTenants, plans: renderPlans, branches: renderBranches,
     employees: renderEmployees, 'loan-products': renderLoanProducts, loans: renderLoans,
-    reports: renderReports, customers: renderCustomers, collections: renderCollections, attendance: renderAttendance,
+    reports: renderReports, customers: renderCustomers, collections: renderCollections,
     applications: renderApplications,
   };
   (renderers[view] || renderDashboard)();
@@ -535,10 +534,24 @@ async function renderDashboard(){
         <div class="panel"><h3>Platform snapshot</h3><p style="color:#555;font-size:13.5px">You manage every microfinance operator's subscription from the Tenants tab. Suspend a tenant to instantly block Super Admin and Employee logins for that organization.</p></div>
       `;
     } else {
-      const [r, trend, activity] = await Promise.all([
-        api('/reports/branch-summary'), api('/reports/collections-trend'), api('/reports/recent-activity')
-      ]);
+      const promises = [api('/reports/branch-summary'), api('/reports/collections-trend'), api('/reports/recent-activity')];
+      if(state.role === 'employee') promises.push(api('/reports/my-activity'));
+      const [r, trend, activity, mine] = await Promise.all(promises);
+
+      const myActivitySection = mine ? `
+        <div class="panel" style="border-color:var(--amber)">
+          <h3>Your activity</h3>
+          <div class="stat-grid">
+            <div class="stat-card clickable" onclick="navigate('loans')"><div class="label">Your Active Loans</div><div class="value">${mine.active_loans}</div><div style="font-size:11.5px;color:#888;margin-top:4px">${mine.pending_loans} awaiting approval</div></div>
+            <div class="stat-card clickable" onclick="navigate('collections')"><div class="label">Collected by You</div><div class="value">₹${mine.total_collected.toLocaleString()}</div><div style="font-size:11.5px;color:#888;margin-top:4px">${mine.payment_count} payments</div></div>
+            <div class="stat-card"><div class="label">Closed Loans</div><div class="value">${mine.closed_loans}</div></div>
+            <div class="stat-card"><div class="label">Rejected</div><div class="value" style="color:${mine.rejected_loans>0?'#C0392B':'var(--charcoal)'}">${mine.rejected_loans}</div></div>
+          </div>
+        </div>
+      ` : '';
+
       content().innerHTML = `
+        ${myActivitySection}
         <div class="stat-grid">
           <div class="stat-card clickable" onclick="navigate('reports')"><div class="label">Total Disbursed</div><div class="value">₹${r.total_disbursed.toLocaleString()}</div></div>
           <div class="stat-card clickable" onclick="navigate('collections')"><div class="label">Total Collected</div><div class="value">₹${r.total_collected.toLocaleString()}</div><div style="font-size:11.5px;color:#888;margin-top:4px">${r.collection_efficiency_pct}% efficiency</div></div>
@@ -1531,27 +1544,6 @@ async function collectRazorpay(){
     rzp.open();
   }catch(e){ errEl.textContent = e.message; }
 }
-
-// ---------- Employee: Attendance ----------
-async function renderAttendance(){
-  content().innerHTML = `<div class="empty">Loading…</div>`;
-  const records = await api('/attendance');
-  content().innerHTML = `
-    <div class="panel"><h3>Today</h3>
-      <div class="row-actions">
-        <button class="btn amber" onclick="checkIn()">Check in</button>
-        <button class="btn ghost" onclick="checkOut()">Check out</button>
-      </div>
-      <div class="err" id="a-err"></div>
-    </div>
-    <div class="panel"><h3>My attendance history</h3>
-      <table><thead><tr><th>Date</th><th>Check in</th><th>Check out</th><th>Status</th></tr></thead>
-      <tbody>${records.map(r=>`<tr><td>${r.date}</td><td>${r.check_in?new Date(r.check_in).toLocaleTimeString():'—'}</td><td>${r.check_out?new Date(r.check_out).toLocaleTimeString():'—'}</td><td><span class="badge ${r.status}">${r.status}</span></td></tr>`).join('') || '<tr><td colspan="4" class="empty">No records yet</td></tr>'}</tbody></table>
-    </div>
-  `;
-}
-async function checkIn(){ try{ await api('/attendance/check-in', {method:'POST'}); renderAttendance(); }catch(e){ document.getElementById('a-err').textContent = e.message; } }
-async function checkOut(){ try{ await api('/attendance/check-out', {method:'POST'}); renderAttendance(); }catch(e){ document.getElementById('a-err').textContent = e.message; } }
 
 // ---------- PWA registration ----------
 if('serviceWorker' in navigator){

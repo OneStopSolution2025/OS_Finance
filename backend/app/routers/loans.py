@@ -305,6 +305,7 @@ def apply_loan(payload: LoanApply, db: Session = Depends(get_db), user: User = D
         loan_product_id=product.id, loan_number=loan_number,
         principal_amount=payload.principal_amount, interest_rate_annual=product.interest_rate_annual,
         tenure_months=product.tenure_months, status=LoanStatus.pending_approval,
+        applied_by=user.id,
     )
     db.add(loan)
     db.commit()

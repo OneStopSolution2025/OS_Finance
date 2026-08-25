@@ -36,6 +36,7 @@ def run_safe_migrations(engine: Engine):
             ("rejected_by", "VARCHAR"),
             ("rejected_at", "TIMESTAMP"),
             ("rejection_reason", "VARCHAR"),
+            ("applied_by", "VARCHAR"),
         ],
     }
 
