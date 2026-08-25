@@ -1,4 +1,6 @@
-const CACHE_NAME = 'os-finances-v1';
+// Bumped on every meaningful change to force old caches to be discarded —
+// this alone doesn't fix staleness though; see the fetch strategy below.
+const CACHE_NAME = 'os-finances-v2';
 const SHELL_FILES = ['/', '/index.html', '/manifest.json'];
 
 self.addEventListener('install', (event) => {
@@ -17,14 +19,23 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Network-first for API calls, cache-first for the app shell
+// Network-first for the app shell too, not just API calls. A cache-first shell
+// means every code fix silently never reaches anyone whose browser already
+// cached the old version — the cache becomes a permanent trap for old bugs.
+// Only fall back to cache when the network genuinely fails (offline).
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   if (event.request.method !== 'GET') return; // never cache mutating requests
 
   if (SHELL_FILES.some((f) => url.pathname === f || url.pathname.endsWith(f))) {
     event.respondWith(
-      caches.match(event.request).then((cached) => cached || fetch(event.request))
+      fetch(event.request)
+        .then((response) => {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          return response;
+        })
+        .catch(() => caches.match(event.request))
     );
   }
 });
