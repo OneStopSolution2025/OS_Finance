@@ -533,25 +533,45 @@ async function renderDashboard(){
         </div>
         <div class="panel"><h3>Platform snapshot</h3><p style="color:#555;font-size:13.5px">You manage every microfinance operator's subscription from the Tenants tab. Suspend a tenant to instantly block Super Admin and Employee logins for that organization.</p></div>
       `;
-    } else {
-      const promises = [api('/reports/branch-summary'), api('/reports/collections-trend'), api('/reports/recent-activity')];
-      if(state.role === 'employee') promises.push(api('/reports/my-activity'));
-      const [r, trend, activity, mine] = await Promise.all(promises);
-
-      const myActivitySection = mine ? `
-        <div class="panel" style="border-color:var(--amber)">
-          <h3>Your activity</h3>
-          <div class="stat-grid">
-            <div class="stat-card clickable" onclick="navigate('loans')"><div class="label">Your Active Loans</div><div class="value">${mine.active_loans}</div><div style="font-size:11.5px;color:#888;margin-top:4px">${mine.pending_loans} awaiting approval</div></div>
-            <div class="stat-card clickable" onclick="navigate('collections')"><div class="label">Collected by You</div><div class="value">₹${mine.total_collected.toLocaleString()}</div><div style="font-size:11.5px;color:#888;margin-top:4px">${mine.payment_count} payments</div></div>
-            <div class="stat-card"><div class="label">Closed Loans</div><div class="value">${mine.closed_loans}</div></div>
-            <div class="stat-card"><div class="label">Rejected</div><div class="value" style="color:${mine.rejected_loans>0?'#C0392B':'var(--charcoal)'}">${mine.rejected_loans}</div></div>
+    } else if(state.role === 'employee') {
+      // Employee dashboard: strictly the individual's own numbers. No branch-wide
+      // totals, no other staff member's loans/payments — that data belongs on the
+      // SuperAdmin dashboard, not here.
+      const [mine, trend, activity] = await Promise.all([
+        api('/reports/my-activity'), api('/reports/my-collections-trend'), api('/reports/my-recent-activity')
+      ]);
+      content().innerHTML = `
+        <div class="stat-grid">
+          <div class="stat-card clickable" onclick="navigate('loans')"><div class="label">Your Active Loans</div><div class="value">${mine.active_loans}</div><div style="font-size:11.5px;color:#888;margin-top:4px">${mine.pending_loans} awaiting approval</div></div>
+          <div class="stat-card clickable" onclick="navigate('collections')"><div class="label">Collected by You</div><div class="value">₹${mine.total_collected.toLocaleString()}</div><div style="font-size:11.5px;color:#888;margin-top:4px">${mine.payment_count} payments</div></div>
+          <div class="stat-card"><div class="label">Closed Loans</div><div class="value">${mine.closed_loans}</div></div>
+          <div class="stat-card"><div class="label">Rejected</div><div class="value" style="color:${mine.rejected_loans>0?'#C0392B':'var(--charcoal)'}">${mine.rejected_loans}</div></div>
+        </div>
+        <div class="trend-card">
+          <h3 style="font-size:15px">Your collections — last 7 days</h3>
+          ${renderTrendBars(trend, 'amount', '₹')}
+        </div>
+        <div class="panel">
+          <h3>Your recent activity</h3>
+          <div class="activity-grid">
+            <div>
+              <div style="font-size:12px;font-weight:600;color:#888;margin-bottom:6px;text-transform:uppercase">Your loan applications</div>
+              ${activity.recent_loans.map(l => `<div class="activity-item"><div><div class="activity-main">${esc(l.customer)}</div><div class="activity-sub">${esc(l.loan_number)}</div></div><div style="text-align:right"><div class="activity-main">₹${l.amount.toLocaleString()}</div><span class="badge ${l.status}">${l.status.replace('_',' ')}</span></div></div>`).join('') || `<div class="empty" style="padding:12px">You haven't applied for any loans yet</div>`}
+            </div>
+            <div>
+              <div style="font-size:12px;font-weight:600;color:#888;margin-bottom:6px;text-transform:uppercase">Payments you collected</div>
+              ${activity.recent_payments.map(p => `<div class="activity-item"><div><div class="activity-main">${esc(p.receipt_number)}</div><div class="activity-sub">${p.method}</div></div><div class="activity-main">₹${p.amount.toLocaleString()}</div></div>`).join('') || `<div class="empty" style="padding:12px">You haven't collected any payments yet</div>`}
+            </div>
           </div>
         </div>
-      ` : '';
-
+      `;
+    } else {
+      // SuperAdmin dashboard: branch/tenant-wide totals — appropriate here, since
+      // SuperAdmin oversees the whole branch, not just their own individual work.
+      const [r, trend, activity] = await Promise.all([
+        api('/reports/branch-summary'), api('/reports/collections-trend'), api('/reports/recent-activity')
+      ]);
       content().innerHTML = `
-        ${myActivitySection}
         <div class="stat-grid">
           <div class="stat-card clickable" onclick="navigate('reports')"><div class="label">Total Disbursed</div><div class="value">₹${r.total_disbursed.toLocaleString()}</div></div>
           <div class="stat-card clickable" onclick="navigate('collections')"><div class="label">Total Collected</div><div class="value">₹${r.total_collected.toLocaleString()}</div><div style="font-size:11.5px;color:#888;margin-top:4px">${r.collection_efficiency_pct}% efficiency</div></div>
@@ -1206,7 +1226,45 @@ async function renderReports(){
       <div class="row-actions"><button class="btn amber" onclick="downloadBreakdown()">⬇ Download breakdown</button></div>
       <div class="err" id="breakdown-download-err"></div>
     </div>
+    <div class="panel">
+      <h3>Customer leads</h3>
+      <p style="font-size:12.5px;color:#666;margin:0 0 14px">Every customer, with their latest loan status and amount — useful for follow-up outreach or portfolio review.</p>
+      <div class="form-grid">
+        <div class="field"><label>Signup month (optional)</label><input type="month" id="leads-month"></div>
+        <div class="field"><label>Loan status (optional)</label>
+          <select id="leads-loan-status">
+            <option value="">All customers</option>
+            <option value="none">No loan yet</option>
+            <option value="pending_approval">Pending approval</option>
+            <option value="approved">Approved</option>
+            <option value="active">Active</option>
+            <option value="closed">Closed</option>
+            <option value="rejected">Rejected</option>
+          </select>
+        </div>
+        <div class="field"><label>Format</label>
+          <select id="leads-format">
+            <option value="xlsx">Excel (.xlsx)</option>
+            <option value="pdf">PDF</option>
+          </select>
+        </div>
+      </div>
+      <div class="row-actions"><button class="btn amber" onclick="downloadLeads()">⬇ Download customer leads</button></div>
+      <div class="err" id="leads-download-err"></div>
+    </div>
   `;
+}
+async function downloadLeads(){
+  const month = document.getElementById('leads-month').value;
+  const loanStatus = document.getElementById('leads-loan-status').value;
+  const format = document.getElementById('leads-format').value;
+  const errEl = document.getElementById('leads-download-err'); errEl.textContent = '';
+  const params = new URLSearchParams({ format });
+  if(month) params.set('month', month);
+  if(loanStatus) params.set('loan_status', loanStatus);
+  try{
+    await downloadAuthenticatedFile(`/reports/customer-leads/export?${params}`, `customer-leads.${format}`);
+  }catch(e){ errEl.textContent = e.message; }
 }
 async function downloadBreakdown(){
   const groupBy = document.getElementById('export-groupby').value;

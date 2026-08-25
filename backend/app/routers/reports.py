@@ -7,10 +7,11 @@ from sqlalchemy import func
 from app.core.database import get_db
 from app.core.security import require_any, require_superemeadmin, require_superadmin
 from app.models.tenancy import User, UserRole, Tenant
-from app.models.finance import Loan, Payment, EMISchedule, LoanStatus, Customer
+from app.models.finance import Loan, Payment, EMISchedule, LoanStatus, Customer, LoanProduct
 from app.utils.report_pdf import generate_branch_report_pdf, generate_breakdown_pdf
 from app.utils.report_breakdown import build_breakdown
 from app.utils.report_xlsx import generate_breakdown_xlsx
+from app.utils.leads_export import generate_leads_xlsx, generate_leads_pdf
 
 router = APIRouter(prefix="/reports", tags=["accounts & reports"])
 
@@ -223,3 +224,116 @@ def my_activity(db: Session = Depends(get_db), user: User = Depends(require_any)
         "total_collected": float(total_collected),
         "payment_count": payment_count,
     }
+
+
+@router.get("/my-collections-trend")
+def my_collections_trend(db: Session = Depends(get_db), user: User = Depends(require_any)):
+    """Last 7 days of collections BY THIS PERSON specifically — not the whole branch."""
+    q = db.query(Payment).filter(Payment.collected_by == user.id)
+    today = date.today()
+    days = [today - timedelta(days=i) for i in range(6, -1, -1)]
+    trend = []
+    for d in days:
+        day_total = q.filter(func.date(Payment.paid_at) == d).with_entities(
+            func.coalesce(func.sum(Payment.amount), 0)
+        ).scalar()
+        trend.append({"date": d.isoformat(), "amount": float(day_total)})
+    return trend
+
+
+@router.get("/my-recent-activity")
+def my_recent_activity(db: Session = Depends(get_db), user: User = Depends(require_any)):
+    """This person's own recent loans and payments only — never another staff member's."""
+    recent_loans = db.query(Loan).filter(Loan.applied_by == user.id).order_by(Loan.applied_at.desc()).limit(5).all()
+    recent_payments = db.query(Payment).filter(Payment.collected_by == user.id).order_by(Payment.paid_at.desc()).limit(5).all()
+
+    def loan_customer_name(loan):
+        c = db.query(Customer).filter(Customer.id == loan.customer_id).first()
+        return c.full_name if c else "—"
+
+    return {
+        "recent_loans": [
+            {"loan_number": l.loan_number, "customer": loan_customer_name(l),
+             "amount": float(l.principal_amount), "status": l.status.value, "applied_at": l.applied_at.isoformat()}
+            for l in recent_loans
+        ],
+        "recent_payments": [
+            {"receipt_number": p.receipt_number, "amount": float(p.amount),
+             "method": p.method.value, "paid_at": p.paid_at.isoformat()}
+            for p in recent_payments
+        ],
+    }
+
+
+@router.get("/customer-leads/export")
+def export_customer_leads(
+    format: str = "xlsx",
+    month: str | None = None,          # "YYYY-MM" — filters by customer signup month
+    loan_status: str | None = None,    # a LoanStatus value, or "none" for customers with no loan yet
+    db: Session = Depends(get_db),
+    user: User = Depends(require_superadmin),
+):
+    """
+    SuperAdmin-only. Exports the full customer list as sales/follow-up leads,
+    with each customer's latest loan status and amount for context. Filterable
+    by signup month and by loan status (or 'none' for customers with no loan yet).
+    """
+    if format not in ("xlsx", "pdf"):
+        raise HTTPException(status_code=400, detail="format must be xlsx or pdf")
+    if loan_status and loan_status != "none" and loan_status not in [s.value for s in LoanStatus]:
+        raise HTTPException(status_code=400, detail="Invalid loan_status value")
+
+    tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
+    tenant_name = tenant.name if tenant else "OS Finances"
+
+    from app.models.tenancy import Branch
+    customers_q = db.query(Customer).filter(Customer.tenant_id == user.tenant_id)
+    if month:
+        try:
+            year, mon = (int(x) for x in month.split("-"))
+        except (ValueError, AttributeError):
+            raise HTTPException(status_code=400, detail="month must be in YYYY-MM format")
+        customers_q = customers_q.filter(
+            func.extract("year", Customer.created_at) == year,
+            func.extract("month", Customer.created_at) == mon,
+        )
+    customers = customers_q.order_by(Customer.created_at.desc()).all()
+
+    branches = {b.id: b.name for b in db.query(Branch).filter(Branch.tenant_id == user.tenant_id).all()}
+
+    leads = []
+    for cust in customers:
+        latest_loan = (
+            db.query(Loan).filter(Loan.customer_id == cust.id)
+            .order_by(Loan.applied_at.desc()).first()
+        )
+        this_loan_status = latest_loan.status.value if latest_loan else None
+
+        if loan_status == "none" and latest_loan is not None:
+            continue
+        if loan_status and loan_status != "none" and this_loan_status != loan_status:
+            continue
+
+        leads.append({
+            "customer_code": cust.customer_code,
+            "full_name": cust.full_name,
+            "phone": cust.phone,
+            "branch_name": branches.get(cust.branch_id, "—"),
+            "kyc_verified": cust.kyc_verified,
+            "phone_verified": cust.phone_verified,
+            "loan_status": this_loan_status,
+            "loan_amount": float(latest_loan.principal_amount) if latest_loan else None,
+            "applied_date": latest_loan.applied_at.strftime("%d %b %Y") if latest_loan else None,
+        })
+
+    if format == "xlsx":
+        file_path = generate_leads_xlsx(tenant_name, leads)
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        ext = "xlsx"
+    else:
+        file_path = generate_leads_pdf(tenant_name, leads)
+        media_type = "application/pdf"
+        ext = "pdf"
+
+    filename = f"{tenant_name.replace(' ', '_')}_customer_leads.{ext}"
+    return FileResponse(file_path, media_type=media_type, filename=filename)
