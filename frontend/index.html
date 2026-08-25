@@ -650,7 +650,7 @@ async function renderTenants(){
         <div class="field"><label>SuperAdmin name</label><input id="t-admin-name"></div>
         <div class="field"><label>SuperAdmin email</label><input id="t-admin-email" type="email"></div>
         <div class="field" style="grid-column:1/-1">
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="t-auto-pw" checked onchange="toggleManualPw('t')"> Auto-generate a secure password</label>
+          <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;width:fit-content"><input type="checkbox" id="t-auto-pw" checked onchange="toggleManualPw('t')" style="margin:0"><span>Auto-generate a secure password</span></label>
         </div>
         <div class="field hidden" id="t-manual-pw-field"><label class="pw-label">SuperAdmin password</label><div class="pw-wrap"><input id="t-admin-pass" type="password"><button type="button" class="pw-toggle" onclick="togglePw('t-admin-pass', this)">👁</button></div></div>
       </div>
@@ -842,7 +842,7 @@ async function renderEmployees(){
         <div class="field"><label>Email</label><input id="e-email" type="email"></div>
         <div class="field"><label>Designation</label><input id="e-desig" placeholder="Loan Officer"></div>
         <div class="field" style="grid-column:1/-1">
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="e-auto-pw" checked onchange="toggleManualPw('e')"> Auto-generate a secure password</label>
+          <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;width:fit-content"><input type="checkbox" id="e-auto-pw" checked onchange="toggleManualPw('e')" style="margin:0"><span>Auto-generate a secure password</span></label>
         </div>
         <div class="field hidden" id="e-manual-pw-field"><label class="pw-label">Password</label><div class="pw-wrap"><input id="e-pass" type="password"><button type="button" class="pw-toggle" onclick="togglePw('e-pass', this)">👁</button></div></div>
       </div>
