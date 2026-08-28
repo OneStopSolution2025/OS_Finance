@@ -1,7 +1,7 @@
 import enum
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Enum, Integer, Numeric
+from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Enum
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -11,61 +11,27 @@ def gen_uuid():
     return str(uuid.uuid4())
 
 
-class SubscriptionStatus(str, enum.Enum):
-    trial = "trial"
-    active = "active"
-    past_due = "past_due"
-    suspended = "suspended"
-    cancelled = "cancelled"
-
-
 class UserRole(str, enum.Enum):
-    superemeadmin = "superemeadmin"   # OS2 platform owner
-    superadmin = "superadmin"         # tenant owner, creates branches
-    employee = "employee"             # branch staff
-
-
-class ApplicationStatus(str, enum.Enum):
-    pending = "pending"     # self-signup, awaiting SuperEmeAdmin review
-    approved = "approved"   # can log in and use the platform
-    rejected = "rejected"   # signup declined
-
-
-class SubscriptionPlan(Base):
-    __tablename__ = "subscription_plans"
-    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
-    name = Column(String, nullable=False)          # e.g. "Starter", "Growth", "Enterprise"
-    max_branches = Column(Integer, nullable=False, default=1)
-    max_employees = Column(Integer, nullable=False, default=10)
-    max_customers = Column(Integer, nullable=True)  # null = unlimited
-    monthly_price_inr = Column(Numeric(10, 2), nullable=False)
-    razorpay_plan_id = Column(String, nullable=True)
-    is_active = Column(Boolean, default=True)
+    superadmin = "superadmin"  # business owner — top of the hierarchy, creates branches
+    employee = "employee"      # branch staff
 
 
 class Tenant(Base):
-    """A microfinance operator org (owned by a SuperAdmin), subscribed to a plan."""
+    """
+    The single business this deployment belongs to. Kept as its own table
+    (rather than folding these fields onto User) because Branch, Customer,
+    Loan, etc. all scope through tenant_id — this preserves that without
+    forcing a bigger rewrite. There is exactly one row in this table for a
+    single-tenant deployment, created once during setup.
+    """
     __tablename__ = "tenants"
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
     name = Column(String, nullable=False)
     slug = Column(String, unique=True, nullable=False)
-    plan_id = Column(UUID(as_uuid=False), ForeignKey("subscription_plans.id"), nullable=True)
-    subscription_status = Column(Enum(SubscriptionStatus), default=SubscriptionStatus.trial)
-    razorpay_subscription_id = Column(String, nullable=True)
-    trial_ends_at = Column(DateTime, nullable=True)
-    current_period_end = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
-    is_suspended = Column(Boolean, default=False)  # manual kill-switch by SuperEmeAdmin
 
-    # Self-signup approval workflow. Tenants created directly by SuperEmeAdmin are
-    # approved immediately; tenants from the public signup form start pending.
-    application_status = Column(Enum(ApplicationStatus), default=ApplicationStatus.approved)
-    tracking_code = Column(String, unique=True, nullable=True)  # e.g. "APP-4F82K1", given to the applicant
-    rejection_reason = Column(String, nullable=True)
-
-    # Per-tenant payment credentials — each microfinance operator collects into
-    # THEIR OWN Razorpay account, not a shared platform-wide one. Set by the
-    # tenant's own SuperAdmin from the Payment Settings screen, never by OS2 Studio.
+    # Your own Razorpay/RazorpayX credentials — collections go straight into
+    # your own account, never through anyone else's.
     razorpay_key_id = Column(String, nullable=True)
     razorpay_key_secret = Column(String, nullable=True)
     razorpayx_account_number = Column(String, nullable=True)
@@ -73,7 +39,6 @@ class Tenant(Base):
     razorpayx_key_secret = Column(String, nullable=True)
 
     branches = relationship("Branch", back_populates="tenant", cascade="all, delete-orphan")
-    plan = relationship("SubscriptionPlan")
 
 
 class Branch(Base):
@@ -104,8 +69,8 @@ class PasswordResetToken(Base):
 class User(Base):
     __tablename__ = "users"
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
-    tenant_id = Column(UUID(as_uuid=False), ForeignKey("tenants.id"), nullable=True)  # null for superemeadmin
-    branch_id = Column(UUID(as_uuid=False), ForeignKey("branches.id"), nullable=True)  # null for superadmin/superemeadmin
+    tenant_id = Column(UUID(as_uuid=False), ForeignKey("tenants.id"), nullable=False)
+    branch_id = Column(UUID(as_uuid=False), ForeignKey("branches.id"), nullable=True)  # null for superadmin
     full_name = Column(String, nullable=False)
     email = Column(String, unique=True, nullable=False)
     phone = Column(String, nullable=True)

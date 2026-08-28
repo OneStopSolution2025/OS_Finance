@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from app.core.database import get_db
-from app.core.security import require_any, require_superemeadmin, require_superadmin
+from app.core.security import require_any, require_superadmin
 from app.models.tenancy import User, UserRole, Tenant
 from app.models.finance import Loan, Payment, EMISchedule, LoanStatus, Customer, LoanProduct
 from app.utils.report_pdf import generate_branch_report_pdf, generate_breakdown_pdf
@@ -122,26 +122,6 @@ def recent_activity(db: Session = Depends(get_db), user: User = Depends(require_
              "method": p.method.value, "paid_at": p.paid_at.isoformat()}
             for p in recent_payments
         ],
-    }
-
-
-@router.get("/platform-overview", dependencies=[Depends(require_superemeadmin)])
-def platform_overview(db: Session = Depends(get_db)):
-    """SuperEmeAdmin (Supreme Admin) view: platform-wide growth trend across all tenants."""
-    today = date.today()
-    days = [today - timedelta(days=i) for i in range(6, -1, -1)]
-    trend = []
-    for d in days:
-        new_tenants = db.query(Tenant).filter(func.date(Tenant.created_at) == d).count()
-        trend.append({"date": d.isoformat(), "new_tenants": new_tenants})
-
-    total_disbursed = db.query(Loan).with_entities(func.coalesce(func.sum(Loan.disbursed_amount), 0)).scalar()
-    total_collected = db.query(Payment).with_entities(func.coalesce(func.sum(Payment.amount), 0)).scalar()
-
-    return {
-        "tenant_growth_trend": trend,
-        "platform_total_disbursed": float(total_disbursed),
-        "platform_total_collected": float(total_collected),
     }
 
 
@@ -337,3 +317,32 @@ def export_customer_leads(
 
     filename = f"{tenant_name.replace(' ', '_')}_customer_leads.{ext}"
     return FileResponse(file_path, media_type=media_type, filename=filename)
+
+
+@router.get("/money-audit-log")
+def get_money_audit_log(
+    limit: int = 200, db: Session = Depends(get_db), user: User = Depends(require_superadmin)
+):
+    """
+    SuperAdmin-only. The immutable ledger of every money movement — loan
+    disbursals, repayments collected, salaries paid. This is the source of
+    truth for "what actually happened," independent of the mutable Loan/
+    Payment/Payslip rows those events came from.
+    """
+    from app.models.audit import MoneyAuditLog
+    entries = (
+        db.query(MoneyAuditLog)
+        .filter(MoneyAuditLog.tenant_id == user.tenant_id)
+        .order_by(MoneyAuditLog.created_at.desc())
+        .limit(min(limit, 1000))
+        .all()
+    )
+    result = []
+    for e in entries:
+        actor = db.query(User).filter(User.id == e.actor_id).first() if e.actor_id else None
+        result.append({
+            "id": e.id, "event_type": e.event_type.value, "amount": float(e.amount), "direction": e.direction,
+            "actor_name": actor.full_name if actor else "—", "method": e.method, "reference": e.reference,
+            "notes": e.notes, "created_at": e.created_at.isoformat(),
+        })
+    return result

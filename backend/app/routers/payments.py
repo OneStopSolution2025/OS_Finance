@@ -15,6 +15,8 @@ from app.models.tenancy import User, Tenant
 from app.models.finance import Payment, EMISchedule, Loan, Customer, PaymentMethod
 from app.utils.receipts import generate_receipt_pdf
 from app.utils.whatsapp import send_payment_receipt_notification
+from app.utils.audit_log import log_money_event
+from app.models.audit import MoneyEventType
 
 router = APIRouter(prefix="/payments", tags=["payments"])
 
@@ -75,6 +77,14 @@ def record_cash_payment(payload: CashPayment, db: Session = Depends(get_db), use
             if emi.amount_paid >= emi.total_due:
                 emi.is_paid = True
                 emi.paid_at = datetime.utcnow()
+
+    log_money_event(
+        db, tenant_id=user.tenant_id, event_type=MoneyEventType.payment_collected,
+        amount=payload.amount, direction="in", actor_id=user.id, branch_id=loan.branch_id,
+        counterparty_type="customer", counterparty_id=loan.customer_id,
+        method="cash", reference=receipt_number, related_record_id=payment.id,
+        notes=f"Collected against loan {loan.loan_number}",
+    )
 
     try:
         db.commit()
@@ -191,6 +201,14 @@ def verify_razorpay_payment(payload: RazorpayVerify, db: Session = Depends(get_d
             if emi.amount_paid >= emi.total_due:
                 emi.is_paid = True
                 emi.paid_at = datetime.utcnow()
+
+    log_money_event(
+        db, tenant_id=user.tenant_id, event_type=MoneyEventType.payment_collected,
+        amount=payload.amount, direction="in", actor_id=user.id, branch_id=loan.branch_id,
+        counterparty_type="customer", counterparty_id=loan.customer_id,
+        method="razorpay", reference=receipt_number, related_record_id=payment.id,
+        notes=f"Collected against loan {loan.loan_number}",
+    )
 
     try:
         db.commit()

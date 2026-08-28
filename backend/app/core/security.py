@@ -58,7 +58,5 @@ def require_roles(*roles: UserRole):
 
 
 # Convenience dependencies
-require_superemeadmin = require_roles(UserRole.superemeadmin)
 require_superadmin = require_roles(UserRole.superadmin)
-require_superadmin_or_above = require_roles(UserRole.superemeadmin, UserRole.superadmin)
-require_any = require_roles(UserRole.superemeadmin, UserRole.superadmin, UserRole.employee)
+require_any = require_roles(UserRole.superadmin, UserRole.employee)

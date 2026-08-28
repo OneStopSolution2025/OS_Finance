@@ -156,61 +156,6 @@
     <div class="forgot-link"><button class="link-btn" onclick="openForgotModal()">Forgot password?</button></div>
     <button class="btn btn-block" onclick="doLogin()">Sign in</button>
     <div class="err" id="login-err"></div>
-    <div style="text-align:center;margin-top:16px;font-size:12.5px;color:#666;border-top:1px solid var(--border);padding-top:14px">
-      Running a microfinance business? <button class="link-btn" onclick="openSignupModal()">Sign up</button>
-      &nbsp;·&nbsp; <button class="link-btn" onclick="openTrackingModal()">Check application status</button>
-    </div>
-  </div>
-</div>
-
-<!-- SIGN UP MODAL -->
-<div class="modal-overlay" id="signup-modal">
-  <div class="modal-card" style="max-width:440px;max-height:90vh;overflow-y:auto">
-    <h3>Apply for OS Finances</h3>
-    <p class="sub">Tell us about your organization. OS2 Studio reviews every application before access is granted — you'll get a tracking code to check your status.</p>
-    <div id="signup-form-fields">
-      <label>Organization name</label>
-      <input id="su-org" placeholder="Sunrise Microfinance">
-      <label>Organization URL slug</label>
-      <input id="su-slug" placeholder="sunrise-mf">
-      <label>Subscription plan</label>
-      <select id="su-plan"></select>
-      <label>Your full name</label>
-      <input id="su-admin-name" placeholder="Full name">
-      <label>Your email</label>
-      <input id="su-admin-email" type="email" placeholder="you@company.com">
-      <label class="pw-label">Choose a password</label>
-      <div class="pw-wrap">
-        <input id="su-admin-pass" type="password" placeholder="At least 8 characters">
-        <button type="button" class="pw-toggle" onclick="togglePw('su-admin-pass', this)">👁</button>
-      </div>
-      <div class="row-actions">
-        <button class="btn amber" onclick="submitSignup()">Submit application</button>
-        <button class="btn ghost" onclick="closeSignupModal()">Cancel</button>
-      </div>
-    </div>
-    <div class="hidden" id="signup-no-plans">
-      <p style="font-size:13.5px;color:#555;line-height:1.6">No subscription plans are available to apply for yet. Please check back shortly, or contact OS2 Studio directly.</p>
-      <div class="row-actions"><button class="btn ghost" onclick="closeSignupModal()">Close</button></div>
-    </div>
-    <div class="err" id="signup-err"></div>
-    <div id="signup-result"></div>
-  </div>
-</div>
-
-<!-- TRACKING STATUS MODAL -->
-<div class="modal-overlay" id="tracking-modal">
-  <div class="modal-card">
-    <h3>Check application status</h3>
-    <p class="sub">Enter the tracking code you received when you applied.</p>
-    <label>Tracking code</label>
-    <input id="track-code" placeholder="APP-XXXXXX">
-    <div class="row-actions">
-      <button class="btn amber" onclick="checkTrackingStatus()">Check status</button>
-      <button class="btn ghost" onclick="closeTrackingModal()">Close</button>
-    </div>
-    <div class="err" id="track-err"></div>
-    <div id="track-result"></div>
   </div>
 </div>
 
@@ -280,80 +225,6 @@
 <script>
 const API = window.OSF_API_BASE || localStorage.getItem('osf_api_base') || 'http://localhost:8000';
 let state = { token:null, role:null, name:null, tenant_id:null, branch_id:null, view:'dashboard' };
-
-// ---------- Public signup ----------
-async function openSignupModal(){
-  document.getElementById('signup-modal').classList.add('show');
-  document.getElementById('signup-err').textContent = '';
-  document.getElementById('signup-result').innerHTML = '';
-  document.getElementById('signup-form-fields').classList.remove('hidden');
-  document.getElementById('signup-no-plans').classList.add('hidden');
-  try{
-    const res = await fetch(API + '/tenants/plans/public');
-    const plans = await res.json();
-    if(!plans.length){
-      document.getElementById('signup-form-fields').classList.add('hidden');
-      document.getElementById('signup-no-plans').classList.remove('hidden');
-      return;
-    }
-    document.getElementById('su-plan').innerHTML = plans.map(p =>
-      `<option value="${p.id}">${esc(p.name)} — ₹${p.monthly_price_inr}/mo · up to ${p.max_branches} branches</option>`
-    ).join('');
-  }catch(e){
-    document.getElementById('signup-err').textContent = 'Could not load plans. Try again shortly.';
-  }
-}
-function closeSignupModal(){ document.getElementById('signup-modal').classList.remove('show'); }
-async function submitSignup(){
-  const errEl = document.getElementById('signup-err'); errEl.textContent = '';
-  const payload = {
-    org_name: document.getElementById('su-org').value,
-    slug: document.getElementById('su-slug').value,
-    plan_id: document.getElementById('su-plan').value,
-    admin_full_name: document.getElementById('su-admin-name').value,
-    admin_email: document.getElementById('su-admin-email').value,
-    admin_password: document.getElementById('su-admin-pass').value,
-  };
-  if(!payload.org_name || !payload.slug || !payload.plan_id || !payload.admin_full_name || !payload.admin_email || !payload.admin_password){
-    errEl.textContent = 'Please fill in every field.'; return;
-  }
-  try{
-    const res = await fetch(API + '/tenants/signup', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
-    const data = await res.json();
-    if(!res.ok) throw new Error(data.detail || 'Something went wrong.');
-    document.getElementById('signup-form-fields').classList.add('hidden');
-    document.getElementById('signup-result').innerHTML = `<div class="success-box">
-      Application submitted! Your tracking code: <strong>${esc(data.tracking_code)}</strong><br>
-      Save this code — you'll need it to check your approval status. You'll be able to sign in once OS2 Studio approves your application.
-    </div>
-    <div class="row-actions"><button class="btn" onclick="closeSignupModal()">Done</button></div>`;
-  }catch(e){ errEl.textContent = e.message; }
-}
-
-// ---------- Track application status ----------
-function openTrackingModal(){
-  document.getElementById('tracking-modal').classList.add('show');
-  document.getElementById('track-err').textContent = '';
-  document.getElementById('track-result').innerHTML = '';
-}
-function closeTrackingModal(){ document.getElementById('tracking-modal').classList.remove('show'); }
-async function checkTrackingStatus(){
-  const code = document.getElementById('track-code').value.trim();
-  const errEl = document.getElementById('track-err'); errEl.textContent = '';
-  if(!code){ errEl.textContent = 'Enter your tracking code.'; return; }
-  try{
-    const res = await fetch(API + '/tenants/application-status/' + encodeURIComponent(code));
-    const data = await res.json();
-    if(!res.ok) throw new Error(data.detail || 'Not found.');
-    const statusColor = {pending:'#8A6200', approved:'#5A6B00', rejected:'#C0392B'}[data.status] || '#333';
-    document.getElementById('track-result').innerHTML = `<div class="success-box" style="color:${statusColor};background:#F6F5F2;border-color:var(--border)">
-      <strong>${esc(data.org_name)}</strong><br>
-      Status: <strong style="text-transform:capitalize">${data.status}</strong><br>
-      Submitted: ${new Date(data.submitted_at).toLocaleDateString()}
-      ${data.rejection_reason ? `<br>Reason: ${esc(data.rejection_reason)}` : ''}
-    </div>`;
-  }catch(e){ errEl.textContent = e.message; }
-}
 
 // ---------- Show/hide password ----------
 function togglePw(id, btn){
@@ -449,12 +320,6 @@ function logout(){
 
 // ---------- Nav per role ----------
 const NAV = {
-  superemeadmin: [
-    {id:'dashboard', label:'📊 Overview'},
-    {id:'applications', label:'📥 Applications'},
-    {id:'tenants', label:'🏢 Tenants'},
-    {id:'plans', label:'💳 Subscription Plans'},
-  ],
   superadmin: [
     {id:'dashboard', label:'📊 Overview'},
     {id:'branches', label:'🏬 Branches'},
@@ -476,7 +341,7 @@ const NAV = {
 function enterApp(){
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app').classList.add('active');
-  document.getElementById('role-pill').textContent = state.role.replace('superemeadmin','Supreme Admin').replace('superadmin','Super Admin').replace('employee','Employee');
+  document.getElementById('role-pill').textContent = state.role.replace('superadmin','Super Admin').replace('employee','Employee');
   document.getElementById('user-name').textContent = state.name || '';
   renderNav();
   navigate('dashboard');
@@ -495,15 +360,15 @@ function navigate(view){
   state.view = view;
   toggleSidebar(false);
   renderNav();
-  const titles = {dashboard:'Overview', tenants:'Tenants', plans:'Subscription Plans', branches:'Branches',
+  const titles = {dashboard:'Overview', branches:'Branches',
     employees:'Employees', 'loan-products':'Loan Products', loans:'Loans', reports:'Reports & Accounts',
-    customers:'Customers', collections:'Collections', applications:'Applications', payroll:'Payroll', 'payment-settings':'Payment Settings'};
+    customers:'Customers', collections:'Collections', payroll:'Payroll', 'payment-settings':'Payment Settings'};
   document.getElementById('page-title').textContent = titles[view] || view;
   const renderers = {
-    dashboard: renderDashboard, tenants: renderTenants, plans: renderPlans, branches: renderBranches,
+    dashboard: renderDashboard, branches: renderBranches,
     employees: renderEmployees, 'loan-products': renderLoanProducts, loans: renderLoans,
     reports: renderReports, customers: renderCustomers, collections: renderCollections,
-    applications: renderApplications, payroll: renderPayroll, 'payment-settings': renderPaymentSettings,
+    payroll: renderPayroll, 'payment-settings': renderPaymentSettings,
   };
   (renderers[view] || renderDashboard)();
 }
@@ -528,24 +393,7 @@ function renderTrendBars(trend, valueKey, labelPrefix){
 async function renderDashboard(){
   content().innerHTML = `<div class="empty">Loading…</div>`;
   try{
-    if(state.role === 'superemeadmin'){
-      const [tenants, overview] = await Promise.all([api('/tenants/'), api('/reports/platform-overview')]);
-      const active = tenants.filter(t=>t.status==='active').length;
-      const trial = tenants.filter(t=>t.status==='trial').length;
-      content().innerHTML = `
-        <div class="stat-grid">
-          <div class="stat-card clickable" onclick="navigate('tenants')"><div class="label">Total Tenants</div><div class="value">${tenants.length}</div></div>
-          <div class="stat-card clickable" onclick="navigate('tenants')"><div class="label">Active Subscriptions</div><div class="value">${active}</div><div style="font-size:11.5px;color:#888;margin-top:4px">${trial} on trial</div></div>
-          <div class="stat-card clickable" onclick="navigate('tenants')"><div class="label">Platform Disbursed</div><div class="value">₹${overview.platform_total_disbursed.toLocaleString()}</div></div>
-          <div class="stat-card clickable" onclick="navigate('tenants')"><div class="label">Platform Collected</div><div class="value">₹${overview.platform_total_collected.toLocaleString()}</div></div>
-        </div>
-        <div class="trend-card">
-          <h3 style="font-size:15px">New tenants — last 7 days</h3>
-          ${renderTrendBars(overview.tenant_growth_trend, 'new_tenants', '')}
-        </div>
-        <div class="panel"><h3>Platform snapshot</h3><p style="color:#555;font-size:13.5px">You manage every microfinance operator's subscription from the Tenants tab. Suspend a tenant to instantly block Super Admin and Employee logins for that organization.</p></div>
-      `;
-    } else if(state.role === 'employee') {
+    if(state.role === 'employee') {
       // Employee dashboard: strictly the individual's own numbers. No branch-wide
       // totals, no other staff member's loans/payments — that data belongs on the
       // SuperAdmin dashboard, not here.
@@ -612,142 +460,6 @@ async function renderDashboard(){
   }catch(e){ content().innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
 }
 
-// ---------- SuperEmeAdmin: Applications (pending signups) ----------
-async function renderApplications(){
-  content().innerHTML = `<div class="empty">Loading…</div>`;
-  const apps = await api('/tenants/applications/pending');
-  content().innerHTML = `
-    <div class="panel">
-      <h3>Pending applications</h3>
-      <table><thead><tr><th>Organization</th><th>Applicant</th><th>Plan</th><th>Tracking Code</th><th>Submitted</th><th>Action</th></tr></thead>
-      <tbody>${apps.map(a=>`
-        <tr>
-          <td>${esc(a.org_name)}</td>
-          <td>${esc(a.admin_name)}<br><span style="color:#888;font-size:11.5px">${esc(a.admin_email)}</span></td>
-          <td>${esc(a.plan||'—')}</td>
-          <td><code>${esc(a.tracking_code)}</code></td>
-          <td>${new Date(a.submitted_at).toLocaleDateString()}</td>
-          <td style="white-space:nowrap">
-            <button class="btn amber" style="padding:6px 10px;font-size:12px" onclick="approveApplication('${a.id}')">Approve</button>
-            <button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="rejectApplication('${a.id}')">Reject</button>
-          </td>
-        </tr>`).join('') || '<tr><td colspan="6" class="empty">No pending applications</td></tr>'}
-      </tbody></table>
-    </div>
-  `;
-}
-async function approveApplication(id){
-  await api(`/tenants/${id}/approve-application`, {method:'PATCH'});
-  renderApplications();
-}
-async function rejectApplication(id){
-  const reason = prompt('Reason for rejecting this application (optional):') || '';
-  await api(`/tenants/${id}/reject-application`, { method:'PATCH', json:{ reason } });
-  renderApplications();
-}
-
-// ---------- SuperEmeAdmin: Tenants ----------
-async function renderTenants(){
-  content().innerHTML = `<div class="empty">Loading…</div>`;
-  const tenants = await api('/tenants/');
-  const plans = await api('/tenants/plans');
-  const planOpts = plans.map(p=>`<option value="${p.id}">${esc(p.name)} — ₹${p.monthly_price_inr}/mo</option>`).join('');
-  content().innerHTML = `
-    <div class="panel">
-      <h3>Onboard a new microfinance operator</h3>
-      <div class="form-grid">
-        <div class="field"><label>Organization name</label><input id="t-org"></div>
-        <div class="field"><label>Slug</label><input id="t-slug" placeholder="acme-mf"></div>
-        <div class="field"><label>Plan</label><select id="t-plan">${planOpts || '<option>Create a plan first</option>'}</select></div>
-        <div class="field"><label>SuperAdmin name</label><input id="t-admin-name"></div>
-        <div class="field"><label>SuperAdmin email</label><input id="t-admin-email" type="email"></div>
-        <div class="field" style="grid-column:1/-1">
-          <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;width:fit-content"><input type="checkbox" id="t-auto-pw" checked onchange="toggleManualPw('t')" style="margin:0"><span>Auto-generate a secure password</span></label>
-        </div>
-        <div class="field hidden" id="t-manual-pw-field"><label class="pw-label">SuperAdmin password</label><div class="pw-wrap"><input id="t-admin-pass" type="password"><button type="button" class="pw-toggle" onclick="togglePw('t-admin-pass', this)">👁</button></div></div>
-      </div>
-      <div class="row-actions"><button class="btn amber" onclick="createTenant()">Create tenant</button></div>
-      <div class="err" id="t-err"></div>
-    </div>
-    <div class="panel">
-      <h3>All tenants</h3>
-      <table><thead><tr><th>Organization</th><th>Plan</th><th>Branches</th><th>Status</th><th>Action</th></tr></thead>
-      <tbody>${tenants.map(t=>`
-        <tr><td>${esc(t.name)}</td><td>${esc(t.plan||'—')}</td><td>${t.branch_count}</td>
-        <td><span class="badge ${t.status}">${t.status.replace('_',' ')}</span></td>
-        <td>${t.is_suspended
-          ? `<button class="btn" style="padding:6px 12px;font-size:12px" onclick="reactivateTenant('${t.id}')">Reactivate</button>`
-          : `<button class="btn ghost" style="padding:6px 12px;font-size:12px" onclick="suspendTenant('${t.id}')">Suspend</button>`}
-        </td></tr>`).join('') || '<tr><td colspan="5" class="empty">No tenants yet</td></tr>'}
-      </tbody></table>
-    </div>
-  `;
-}
-function toggleManualPw(prefix){
-  const auto = document.getElementById(`${prefix}-auto-pw`).checked;
-  document.getElementById(`${prefix}-manual-pw-field`).classList.toggle('hidden', auto);
-}
-function credentialsBox(email, password){
-  return `<div class="success-box">
-    <strong>Login created — copy these now, they won't be shown again:</strong><br>
-    Email: <strong>${esc(email)}</strong><br>
-    Password: <strong>${esc(password)}</strong>
-    <div style="margin-top:8px"><button class="btn ghost" style="padding:6px 12px;font-size:12px" onclick="navigator.clipboard.writeText('Email: ${esc(email)}\\nPassword: ${esc(password)}')">Copy to clipboard</button></div>
-  </div>`;
-}
-
-async function createTenant(){
-  const errEl = document.getElementById('t-err');
-  const autoPw = document.getElementById('t-auto-pw').checked;
-  try{
-    const res = await api('/tenants/', { method:'POST', json:{
-      org_name: document.getElementById('t-org').value,
-      slug: document.getElementById('t-slug').value,
-      plan_id: document.getElementById('t-plan').value,
-      admin_full_name: document.getElementById('t-admin-name').value,
-      admin_email: document.getElementById('t-admin-email').value,
-      admin_password: autoPw ? null : document.getElementById('t-admin-pass').value,
-    }});
-    if(res.password_was_generated){
-      document.getElementById('t-err').innerHTML = credentialsBox(res.admin_email, res.admin_password) +
-        `<div class="row-actions"><button class="btn" onclick="renderTenants()">Done — refresh list</button></div>`;
-    } else {
-      renderTenants();
-    }
-  }catch(e){ errEl.textContent = e.message; }
-}
-async function suspendTenant(id){ await api(`/tenants/${id}/suspend`, {method:'PATCH'}); renderTenants(); }
-async function reactivateTenant(id){ await api(`/tenants/${id}/reactivate`, {method:'PATCH'}); renderTenants(); }
-
-async function renderPlans(){
-  content().innerHTML = `<div class="empty">Loading…</div>`;
-  const plans = await api('/tenants/plans');
-  content().innerHTML = `
-    <div class="panel">
-      <h3>Create a plan</h3>
-      <div class="form-grid">
-        <div class="field"><label>Name</label><input id="p-name" placeholder="Growth"></div>
-        <div class="field"><label>Max branches</label><input id="p-branches" type="number" value="3"></div>
-        <div class="field"><label>Max employees</label><input id="p-emp" type="number" value="25"></div>
-        <div class="field"><label>Monthly price (₹)</label><input id="p-price" type="number" value="4999"></div>
-      </div>
-      <div class="row-actions"><button class="btn amber" onclick="createPlan()">Create plan</button></div>
-    </div>
-    <div class="panel"><h3>Existing plans</h3>
-      <table><thead><tr><th>Name</th><th>Max branches</th><th>Max employees</th><th>Price / mo</th></tr></thead>
-      <tbody>${plans.map(p=>`<tr><td>${esc(p.name)}</td><td>${p.max_branches}</td><td>${p.max_employees}</td><td>₹${p.monthly_price_inr}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">No plans yet</td></tr>'}</tbody></table>
-    </div>
-  `;
-}
-async function createPlan(){
-  await api('/tenants/plans', { method:'POST', json:{
-    name: document.getElementById('p-name').value,
-    max_branches: Number(document.getElementById('p-branches').value),
-    max_employees: Number(document.getElementById('p-emp').value),
-    monthly_price_inr: Number(document.getElementById('p-price').value),
-  }});
-  renderPlans();
-}
 
 // ---------- SuperAdmin: Branches / Employees ----------
 async function renderBranches(){
@@ -1331,6 +1043,11 @@ async function renderReports(){
       <tbody><tr><td>₹${par['1-30'].toLocaleString()}</td><td>₹${par['31-60'].toLocaleString()}</td><td>₹${par['61-90'].toLocaleString()}</td><td>₹${par['90+'].toLocaleString()}</td></tr></tbody></table>
     </div>
     <div class="panel">
+      <h3>Money audit trail</h3>
+      <p style="font-size:12.5px;color:#666;margin:0 0 14px">An unchangeable record of every loan disbursed, payment collected, and salary paid — this is your source of truth if a dispute ever comes up. Nothing here can be edited or deleted.</p>
+      <div id="audit-log-body"><div class="empty">Loading…</div></div>
+    </div>
+    <div class="panel">
       <h3>Export collections breakdown</h3>
       <div class="form-grid">
         <div class="field"><label>Group by</label>
@@ -1378,6 +1095,7 @@ async function renderReports(){
       <div class="err" id="leads-download-err"></div>
     </div>
   `;
+  loadAuditLog();
 }
 async function downloadLeads(){
   const month = document.getElementById('leads-month').value;
@@ -1621,6 +1339,25 @@ async function downloadAuthenticatedFile(path, fallbackFilename){
   window.URL.revokeObjectURL(url);
 }
 
+async function loadAuditLog(){
+  try{
+    const entries = await api('/reports/money-audit-log?limit=100');
+    const eventLabel = { loan_disbursed: 'Loan Disbursed', payment_collected: 'Payment Collected', salary_paid: 'Salary Paid' };
+    document.getElementById('audit-log-body').innerHTML = `
+      <table><thead><tr><th>Event</th><th>Amount</th><th>Method</th><th>By</th><th>Reference</th><th>When</th></tr></thead>
+      <tbody>${entries.map(e => `<tr>
+        <td>${eventLabel[e.event_type] || e.event_type}</td>
+        <td style="color:${e.direction==='in'?'#5A6B00':'#C0392B'}">${e.direction==='in'?'+':'−'}₹${e.amount.toLocaleString()}</td>
+        <td>${esc(e.method||'—')}</td>
+        <td>${esc(e.actor_name)}</td>
+        <td>${esc(e.reference||'—')}</td>
+        <td>${new Date(e.created_at).toLocaleString()}</td>
+      </tr>`).join('') || '<tr><td colspan="6" class="empty">No money movements recorded yet</td></tr>'}</tbody></table>
+    `;
+  }catch(e){
+    document.getElementById('audit-log-body').innerHTML = `<div class="err">${esc(e.message)}</div>`;
+  }
+}
 async function downloadReport(){
   const errEl = document.getElementById('report-download-err'); errEl.textContent = '';
   try{

@@ -6,7 +6,7 @@ from app.core.migrations import run_safe_migrations
 from app.routers import auth, tenants, branches, loans, payments, documents, reports, verification, payroll
 
 # Import models so they register on Base before create_all
-from app.models import tenancy, finance, payroll as payroll_models  # noqa
+from app.models import tenancy, finance, payroll as payroll_models, audit  # noqa
 
 app = FastAPI(title="OS Finances API", version="1.0.0")
 

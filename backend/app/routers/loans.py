@@ -5,13 +5,15 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
 from app.core.database import get_db
-from app.core.security import require_any, require_superadmin_or_above
+from app.core.security import require_any, require_superadmin
 from app.models.tenancy import User, UserRole, Tenant
 from app.models.finance import Customer, LoanProduct, Loan, EMISchedule, LoanStatus, InterestType
 from app.utils.whatsapp import send_loan_status_notification
 from app.utils.kyc_validation import validate_aadhaar, validate_pan
 from app.utils.credit_check import check_credit_score, eligible_amount_for_score, is_configured as credit_check_configured
 from app.utils.payouts import send_payout, is_configured as payout_configured
+from app.utils.audit_log import log_money_event
+from app.models.audit import MoneyEventType
 
 router = APIRouter(tags=["customers & loans"])
 
@@ -117,7 +119,7 @@ class LoanProductCreate(BaseModel):
 
 
 @router.post("/loan-products")
-def create_loan_product(payload: LoanProductCreate, db: Session = Depends(get_db), user: User = Depends(require_superadmin_or_above)):
+def create_loan_product(payload: LoanProductCreate, db: Session = Depends(get_db), user: User = Depends(require_superadmin)):
     payload.validate_other()
     product = LoanProduct(tenant_id=user.tenant_id, **payload.dict())
     db.add(product)
@@ -131,7 +133,7 @@ def list_loan_products(include_inactive: bool = False, db: Session = Depends(get
     q = db.query(LoanProduct).filter(LoanProduct.tenant_id == user.tenant_id)
     # Only SuperAdmin+ can see inactive products (needed to reactivate them) — employees
     # applying for a loan should only ever see what's currently offered.
-    if not (include_inactive and user.role in (UserRole.superadmin, UserRole.superemeadmin)):
+    if not (include_inactive and user.role == UserRole.superadmin):
         q = q.filter(LoanProduct.is_active == True)
     return q.all()
 
@@ -150,7 +152,7 @@ class LoanProductUpdate(BaseModel):
 
 
 @router.patch("/loan-products/{product_id}")
-def update_loan_product(product_id: str, payload: LoanProductUpdate, db: Session = Depends(get_db), user: User = Depends(require_superadmin_or_above)):
+def update_loan_product(product_id: str, payload: LoanProductUpdate, db: Session = Depends(get_db), user: User = Depends(require_superadmin)):
     product = db.query(LoanProduct).filter(LoanProduct.id == product_id, LoanProduct.tenant_id == user.tenant_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Loan product not found")
@@ -172,7 +174,7 @@ def update_loan_product(product_id: str, payload: LoanProductUpdate, db: Session
 
 
 @router.patch("/loan-products/{product_id}/activate")
-def activate_loan_product(product_id: str, db: Session = Depends(get_db), user: User = Depends(require_superadmin_or_above)):
+def activate_loan_product(product_id: str, db: Session = Depends(get_db), user: User = Depends(require_superadmin)):
     product = db.query(LoanProduct).filter(LoanProduct.id == product_id, LoanProduct.tenant_id == user.tenant_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Loan product not found")
@@ -182,7 +184,7 @@ def activate_loan_product(product_id: str, db: Session = Depends(get_db), user: 
 
 
 @router.patch("/loan-products/{product_id}/deactivate")
-def deactivate_loan_product(product_id: str, db: Session = Depends(get_db), user: User = Depends(require_superadmin_or_above)):
+def deactivate_loan_product(product_id: str, db: Session = Depends(get_db), user: User = Depends(require_superadmin)):
     product = db.query(LoanProduct).filter(LoanProduct.id == product_id, LoanProduct.tenant_id == user.tenant_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Loan product not found")
@@ -192,7 +194,7 @@ def deactivate_loan_product(product_id: str, db: Session = Depends(get_db), user
 
 
 @router.delete("/loan-products/{product_id}")
-def delete_loan_product(product_id: str, db: Session = Depends(get_db), user: User = Depends(require_superadmin_or_above)):
+def delete_loan_product(product_id: str, db: Session = Depends(get_db), user: User = Depends(require_superadmin)):
     product = db.query(LoanProduct).filter(LoanProduct.id == product_id, LoanProduct.tenant_id == user.tenant_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Loan product not found")
@@ -319,7 +321,7 @@ def apply_loan(payload: LoanApply, db: Session = Depends(get_db), user: User = D
 
 
 @router.patch("/loans/{loan_id}/approve")
-def approve_loan(loan_id: str, db: Session = Depends(get_db), user: User = Depends(require_superadmin_or_above)):
+def approve_loan(loan_id: str, db: Session = Depends(get_db), user: User = Depends(require_superadmin)):
     loan = db.query(Loan).filter(Loan.id == loan_id, Loan.tenant_id == user.tenant_id).first()
     if not loan:
         raise HTTPException(status_code=404, detail="Loan not found")
@@ -344,7 +346,7 @@ class LoanRejectRequest(BaseModel):
 
 
 @router.patch("/loans/{loan_id}/reject")
-def reject_loan(loan_id: str, payload: LoanRejectRequest, db: Session = Depends(get_db), user: User = Depends(require_superadmin_or_above)):
+def reject_loan(loan_id: str, payload: LoanRejectRequest, db: Session = Depends(get_db), user: User = Depends(require_superadmin)):
     loan = db.query(Loan).filter(Loan.id == loan_id, Loan.tenant_id == user.tenant_id).first()
     if not loan:
         raise HTTPException(status_code=404, detail="Loan not found")
@@ -376,7 +378,7 @@ class LoanDisburse(BaseModel):
 
 
 @router.patch("/loans/{loan_id}/disburse")
-def disburse_loan(loan_id: str, payload: LoanDisburse = LoanDisburse(), db: Session = Depends(get_db), user: User = Depends(require_superadmin_or_above)):
+def disburse_loan(loan_id: str, payload: LoanDisburse = LoanDisburse(), db: Session = Depends(get_db), user: User = Depends(require_superadmin)):
     loan = db.query(Loan).filter(Loan.id == loan_id, Loan.tenant_id == user.tenant_id).first()
     if not loan or loan.status != LoanStatus.approved:
         raise HTTPException(status_code=400, detail="Loan must be approved before disbursement")
@@ -420,6 +422,14 @@ def disburse_loan(loan_id: str, payload: LoanDisburse = LoanDisburse(), db: Sess
     loan.disbursal_method = payload.disbursal_method
     loan.disbursal_reference = payload.disbursal_reference
     build_emi_schedule(loan, product, db)
+
+    log_money_event(
+        db, tenant_id=user.tenant_id, event_type=MoneyEventType.loan_disbursed,
+        amount=loan.principal_amount, direction="out", actor_id=user.id, branch_id=loan.branch_id,
+        counterparty_type="customer", counterparty_id=loan.customer_id,
+        method=payload.disbursal_method, reference=payload.disbursal_reference,
+        related_record_id=loan.id, notes=f"Loan {loan.loan_number} disbursed",
+    )
     db.commit()
 
     try:

@@ -7,7 +7,7 @@ from pydantic import BaseModel, EmailStr
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import verify_password, create_access_token, hash_password
-from app.models.tenancy import User, Tenant, SubscriptionStatus, UserRole, PasswordResetToken, ApplicationStatus
+from app.models.tenancy import User, Tenant, UserRole, PasswordResetToken
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -17,32 +17,6 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     user = db.query(User).filter(User.email == form_data.username, User.is_active == True).first()
     if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid email or password")
-
-    # Block login if tenant subscription is suspended/cancelled (superemeadmin always allowed)
-    if user.tenant_id:
-        tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
-        if not tenant:
-            raise HTTPException(status_code=402, detail="Your organization could not be found.")
-
-        if tenant.application_status == ApplicationStatus.pending:
-            raise HTTPException(
-                status_code=403,
-                detail=f"Your application is still under review. Tracking ID: {tenant.tracking_code}. "
-                       f"You'll be able to sign in once OS2 Studio approves it."
-            )
-        if tenant.application_status == ApplicationStatus.rejected:
-            raise HTTPException(
-                status_code=403,
-                detail="Your application was not approved. Contact OS2 Studio for details."
-                       + (f" Reason: {tenant.rejection_reason}" if tenant.rejection_reason else "")
-            )
-        if tenant.is_suspended or tenant.subscription_status in (
-            SubscriptionStatus.suspended, SubscriptionStatus.cancelled
-        ):
-            raise HTTPException(
-                status_code=402,
-                detail="Your organization's subscription is inactive. Contact OS2 Studio to reactivate."
-            )
 
     token = create_access_token({"sub": user.id, "role": user.role.value, "tenant_id": user.tenant_id})
     return {
@@ -57,35 +31,46 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
 
 class BootstrapRequest(BaseModel):
     secret: str
+    org_name: str
+    org_slug: str
     full_name: str
     email: EmailStr
     password: str
 
 
-@router.post("/bootstrap-superemeadmin")
-def bootstrap_superemeadmin(payload: BootstrapRequest, db: Session = Depends(get_db)):
+@router.post("/bootstrap-superadmin")
+def bootstrap_superadmin(payload: BootstrapRequest, db: Session = Depends(get_db)):
     """
-    One-time setup route: creates the first SuperEmeAdmin (OS2's own platform login).
-    Only works if BOOTSTRAP_SECRET is set in the environment, it matches what's sent here,
-    and no SuperEmeAdmin exists yet. Remove the BOOTSTRAP_SECRET env var after using this once.
+    One-time setup route: creates the business's Tenant record and its first
+    Super Admin login in a single step. Only works if BOOTSTRAP_SECRET is set
+    in the environment, it matches what's sent here, and no Super Admin
+    exists yet. Remove the BOOTSTRAP_SECRET env var after using this once.
     """
     if not settings.BOOTSTRAP_SECRET:
         raise HTTPException(status_code=403, detail="Bootstrap is disabled (BOOTSTRAP_SECRET not set).")
     if payload.secret != settings.BOOTSTRAP_SECRET:
         raise HTTPException(status_code=403, detail="Invalid bootstrap secret.")
 
-    existing = db.query(User).filter(User.role == UserRole.superemeadmin).first()
+    existing = db.query(User).filter(User.role == UserRole.superadmin).first()
     if existing:
-        raise HTTPException(status_code=400, detail="A SuperEmeAdmin already exists. Bootstrap is single-use.")
+        raise HTTPException(status_code=400, detail="A Super Admin already exists. Bootstrap is single-use.")
 
     if db.query(User).filter(User.email == payload.email).first():
         raise HTTPException(status_code=400, detail="That email is already registered.")
 
+    if db.query(Tenant).filter(Tenant.slug == payload.org_slug).first():
+        raise HTTPException(status_code=400, detail="That organization slug is already taken.")
+
+    tenant = Tenant(name=payload.org_name, slug=payload.org_slug)
+    db.add(tenant)
+    db.flush()
+
     admin = User(
+        tenant_id=tenant.id,
         full_name=payload.full_name,
         email=payload.email,
         hashed_password=hash_password(payload.password),
-        role=UserRole.superemeadmin,
+        role=UserRole.superadmin,
     )
     db.add(admin)
     db.commit()

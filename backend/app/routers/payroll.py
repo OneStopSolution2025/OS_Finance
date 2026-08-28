@@ -11,6 +11,8 @@ from app.models.tenancy import User, UserRole, Tenant
 from app.models.payroll import SalaryStructure, PayrollRun, Payslip, PayslipStatus
 from app.utils.payouts import send_payout, is_configured as payout_configured
 from app.utils.payroll_pdf import generate_payslip_pdf
+from app.utils.audit_log import log_money_event
+from app.models.audit import MoneyEventType
 
 router = APIRouter(prefix="/payroll", tags=["payroll"])
 
@@ -183,6 +185,14 @@ def pay_payslip(payslip_id: str, payload: PayslipPay, db: Session = Depends(get_
     payslip.payment_reference = reference
     payslip.paid_at = datetime.utcnow()
     payslip.paid_by = user.id
+
+    log_money_event(
+        db, tenant_id=user.tenant_id, event_type=MoneyEventType.salary_paid,
+        amount=payslip.net_pay, direction="out", actor_id=user.id,
+        counterparty_type="employee", counterparty_id=payslip.employee_id,
+        method=payload.payment_method, reference=reference, related_record_id=payslip.id,
+        notes=f"Salary paid for payroll run {payslip.payroll_run_id}",
+    )
     db.commit()
     return {"status": "paid", "payment_reference": reference}
 
