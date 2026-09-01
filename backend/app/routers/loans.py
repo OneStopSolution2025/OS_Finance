@@ -7,10 +7,8 @@ from pydantic import BaseModel
 from app.core.database import get_db
 from app.core.security import require_any, require_superadmin
 from app.models.tenancy import User, UserRole, Tenant
-from app.models.finance import Customer, LoanProduct, Loan, EMISchedule, LoanStatus, InterestType
+from app.models.finance import Customer, LoanProduct, Loan, EMISchedule, LoanStatus, InterestType, LoanGroup, LoanGroupMember, GroupContribution, Payment, PaymentMethod
 from app.utils.whatsapp import send_loan_status_notification
-from app.utils.kyc_validation import validate_aadhaar, validate_pan
-from app.utils.credit_check import check_credit_score, eligible_amount_for_score, is_configured as credit_check_configured
 from app.utils.payouts import send_payout, is_configured as payout_configured
 from app.utils.audit_log import log_money_event
 from app.models.audit import MoneyEventType
@@ -47,15 +45,6 @@ class CustomerCreate(BaseModel):
 
 @router.post("/customers")
 def create_customer(payload: CustomerCreate, db: Session = Depends(get_db), user: User = Depends(require_any)):
-    if payload.aadhaar_number:
-        valid, err = validate_aadhaar(payload.aadhaar_number)
-        if not valid:
-            raise HTTPException(status_code=400, detail=err)
-    if payload.pan_number:
-        valid, err = validate_pan(payload.pan_number)
-        if not valid:
-            raise HTTPException(status_code=400, detail=err)
-
     count = db.query(Customer).filter(Customer.branch_id == payload.branch_id).count()
     code = f"CUS-{count + 1:05d}"
     customer = Customer(tenant_id=user.tenant_id, customer_code=code, created_by=user.id, **payload.dict())
@@ -65,35 +54,65 @@ def create_customer(payload: CustomerCreate, db: Session = Depends(get_db), user
     return customer
 
 
-@router.get("/customers/{customer_id}/credit-check")
-def credit_check(customer_id: str, db: Session = Depends(get_db), user: User = Depends(require_any)):
-    """
-    Returns a real credit bureau score once CREDIT_BUREAU_API_KEY is configured
-    with a licensed provider. Until then, returns a clear 'not configured'
-    response rather than a fake score — see app/utils/credit_check.py.
-    """
-    customer = db.query(Customer).filter(Customer.id == customer_id, Customer.tenant_id == user.tenant_id).first()
-    if not customer:
-        raise HTTPException(status_code=404, detail="Customer not found")
-    if not customer.pan_number:
-        raise HTTPException(status_code=400, detail="This customer has no PAN number on file — required for a credit check.")
-
-    if not credit_check_configured():
-        return {
-            "configured": False,
-            "message": "Credit score checks require a licensed bureau/KYC provider agreement "
-                       "(CIBIL, Karza, Signzy, Digio, etc.) — not yet connected for this account.",
-        }
-    try:
-        result = check_credit_score(customer.pan_number)
-        return {"configured": True, **result}
-    except (RuntimeError, NotImplementedError) as e:
-        raise HTTPException(status_code=502, detail=str(e))
-
-
 @router.get("/customers")
 def list_customers(db: Session = Depends(get_db), user: User = Depends(require_any)):
     return scope_branch(db.query(Customer), Customer, user).all()
+
+
+# ---------- Loan Groups (Joint Liability Groups) ----------
+
+class GroupCreate(BaseModel):
+    branch_id: str
+    name: str
+    customer_ids: list[str]
+
+
+@router.post("/groups")
+def create_group(payload: GroupCreate, db: Session = Depends(get_db), user: User = Depends(require_any)):
+    if len(payload.customer_ids) < 2:
+        raise HTTPException(status_code=400, detail="A group needs at least 2 members.")
+    if len(set(payload.customer_ids)) != len(payload.customer_ids):
+        raise HTTPException(status_code=400, detail="The same customer was selected more than once.")
+
+    customers = db.query(Customer).filter(Customer.id.in_(payload.customer_ids), Customer.tenant_id == user.tenant_id).all()
+    if len(customers) != len(payload.customer_ids):
+        raise HTTPException(status_code=404, detail="One or more selected customers were not found.")
+
+    group = LoanGroup(tenant_id=user.tenant_id, branch_id=payload.branch_id, name=payload.name, created_by=user.id)
+    db.add(group)
+    db.flush()
+    for cid in payload.customer_ids:
+        db.add(LoanGroupMember(group_id=group.id, customer_id=cid))
+    db.commit()
+    db.refresh(group)
+    return {"id": group.id, "name": group.name, "member_count": len(payload.customer_ids)}
+
+
+@router.get("/groups")
+def list_groups(db: Session = Depends(get_db), user: User = Depends(require_any)):
+    groups = scope_branch(db.query(LoanGroup), LoanGroup, user).all()
+    result = []
+    for g in groups:
+        members = db.query(LoanGroupMember).filter(LoanGroupMember.group_id == g.id).all()
+        member_names = []
+        for m in members:
+            c = db.query(Customer).filter(Customer.id == m.customer_id).first()
+            member_names.append(c.full_name if c else "—")
+        result.append({"id": g.id, "name": g.name, "branch_id": g.branch_id, "member_count": len(members), "member_names": member_names})
+    return result
+
+
+@router.get("/groups/{group_id}/members")
+def get_group_members(group_id: str, db: Session = Depends(get_db), user: User = Depends(require_any)):
+    group = db.query(LoanGroup).filter(LoanGroup.id == group_id, LoanGroup.tenant_id == user.tenant_id).first()
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    members = db.query(LoanGroupMember).filter(LoanGroupMember.group_id == group_id).all()
+    result = []
+    for m in members:
+        c = db.query(Customer).filter(Customer.id == m.customer_id).first()
+        result.append({"group_member_id": m.id, "customer_id": m.customer_id, "customer_name": c.full_name if c else "—", "phone": c.phone if c else None})
+    return result
 
 
 # ---------- Loan Products ----------
@@ -109,6 +128,10 @@ class LoanProductCreate(BaseModel):
     processing_fee_pct: float = 0
     custom_interest_label: str | None = None  # required (by validation below) when interest_type='other'
     calculation_basis: str | None = None      # 'flat' | 'reducing' — required when interest_type='other'
+    is_group_loan: bool = False
+    group_member_count: int | None = None     # required when is_group_loan=True
+    penalty_type: str | None = None           # 'flat' | 'percentage'
+    penalty_amount: float | None = None       # rupee amount, or % depending on penalty_type
 
     def validate_other(self):
         if self.interest_type == InterestType.other:
@@ -117,10 +140,19 @@ class LoanProductCreate(BaseModel):
             if self.calculation_basis not in ("flat", "reducing"):
                 raise HTTPException(status_code=400, detail="Choose whether 'Other' calculates like Flat or Reducing balance.")
 
+    def validate_group(self):
+        if self.is_group_loan and (not self.group_member_count or self.group_member_count < 2):
+            raise HTTPException(status_code=400, detail="Group loan products need a member count of at least 2.")
+        if self.penalty_type and self.penalty_type not in ("flat", "percentage"):
+            raise HTTPException(status_code=400, detail="penalty_type must be 'flat' or 'percentage'.")
+        if self.penalty_type and not self.penalty_amount:
+            raise HTTPException(status_code=400, detail="Set a penalty amount when a penalty type is chosen.")
+
 
 @router.post("/loan-products")
 def create_loan_product(payload: LoanProductCreate, db: Session = Depends(get_db), user: User = Depends(require_superadmin)):
     payload.validate_other()
+    payload.validate_group()
     product = LoanProduct(tenant_id=user.tenant_id, **payload.dict())
     db.add(product)
     db.commit()
@@ -215,9 +247,10 @@ def delete_loan_product(product_id: str, db: Session = Depends(get_db), user: Us
 
 class LoanApply(BaseModel):
     branch_id: str
-    customer_id: str
     loan_product_id: str
     principal_amount: float
+    customer_id: str | None = None  # for individual loans
+    group_id: str | None = None     # for group loans — mutually exclusive with customer_id
 
 
 def resolve_calculation_basis(product: LoanProduct) -> InterestType:
@@ -286,29 +319,31 @@ def apply_loan(payload: LoanApply, db: Session = Depends(get_db), user: User = D
     if not (product.min_amount <= Decimal(str(payload.principal_amount)) <= product.max_amount):
         raise HTTPException(status_code=400, detail=f"Amount must be between {product.min_amount} and {product.max_amount}")
 
-    # Credit-score-based cap — only actually restricts anything once a real bureau/KYC
-    # provider is connected (CREDIT_BUREAU_API_KEY set). Until then this silently
-    # no-ops, exactly like every other credit_check.py call site.
-    if credit_check_configured():
-        customer = db.query(Customer).filter(Customer.id == payload.customer_id, Customer.tenant_id == user.tenant_id).first()
-        if customer and customer.pan_number:
-            try:
-                result = check_credit_score(customer.pan_number)
-                cap = eligible_amount_for_score(result["score"], product.max_amount)
-                if Decimal(str(payload.principal_amount)) > cap:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Based on this customer's credit score ({result['score']}), the maximum amount "
-                               f"eligible on this product is ₹{cap}."
-                    )
-            except (RuntimeError, NotImplementedError):
-                pass  # bureau call itself failed/unavailable — don't block the application on that
+    if product.is_group_loan:
+        if not payload.group_id:
+            raise HTTPException(status_code=400, detail="This is a group loan product — select a group.")
+        group = db.query(LoanGroup).filter(LoanGroup.id == payload.group_id, LoanGroup.tenant_id == user.tenant_id).first()
+        if not group:
+            raise HTTPException(status_code=404, detail="Group not found")
+        member_count = db.query(LoanGroupMember).filter(LoanGroupMember.group_id == group.id).count()
+        if product.group_member_count and member_count != product.group_member_count:
+            raise HTTPException(
+                status_code=400,
+                detail=f"This product requires exactly {product.group_member_count} members — the selected group has {member_count}."
+            )
+        customer_id = None
+        group_id = group.id
+    else:
+        if not payload.customer_id:
+            raise HTTPException(status_code=400, detail="Select a customer for this individual loan.")
+        customer_id = payload.customer_id
+        group_id = None
 
     branch_count = db.query(Loan).filter(Loan.branch_id == payload.branch_id).count()
     loan_number = f"LN-{branch_count + 1:06d}"
 
     loan = Loan(
-        tenant_id=user.tenant_id, branch_id=payload.branch_id, customer_id=payload.customer_id,
+        tenant_id=user.tenant_id, branch_id=payload.branch_id, customer_id=customer_id, group_id=group_id,
         loan_product_id=product.id, loan_number=loan_number,
         principal_amount=payload.principal_amount, interest_rate_annual=product.interest_rate_annual,
         tenure_months=product.tenure_months, status=LoanStatus.pending_approval,
@@ -385,32 +420,41 @@ def disburse_loan(loan_id: str, payload: LoanDisburse = LoanDisburse(), db: Sess
     if payload.disbursal_method not in ("cash", "bank_transfer"):
         raise HTTPException(status_code=400, detail="disbursal_method must be 'cash' or 'bank_transfer'")
 
-    customer = db.query(Customer).filter(Customer.id == loan.customer_id).first()
+    is_group = loan.group_id is not None
+    customer = None
 
-    if payload.disbursal_method == "bank_transfer":
-        if not (customer and customer.bank_account_number and customer.bank_ifsc):
+    if is_group:
+        if payload.disbursal_method == "bank_transfer":
             raise HTTPException(
                 status_code=400,
-                detail="This customer has no bank account details on file — required for bank transfer disbursal. "
-                       "Add their bank details, or disburse as cash instead."
+                detail="Bank transfer disbursal isn't supported for group loans yet — disburse as cash."
             )
-        tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
-        if payout_configured(tenant):
-            try:
-                result = send_payout(
-                    tenant, customer.bank_account_number, customer.bank_ifsc,
-                    customer.bank_account_holder_name or customer.full_name,
-                    float(loan.principal_amount), f"Loan disbursal {loan.loan_number}", loan.id,
+    else:
+        customer = db.query(Customer).filter(Customer.id == loan.customer_id).first()
+        if payload.disbursal_method == "bank_transfer":
+            if not (customer and customer.bank_account_number and customer.bank_ifsc):
+                raise HTTPException(
+                    status_code=400,
+                    detail="This customer has no bank account details on file — required for bank transfer disbursal. "
+                           "Add their bank details, or disburse as cash instead."
                 )
-                payload.disbursal_reference = result.get("utr") or result.get("payout_id")
-            except (RuntimeError, NotImplementedError) as e:
-                raise HTTPException(status_code=502, detail=str(e))
-        elif not payload.disbursal_reference:
-            raise HTTPException(
-                status_code=400,
-                detail="Bank payouts aren't connected yet — enter the bank transaction reference (UTR) "
-                       "after transferring the funds manually, or connect RazorpayX under Payment Settings."
-            )
+            tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
+            if payout_configured(tenant):
+                try:
+                    result = send_payout(
+                        tenant, customer.bank_account_number, customer.bank_ifsc,
+                        customer.bank_account_holder_name or customer.full_name,
+                        float(loan.principal_amount), f"Loan disbursal {loan.loan_number}", loan.id,
+                    )
+                    payload.disbursal_reference = result.get("utr") or result.get("payout_id")
+                except (RuntimeError, NotImplementedError) as e:
+                    raise HTTPException(status_code=502, detail=str(e))
+            elif not payload.disbursal_reference:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Bank payouts aren't connected yet — enter the bank transaction reference (UTR) "
+                           "after transferring the funds manually, or connect RazorpayX under Payment Settings."
+                )
 
     product = db.query(LoanProduct).filter(LoanProduct.id == loan.loan_product_id).first()
 
@@ -422,18 +466,40 @@ def disburse_loan(loan_id: str, payload: LoanDisburse = LoanDisburse(), db: Sess
     loan.disbursal_method = payload.disbursal_method
     loan.disbursal_reference = payload.disbursal_reference
     build_emi_schedule(loan, product, db)
+    db.flush()  # need EMISchedule.id values before creating GroupContribution rows
+
+    if is_group:
+        members = db.query(LoanGroupMember).filter(LoanGroupMember.group_id == loan.group_id).all()
+        installments = db.query(EMISchedule).filter(EMISchedule.loan_id == loan.id).all()
+        for emi in installments:
+            share = (Decimal(str(emi.total_due)) / len(members)).quantize(Decimal("0.01"))
+            allocated = Decimal("0")
+            for i, member in enumerate(members):
+                # last member absorbs the rounding remainder so shares always sum exactly to total_due
+                this_share = (Decimal(str(emi.total_due)) - allocated) if i == len(members) - 1 else share
+                allocated += this_share
+                db.add(GroupContribution(
+                    tenant_id=user.tenant_id, emi_schedule_id=emi.id, group_member_id=member.id,
+                    expected_amount=this_share,
+                ))
 
     log_money_event(
         db, tenant_id=user.tenant_id, event_type=MoneyEventType.loan_disbursed,
         amount=loan.principal_amount, direction="out", actor_id=user.id, branch_id=loan.branch_id,
-        counterparty_type="customer", counterparty_id=loan.customer_id,
+        counterparty_type="group" if is_group else "customer", counterparty_id=loan.group_id if is_group else loan.customer_id,
         method=payload.disbursal_method, reference=payload.disbursal_reference,
         related_record_id=loan.id, notes=f"Loan {loan.loan_number} disbursed",
     )
     db.commit()
 
     try:
-        if customer and customer.phone:
+        if is_group:
+            members = db.query(LoanGroupMember).filter(LoanGroupMember.group_id == loan.group_id).all()
+            for member in members:
+                c = db.query(Customer).filter(Customer.id == member.customer_id).first()
+                if c and c.phone:
+                    send_loan_status_notification(c.phone, c.full_name, loan.loan_number, "active")
+        elif customer and customer.phone:
             send_loan_status_notification(customer.phone, customer.full_name, loan.loan_number, "active")
     except Exception:
         pass
@@ -444,15 +510,23 @@ def disburse_loan(loan_id: str, payload: LoanDisburse = LoanDisburse(), db: Sess
 @router.get("/loans")
 def list_loans(db: Session = Depends(get_db), user: User = Depends(require_any)):
     loans = scope_branch(db.query(Loan), Loan, user).order_by(Loan.applied_at.desc()).all()
-    customer_ids = {l.customer_id for l in loans}
+    customer_ids = {l.customer_id for l in loans if l.customer_id}
     customers = {c.id: c for c in db.query(Customer).filter(Customer.id.in_(customer_ids)).all()} if customer_ids else {}
+    group_ids = {l.group_id for l in loans if l.group_id}
+    groups = {g.id: g for g in db.query(LoanGroup).filter(LoanGroup.id.in_(group_ids)).all()} if group_ids else {}
     result = []
     for l in loans:
-        c = customers.get(l.customer_id)
+        if l.group_id:
+            g = groups.get(l.group_id)
+            display_name = f"{g.name} (Group)" if g else "Group"
+        else:
+            c = customers.get(l.customer_id)
+            display_name = c.full_name if c else "—"
         result.append({
             "id": l.id, "loan_number": l.loan_number, "principal_amount": float(l.principal_amount),
-            "status": l.status.value, "customer_id": l.customer_id,
-            "customer_name": c.full_name if c else "—", "applied_at": l.applied_at.isoformat(),
+            "status": l.status.value, "customer_id": l.customer_id, "group_id": l.group_id,
+            "customer_name": display_name, "is_group_loan": l.group_id is not None,
+            "applied_at": l.applied_at.isoformat(),
             "rejection_reason": l.rejection_reason,
         })
     return result
@@ -463,4 +537,21 @@ def get_schedule(loan_id: str, db: Session = Depends(get_db), user: User = Depen
     loan = db.query(Loan).filter(Loan.id == loan_id, Loan.tenant_id == user.tenant_id).first()
     if not loan:
         raise HTTPException(status_code=404, detail="Loan not found")
-    return db.query(EMISchedule).filter(EMISchedule.loan_id == loan_id).order_by(EMISchedule.installment_no).all()
+    installments = db.query(EMISchedule).filter(EMISchedule.loan_id == loan_id).order_by(EMISchedule.installment_no).all()
+
+    if not loan.group_id:
+        return installments
+
+    # Group loan: attach a paid/unpaid member count to every installment, so the
+    # schedule view immediately shows which installments still have people owing.
+    result = []
+    for emi in installments:
+        contributions = db.query(GroupContribution).filter(GroupContribution.emi_schedule_id == emi.id).all()
+        unpaid = sum(1 for c in contributions if not c.is_paid)
+        result.append({
+            "id": emi.id, "installment_no": emi.installment_no, "due_date": emi.due_date.isoformat(),
+            "principal_due": float(emi.principal_due), "interest_due": float(emi.interest_due),
+            "total_due": float(emi.total_due), "is_paid": emi.is_paid,
+            "total_members": len(contributions), "paid_count": len(contributions) - unpaid, "unpaid_count": unpaid,
+        })
+    return result

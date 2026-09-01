@@ -95,13 +95,64 @@ class LoanProduct(Base):
     custom_interest_label = Column(String, nullable=True)
     calculation_basis = Column(String, nullable=True)  # 'flat' | 'reducing', required when interest_type='other'
 
+    # Group lending (Joint Liability Group / women's SHG style products)
+    is_group_loan = Column(Boolean, default=False)
+    group_member_count = Column(Integer, nullable=True)  # expected number of members for this product
+    penalty_type = Column(String, nullable=True)   # 'flat' | 'percentage', null means no penalty configured
+    penalty_amount = Column(Numeric(10, 2), nullable=True)  # flat rupee amount, or % of the missed share
+
+
+class LoanGroup(Base):
+    """
+    A joint liability group — e.g. a women's self-help group taking a loan
+    together. The group itself is what the Loan is disbursed to; members are
+    individually responsible for their own share of each installment.
+    """
+    __tablename__ = "loan_groups"
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    tenant_id = Column(UUID(as_uuid=False), ForeignKey("tenants.id"), nullable=False)
+    branch_id = Column(UUID(as_uuid=False), ForeignKey("branches.id"), nullable=False)
+    name = Column(String, nullable=False)
+    created_by = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class LoanGroupMember(Base):
+    __tablename__ = "loan_group_members"
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    group_id = Column(UUID(as_uuid=False), ForeignKey("loan_groups.id"), nullable=False)
+    customer_id = Column(UUID(as_uuid=False), ForeignKey("customers.id"), nullable=False)
+    joined_at = Column(DateTime, default=datetime.utcnow)
+
+
+class GroupContribution(Base):
+    """
+    One group member's expected share of one specific installment. Created
+    automatically for every member, for every installment, the moment a group
+    loan is disbursed — this is what lets a group installment be marked
+    "paid" only once every single member's share is actually paid, and lets a
+    specific non-paying member (and only that member) be flagged and charged
+    a penalty, without touching anyone else's contribution.
+    """
+    __tablename__ = "group_contributions"
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    tenant_id = Column(UUID(as_uuid=False), ForeignKey("tenants.id"), nullable=False)
+    emi_schedule_id = Column(UUID(as_uuid=False), ForeignKey("emi_schedule.id"), nullable=False)
+    group_member_id = Column(UUID(as_uuid=False), ForeignKey("loan_group_members.id"), nullable=False)
+    expected_amount = Column(Numeric(12, 2), nullable=False)
+    penalty_amount = Column(Numeric(10, 2), default=0)
+    amount_paid = Column(Numeric(12, 2), default=0)
+    is_paid = Column(Boolean, default=False)
+    paid_at = Column(DateTime, nullable=True)
+
 
 class Loan(Base):
     __tablename__ = "loans"
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
     tenant_id = Column(UUID(as_uuid=False), ForeignKey("tenants.id"), nullable=False)
     branch_id = Column(UUID(as_uuid=False), ForeignKey("branches.id"), nullable=False)
-    customer_id = Column(UUID(as_uuid=False), ForeignKey("customers.id"), nullable=False)
+    customer_id = Column(UUID(as_uuid=False), ForeignKey("customers.id"), nullable=True)  # null for group loans
+    group_id = Column(UUID(as_uuid=False), ForeignKey("loan_groups.id"), nullable=True)   # set instead of customer_id for a group loan
     loan_product_id = Column(UUID(as_uuid=False), ForeignKey("loan_products.id"), nullable=False)
     loan_number = Column(String, nullable=False)      # e.g. BR01-LN-2026-0001
     principal_amount = Column(Numeric(12, 2), nullable=False)
@@ -153,6 +204,7 @@ class Payment(Base):
     receipt_pdf_path = Column(String, nullable=True)
     paid_at = Column(DateTime, default=datetime.utcnow)
     notes = Column(String, nullable=True)
+    group_contribution_id = Column(UUID(as_uuid=False), ForeignKey("group_contributions.id"), nullable=True)
 
 
 class Document(Base):

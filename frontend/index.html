@@ -74,6 +74,7 @@
   .stat-card .label{font-size:12px;color:#777;text-transform:uppercase;letter-spacing:.04em}
   .stat-card .value{font-size:26px;font-weight:700;margin-top:6px;color:var(--trust)}
   .panel{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:20px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+  .panel table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}
   .panel h3{position:relative;padding-left:12px}
   .panel h3::before{content:'';position:absolute;left:0;top:2px;bottom:2px;width:3px;background:var(--amber);border-radius:2px}
   .panel h3{font-size:16px;margin-bottom:14px}
@@ -326,7 +327,6 @@ const NAV = {
     {id:'employees', label:'👥 Employees'},
     {id:'loan-products', label:'📄 Loan Products'},
     {id:'loans', label:'💰 Loans'},
-    {id:'payroll', label:'🧾 Payroll'},
     {id:'reports', label:'📈 Reports'},
     {id:'payment-settings', label:'🔑 Payment Settings'},
   ],
@@ -362,13 +362,13 @@ function navigate(view){
   renderNav();
   const titles = {dashboard:'Overview', branches:'Branches',
     employees:'Employees', 'loan-products':'Loan Products', loans:'Loans', reports:'Reports & Accounts',
-    customers:'Customers', collections:'Collections', payroll:'Payroll', 'payment-settings':'Payment Settings'};
+    customers:'Customers', collections:'Collections', 'payment-settings':'Payment Settings'};
   document.getElementById('page-title').textContent = titles[view] || view;
   const renderers = {
     dashboard: renderDashboard, branches: renderBranches,
     employees: renderEmployees, 'loan-products': renderLoanProducts, loans: renderLoans,
     reports: renderReports, customers: renderCustomers, collections: renderCollections,
-    payroll: renderPayroll, 'payment-settings': renderPaymentSettings,
+    'payment-settings': renderPaymentSettings,
   };
   (renderers[view] || renderDashboard)();
 }
@@ -568,7 +568,7 @@ async function renderEmployees(){
         <div class="field"><label>Designation</label><input id="e-desig" placeholder="Loan Officer"></div>
         <div class="field" style="grid-column:1/-1"><label>Address</label><input id="e-address"></div>
       </div>
-      <h3 style="font-size:14px;margin:18px 0 10px">Bank details (for payroll)</h3>
+      <h3 style="font-size:14px;margin:18px 0 10px">Bank details</h3>
       <div class="form-grid">
         <div class="field"><label>Account holder name</label><input id="e-bank-holder"></div>
         <div class="field"><label>Account number</label><input id="e-bank-account"></div>
@@ -743,12 +743,29 @@ async function renderLoanProducts(){
           <div style="font-size:11px;color:#888;margin-top:4px">The custom label is just the display name — this dropdown decides the real EMI math.</div>
         </div>
       </div>
+      <div class="form-grid" style="margin-top:14px">
+        <div class="field" style="grid-column:1/-1">
+          <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;width:fit-content"><input type="checkbox" id="lp-is-group" onchange="toggleGroupFields()" style="margin:0"><span>This is a group loan (e.g. women's SHG)</span></label>
+        </div>
+      </div>
+      <div class="form-grid hidden" id="lp-group-fields" style="margin-top:12px">
+        <div class="field"><label>Group member count</label><input id="lp-group-count" type="number" min="2" placeholder="e.g. 10"></div>
+        <div class="field"><label>Late penalty type</label>
+          <select id="lp-penalty-type">
+            <option value="">No penalty</option>
+            <option value="flat">Flat amount (₹)</option>
+            <option value="percentage">Percentage of share</option>
+          </select>
+        </div>
+        <div class="field"><label>Penalty amount</label><input id="lp-penalty-amount" type="number" placeholder="e.g. 50 or 10"></div>
+        <div class="field" style="grid-column:1/-1"><p style="font-size:11.5px;color:#888;margin:0">Penalty applies only to a member who pays late — it's never charged to the rest of the group.</p></div>
+      </div>
       <div class="row-actions"><button class="btn amber" onclick="createLoanProduct()">Create product</button></div>
       <div class="err" id="lp-err"></div>
     </div>
     <div class="panel"><h3>All products</h3>
-      <table><thead><tr><th>Name</th><th>Type</th><th>Rate</th><th>Range</th><th>Tenure</th><th>Status</th><th>Actions</th></tr></thead>
-      <tbody id="products-tbody">${products.map(p=>productRow(p)).join('') || '<tr><td colspan="7" class="empty">No loan products yet</td></tr>'}</tbody></table>
+      <table><thead><tr><th>Name</th><th>Type</th><th>Rate</th><th>Range</th><th>Tenure</th><th>Group</th><th>Status</th><th>Actions</th></tr></thead>
+      <tbody id="products-tbody">${products.map(p=>productRow(p)).join('') || '<tr><td colspan="8" class="empty">No loan products yet</td></tr>'}</tbody></table>
     </div>
     <div class="modal-overlay" id="edit-product-modal">
       <div class="modal-card">
@@ -780,6 +797,9 @@ function toggleOtherInterestFields(prefix){
   const fieldsId = prefix === 'lp' ? 'lp-other-fields' : 'ep-other-fields';
   document.getElementById(fieldsId).classList.toggle('hidden', !isOther);
 }
+function toggleGroupFields(){
+  document.getElementById('lp-group-fields').classList.toggle('hidden', !document.getElementById('lp-is-group').checked);
+}
 function interestTypeLabel(p){
   if(p.interest_type === 'other') return `${esc(p.custom_interest_label || 'Custom')} (${p.calculation_basis})`;
   return p.interest_type === 'reducing' ? 'Reducing balance' : 'Flat';
@@ -787,6 +807,7 @@ function interestTypeLabel(p){
 function productRow(p){
   return `<tr>
     <td>${esc(p.name)}</td><td>${interestTypeLabel(p)}</td><td>${p.interest_rate_annual}%</td><td>₹${p.min_amount}–₹${p.max_amount}</td><td>${p.tenure_months} mo</td>
+    <td>${p.is_group_loan ? `👥 ${p.group_member_count||'?'}` : '—'}</td>
     <td><span class="badge ${p.is_active?'active':'suspended'}">${p.is_active?'Active':'Inactive'}</span></td>
     <td style="white-space:nowrap">
       <button class="btn ghost" style="padding:6px 8px;font-size:12px" onclick='openEditProduct(${JSON.stringify(p)})'>Edit</button>
@@ -853,6 +874,16 @@ async function createLoanProduct(){
     payload.custom_interest_label = document.getElementById('lp-custom-label').value;
     payload.calculation_basis = document.getElementById('lp-calc-basis').value;
   }
+  const isGroup = document.getElementById('lp-is-group').checked;
+  if(isGroup){
+    payload.is_group_loan = true;
+    payload.group_member_count = Number(document.getElementById('lp-group-count').value);
+    const penaltyType = document.getElementById('lp-penalty-type').value;
+    if(penaltyType){
+      payload.penalty_type = penaltyType;
+      payload.penalty_amount = Number(document.getElementById('lp-penalty-amount').value);
+    }
+  }
   try{
     await api('/loan-products', { method:'POST', json: payload });
     renderLoanProducts();
@@ -864,10 +895,11 @@ async function renderLoans(){
   content().innerHTML = `<div class="empty">Loading…</div>`;
   const canManage = state.role === 'superadmin';
   const canApply = state.role === 'employee' || state.role === 'superadmin';
-  const [loans, customers, products] = await Promise.all([
+  const [loans, customers, products, groups] = await Promise.all([
     api('/loans'),
     canApply ? api('/customers') : Promise.resolve([]),
     canApply ? api('/loan-products') : Promise.resolve([]),
+    canApply ? api('/groups') : Promise.resolve([]),
   ]);
 
   const applyPanel = canApply ? `
@@ -877,8 +909,11 @@ async function renderLoans(){
         : !products.length ? `<p class="empty" style="padding:12px 0">No loan products available yet — ask your SuperAdmin to create one under Loan Products.</p>`
         : `
         <div class="form-grid">
-          <div class="field"><label>Customer</label><select id="la-customer">${customers.map(c=>`<option value="${c.id}">${esc(c.full_name)} (${esc(c.customer_code)})</option>`).join('')}</select></div>
-          <div class="field"><label>Loan product</label><select id="la-product" onchange="updateLoanAmountHint()">${products.map(p=>`<option value="${p.id}" data-min="${p.min_amount}" data-max="${p.max_amount}">${esc(p.name)} — ${p.interest_rate_annual}% p.a.</option>`).join('')}</select></div>
+          <div class="field"><label>Loan product</label><select id="la-product" onchange="onApplyProductChange()">${products.map(p=>`<option value="${p.id}" data-min="${p.min_amount}" data-max="${p.max_amount}" data-group="${p.is_group_loan}" data-membercount="${p.group_member_count||''}">${esc(p.name)} — ${p.interest_rate_annual}% p.a.${p.is_group_loan?' (Group)':''}</option>`).join('')}</select></div>
+          <div class="field" id="la-customer-field"><label>Customer</label><select id="la-customer">${customers.map(c=>`<option value="${c.id}">${esc(c.full_name)} (${esc(c.customer_code)})</option>`).join('')}</select></div>
+          <div class="field hidden" id="la-group-field"><label>Group</label>
+            <select id="la-group">${groups.map(g=>`<option value="${g.id}">${esc(g.name)} (${g.member_count} members)</option>`).join('') || '<option value="">No groups yet — create one on the Customers tab</option>'}</select>
+          </div>
           <div class="field"><label>Principal amount (₹)</label><input id="la-amount" type="number"><div id="la-hint" style="font-size:11px;color:#888;margin-top:4px"></div></div>
         </div>
         <div class="row-actions"><button class="btn amber" onclick="applyForLoan()">Submit application</button></div>
@@ -894,7 +929,7 @@ async function renderLoans(){
       <table><thead><tr><th>Loan #</th><th>Customer</th><th>Principal</th><th>Status</th>${canManage?'<th>Documents</th><th>Action</th>':''}</tr></thead>
       <tbody>${loans.map(l=>`<tr><td>${esc(l.loan_number)}</td><td>${esc(l.customer_name)}</td><td>₹${l.principal_amount.toLocaleString()}</td>
         <td><span class="badge ${l.status}">${l.status.replace('_',' ')}</span>${l.status==='rejected' && l.rejection_reason ? `<div style="font-size:11px;color:#888;margin-top:4px">${esc(l.rejection_reason)}</div>` : ''}</td>
-        ${canManage ? `<td><button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="viewCustomerDocs('${l.customer_id}','${esc(l.customer_name)}')">Review KYC</button></td>
+        ${canManage ? `<td>${l.is_group_loan ? '<span style="color:#888;font-size:12px">Group — see Collections tab</span>' : `<button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="viewCustomerDocs('${l.customer_id}','${esc(l.customer_name)}')">Review KYC</button>`}</td>
         <td style="white-space:nowrap">${l.status==='pending_approval'?`<button class="btn" style="padding:6px 10px;font-size:12px" onclick="approveLoan('${l.id}')">Approve</button>
           <button class="btn ghost" style="padding:6px 10px;font-size:12px;color:#C0392B" onclick="rejectLoan('${l.id}')">Reject</button>`
           : l.status==='approved'?`<button class="btn amber" style="padding:6px 10px;font-size:12px" onclick="openDisburseModal('${l.id}','${l.customer_id}')">Disburse</button>`:'—'}</td>`:''}
@@ -943,24 +978,37 @@ async function renderLoans(){
       </div>
     </div>
   `;
-  if(canApply && products.length) updateLoanAmountHint();
+  if(canApply && products.length) onApplyProductChange();
 }
-function updateLoanAmountHint(){
+function onApplyProductChange(){
   const sel = document.getElementById('la-product');
-  if(!sel) return;
+  if(!sel || !sel.options.length) return;
   const opt = sel.options[sel.selectedIndex];
-  document.getElementById('la-hint').textContent = `Allowed range: ₹${Number(opt.dataset.min).toLocaleString()} – ₹${Number(opt.dataset.max).toLocaleString()}`;
+  const isGroup = opt.dataset.group === 'true';
+  document.getElementById('la-customer-field').classList.toggle('hidden', isGroup);
+  document.getElementById('la-group-field').classList.toggle('hidden', !isGroup);
+  const hint = `Allowed range: ₹${Number(opt.dataset.min).toLocaleString()} – ₹${Number(opt.dataset.max).toLocaleString()}`
+    + (isGroup && opt.dataset.membercount ? ` · Requires a group of exactly ${opt.dataset.membercount} members` : '');
+  document.getElementById('la-hint').textContent = hint;
 }
 async function applyForLoan(){
   const errEl = document.getElementById('la-err'); errEl.textContent = '';
-  const customerId = document.getElementById('la-customer').value;
-  const productId = document.getElementById('la-product').value;
+  const productSel = document.getElementById('la-product');
+  const isGroup = productSel.options[productSel.selectedIndex].dataset.group === 'true';
+  const productId = productSel.value;
   const amount = Number(document.getElementById('la-amount').value);
-  if(!customerId || !productId || !amount){ errEl.textContent = 'Fill in every field.'; return; }
+  const payload = { branch_id: state.branch_id, loan_product_id: productId, principal_amount: amount };
+  if(isGroup){
+    const groupId = document.getElementById('la-group').value;
+    if(!groupId || !productId || !amount){ errEl.textContent = 'Fill in every field.'; return; }
+    payload.group_id = groupId;
+  } else {
+    const customerId = document.getElementById('la-customer').value;
+    if(!customerId || !productId || !amount){ errEl.textContent = 'Fill in every field.'; return; }
+    payload.customer_id = customerId;
+  }
   try{
-    const res = await api('/loans/apply', { method:'POST', json:{
-      branch_id: state.branch_id, customer_id: customerId, loan_product_id: productId, principal_amount: amount,
-    }});
+    const res = await api('/loans/apply', { method:'POST', json: payload });
     document.getElementById('la-result').innerHTML = `<div class="success-box">Loan application submitted — ${esc(res.loan_number)}. Waiting on SuperAdmin approval.</div>`;
     document.getElementById('la-amount').value = '';
     renderLoans();
@@ -1110,7 +1158,6 @@ async function downloadLeads(){
   }catch(e){ errEl.textContent = e.message; }
 }
 
-// ---------- SuperAdmin: Payroll ----------
 // ---------- SuperAdmin: Payment Settings ----------
 async function renderPaymentSettings(){
   content().innerHTML = `<div class="empty">Loading…</div>`;
@@ -1132,7 +1179,7 @@ async function renderPaymentSettings(){
     </div>
     <div class="panel">
       <h3>RazorpayX — automated bank transfers</h3>
-      <p style="font-size:12.5px;color:#666;margin:0 0 14px">A separate product from Razorpay above, with its own business KYC — needed to automate payroll and loan disbursal via bank transfer. Until connected, those still work using a manual reference-number entry.</p>
+      <p style="font-size:12.5px;color:#666;margin:0 0 14px">A separate product from Razorpay above, with its own business KYC — needed to automate loan disbursal via bank transfer. Until connected, that still works using a manual reference-number entry.</p>
       <div class="stat-card" style="margin-bottom:14px;display:inline-block">
         <div class="label">Status</div>
         <div class="value" style="font-size:16px;color:${s.razorpayx_configured?'#5A6B00':'#C0392B'}">${s.razorpayx_configured?'✅ Connected':'Not connected (manual reference entry still works)'}</div>
@@ -1171,147 +1218,6 @@ async function saveRazorpayXSettings(){
   }catch(e){ errEl.textContent = e.message; }
 }
 
-async function renderPayroll(){
-  content().innerHTML = `<div class="empty">Loading…</div>`;
-  const [structures, runs, employees] = await Promise.all([
-    api('/payroll/salary-structures'), api('/payroll/runs'), api('/branches/employees')
-  ]);
-  const employeeOpts = employees.map(e=>`<option value="${e.id}">${esc(e.full_name)}</option>`).join('');
-  content().innerHTML = `
-    <div class="panel"><h3>Set employee salary</h3>
-      <div class="form-grid">
-        <div class="field"><label>Employee</label><select id="ss-employee">${employeeOpts || '<option>No employees yet</option>'}</select></div>
-        <div class="field"><label>Basic salary (₹)</label><input id="ss-basic" type="number"></div>
-        <div class="field"><label>Allowances (₹)</label><input id="ss-allowances" type="number" value="0"></div>
-        <div class="field"><label>Deductions (₹)</label><input id="ss-deductions" type="number" value="0"></div>
-      </div>
-      <div class="row-actions"><button class="btn amber" onclick="setSalaryStructure()">Save salary</button></div>
-      <div class="err" id="ss-err"></div>
-    </div>
-    <div class="panel"><h3>Current salaries</h3>
-      <table><thead><tr><th>Employee</th><th>Basic</th><th>Allowances</th><th>Deductions</th><th>Net Pay</th></tr></thead>
-      <tbody>${structures.map(s=>`<tr><td>${esc(s.employee_name)}</td><td>₹${s.basic_salary.toLocaleString()}</td><td>₹${s.allowances.toLocaleString()}</td><td>₹${s.deductions.toLocaleString()}</td><td><strong>₹${s.net_pay.toLocaleString()}</strong></td></tr>`).join('') || '<tr><td colspan="5" class="empty">No salaries set yet</td></tr>'}</tbody></table>
-    </div>
-    <div class="panel"><h3>Generate payroll run</h3>
-      <div class="form-grid">
-        <div class="field"><label>Month</label><input type="month" id="pr-month"></div>
-      </div>
-      <div class="row-actions"><button class="btn amber" onclick="generatePayrollRun()">Generate run</button></div>
-      <div class="err" id="pr-err"></div>
-    </div>
-    <div class="panel"><h3>Payroll history</h3>
-      <table><thead><tr><th>Month</th><th>Payslips</th><th>Paid</th><th>Total Net Pay</th><th>Action</th></tr></thead>
-      <tbody>${runs.map(r=>`<tr><td>${esc(r.month)}</td><td>${r.payslip_count}</td><td>${r.paid_count}/${r.payslip_count}</td><td>₹${r.total_net_pay.toLocaleString()}</td>
-        <td><button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="viewPayrollRun('${r.id}','${esc(r.month)}')">View payslips</button></td></tr>`).join('') || '<tr><td colspan="5" class="empty">No payroll runs yet</td></tr>'}</tbody></table>
-    </div>
-    <div class="modal-overlay" id="payslips-modal">
-      <div class="modal-card" style="max-width:600px;max-height:85vh;overflow-y:auto">
-        <h3 id="payslips-modal-title">Payslips</h3>
-        <div id="payslips-modal-body"></div>
-        <div class="row-actions"><button class="btn ghost" onclick="document.getElementById('payslips-modal').classList.remove('show')">Close</button></div>
-      </div>
-    </div>
-    <div class="modal-overlay" id="pay-payslip-modal">
-      <div class="modal-card">
-        <h3>Pay Employee</h3>
-        <label>Payment method</label>
-        <select id="pay-method" onchange="togglePayReference()">
-          <option value="bank_transfer">Bank transfer</option>
-          <option value="cash">Cash</option>
-        </select>
-        <div id="pay-bank-warning" class="hidden" style="font-size:12px;color:#C0392B;margin-top:8px"></div>
-        <div id="pay-reference-field">
-          <label>Bank transaction reference (UTR)</label>
-          <input id="pay-reference" placeholder="After transferring manually, enter the UTR here">
-        </div>
-        <div class="row-actions">
-          <button class="btn amber" onclick="submitPayPayslip()">Confirm payment</button>
-          <button class="btn ghost" onclick="document.getElementById('pay-payslip-modal').classList.remove('show')">Cancel</button>
-        </div>
-        <div class="err" id="pay-payslip-err"></div>
-      </div>
-    </div>
-  `;
-}
-async function setSalaryStructure(){
-  const errEl = document.getElementById('ss-err');
-  try{
-    await api('/payroll/salary-structure', { method:'POST', json:{
-      employee_id: document.getElementById('ss-employee').value,
-      basic_salary: Number(document.getElementById('ss-basic').value),
-      allowances: Number(document.getElementById('ss-allowances').value || 0),
-      deductions: Number(document.getElementById('ss-deductions').value || 0),
-    }});
-    renderPayroll();
-  }catch(e){ errEl.textContent = e.message; }
-}
-async function generatePayrollRun(){
-  const errEl = document.getElementById('pr-err');
-  const month = document.getElementById('pr-month').value;
-  if(!month){ errEl.textContent = 'Pick a month first.'; return; }
-  try{
-    await api('/payroll/runs', { method:'POST', json:{ month } });
-    renderPayroll();
-  }catch(e){ errEl.textContent = e.message; }
-}
-let currentPayrollRunId = null;
-async function viewPayrollRun(runId, month){
-  currentPayrollRunId = runId;
-  document.getElementById('payslips-modal-title').textContent = `Payslips — ${month}`;
-  document.getElementById('payslips-modal-body').innerHTML = '<div class="empty">Loading…</div>';
-  document.getElementById('payslips-modal').classList.add('show');
-  try{
-    const payslips = await api(`/payroll/runs/${runId}/payslips`);
-    document.getElementById('payslips-modal-body').innerHTML = `
-      <table><thead><tr><th>Employee</th><th>Net Pay</th><th>Status</th><th>Action</th></tr></thead>
-      <tbody>${payslips.map(p=>`<tr>
-        <td>${esc(p.employee_name)}</td><td>₹${p.net_pay.toLocaleString()}</td>
-        <td><span class="badge ${p.status==='paid'?'active':'pending_approval'}">${p.status}</span>${p.payment_reference?`<div style="font-size:11px;color:#888;margin-top:2px">${esc(p.payment_reference)}</div>`:''}</td>
-        <td style="white-space:nowrap">
-          ${p.status==='pending'?`<button class="btn amber" style="padding:6px 10px;font-size:12px" onclick="openPayModal('${p.id}',${p.has_bank_details})">Pay</button>`:''}
-          <button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="downloadAuthenticatedFile('/payroll/payslips/${p.id}/download','payslip.pdf')">PDF</button>
-        </td>
-      </tr>`).join('') || '<tr><td colspan="4" class="empty">No payslips</td></tr>'}</tbody></table>
-    `;
-  }catch(e){
-    document.getElementById('payslips-modal-body').innerHTML = `<div class="err">${esc(e.message)}</div>`;
-  }
-}
-let payingPayslipId = null;
-let payingHasBankDetails = false;
-function openPayModal(payslipId, hasBankDetails){
-  payingPayslipId = payslipId;
-  payingHasBankDetails = hasBankDetails;
-  document.getElementById('pay-method').value = 'bank_transfer';
-  document.getElementById('pay-reference').value = '';
-  document.getElementById('pay-payslip-err').textContent = '';
-  togglePayReference();
-  document.getElementById('pay-payslip-modal').classList.add('show');
-}
-function togglePayReference(){
-  const isBank = document.getElementById('pay-method').value === 'bank_transfer';
-  document.getElementById('pay-reference-field').classList.toggle('hidden', !isBank);
-  const warningEl = document.getElementById('pay-bank-warning');
-  if(isBank && !payingHasBankDetails){
-    warningEl.textContent = 'This employee has no bank account details on file. Add them from the Employees tab, or choose Cash instead.';
-    warningEl.classList.remove('hidden');
-  } else {
-    warningEl.classList.add('hidden');
-  }
-}
-async function submitPayPayslip(){
-  const method = document.getElementById('pay-method').value;
-  const reference = document.getElementById('pay-reference').value;
-  const errEl = document.getElementById('pay-payslip-err'); errEl.textContent = '';
-  try{
-    await api(`/payroll/payslips/${payingPayslipId}/pay`, { method:'PATCH', json:{
-      payment_method: method, payment_reference: reference || null,
-    }});
-    document.getElementById('pay-payslip-modal').classList.remove('show');
-    const run = document.getElementById('payslips-modal-title').textContent.replace('Payslips — ','');
-    viewPayrollRun(currentPayrollRunId, run);
-  }catch(e){ errEl.textContent = e.message; }
-}
 
 async function downloadBreakdown(){
   const groupBy = document.getElementById('export-groupby').value;
@@ -1411,13 +1317,11 @@ async function renderCustomers(){
         <div class="field"><label>Address</label><input id="c-address"></div>
         <div class="field">
           <label>Aadhaar Number</label>
-          <input id="c-aadhaar" placeholder="12 digits" maxlength="12" oninput="liveValidateAadhaar()">
-          <div id="c-aadhaar-status" style="font-size:11px;margin-top:4px"></div>
+          <input id="c-aadhaar" placeholder="12 digits" maxlength="12">
         </div>
         <div class="field">
           <label>PAN Number</label>
-          <input id="c-pan" placeholder="AAAAA9999A" maxlength="10" style="text-transform:uppercase" oninput="liveValidatePan()">
-          <div id="c-pan-status" style="font-size:11px;margin-top:4px"></div>
+          <input id="c-pan" placeholder="AAAAA9999A" maxlength="10" style="text-transform:uppercase">
         </div>
       </div>
       <h3 style="font-size:14px;margin:18px 0 10px">Bank details (for loan disbursal)</h3>
@@ -1433,10 +1337,22 @@ async function renderCustomers(){
       <div id="c-kyc-upload"></div>
     </div>
     <div class="panel"><h3>Customers</h3>
-      <table><thead><tr><th>Code</th><th>Name</th><th>Phone</th><th>Phone Verified</th><th>KYC</th><th>Bank</th><th>Documents</th><th>Credit Check</th></tr></thead>
+      <table><thead><tr><th>Code</th><th>Name</th><th>Phone</th><th>Phone Verified</th><th>KYC</th><th>Bank</th><th>Documents</th></tr></thead>
       <tbody id="customers-tbody">${customers.map(c=>`<tr><td>${esc(c.customer_code)}</td><td>${esc(c.full_name)}</td><td>${esc(c.phone)}</td><td>${c.phone_verified?'✅':'—'}</td><td>${c.kyc_verified?'✅':'Pending'}</td><td>${c.bank_account_number?'✅':'—'}</td>
-        <td><button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="viewCustomerDocs('${c.id}','${esc(c.full_name)}')">View / Upload</button></td>
-        <td><button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="checkCreditScore('${c.id}','${esc(c.full_name)}')">Check</button></td></tr>`).join('') || '<tr><td colspan="8" class="empty">No customers yet</td></tr>'}</tbody></table>
+        <td><button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="viewCustomerDocs('${c.id}','${esc(c.full_name)}')">View / Upload</button></td></tr>`).join('') || '<tr><td colspan="7" class="empty">No customers yet</td></tr>'}</tbody></table>
+    </div>
+    <div class="panel"><h3>Groups (for group/SHG loans)</h3>
+      <p style="font-size:12.5px;color:#666;margin:0 0 14px">Create a group from existing customers — needed before applying for a group loan product.</p>
+      <div class="form-grid">
+        <div class="field"><label>Group name</label><input id="g-name" placeholder="e.g. Amman Nagar SHG"></div>
+        <div class="field" style="grid-column:1/-1"><label>Members</label>
+          <select id="g-members" multiple style="min-height:100px">${customers.map(c=>`<option value="${c.id}">${esc(c.full_name)} (${esc(c.customer_code)})</option>`).join('')}</select>
+          <div style="font-size:11px;color:#888;margin-top:4px">Hold Ctrl/Cmd to select multiple members.</div>
+        </div>
+      </div>
+      <div class="row-actions"><button class="btn amber" onclick="createGroup()">Create group</button></div>
+      <div class="err" id="g-err"></div>
+      <div id="groups-list" style="margin-top:16px"></div>
     </div>
     <div class="modal-overlay" id="docs-modal">
       <div class="modal-card" style="max-width:480px;max-height:85vh;overflow-y:auto">
@@ -1445,53 +1361,28 @@ async function renderCustomers(){
         <div class="row-actions"><button class="btn ghost" onclick="document.getElementById('docs-modal').classList.remove('show')">Close</button></div>
       </div>
     </div>
-    <div class="modal-overlay" id="credit-modal">
-      <div class="modal-card" style="max-width:420px">
-        <h3 id="credit-modal-title">Credit Check</h3>
-        <div id="credit-modal-body"></div>
-        <div class="row-actions"><button class="btn ghost" onclick="document.getElementById('credit-modal').classList.remove('show')">Close</button></div>
-      </div>
-    </div>
   `;
+  loadGroupsList();
 }
-function liveValidateAadhaar(){
-  const val = document.getElementById('c-aadhaar').value.replace(/\D/g,'');
-  document.getElementById('c-aadhaar').value = val;
-  const statusEl = document.getElementById('c-aadhaar-status');
-  if(!val){ statusEl.textContent = ''; return; }
-  if(val.length < 12){ statusEl.textContent = `${val.length}/12 digits`; statusEl.style.color = '#888'; return; }
-  statusEl.textContent = 'Will be validated on submit'; statusEl.style.color = '#888';
-}
-function liveValidatePan(){
-  const val = document.getElementById('c-pan').value.toUpperCase();
-  document.getElementById('c-pan').value = val;
-  const statusEl = document.getElementById('c-pan-status');
-  if(!val){ statusEl.textContent = ''; return; }
-  const pattern = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
-  if(val.length < 10){ statusEl.textContent = `${val.length}/10 characters`; statusEl.style.color = '#888'; return; }
-  statusEl.textContent = pattern.test(val) ? '✓ Valid format' : 'Invalid format — expected AAAAA9999A';
-  statusEl.style.color = pattern.test(val) ? '#5A6B00' : '#C0392B';
-}
-async function checkCreditScore(customerId, customerName){
-  document.getElementById('credit-modal-title').textContent = `Credit Check — ${customerName}`;
-  document.getElementById('credit-modal-body').innerHTML = '<div class="empty">Checking…</div>';
-  document.getElementById('credit-modal').classList.add('show');
+async function createGroup(){
+  const errEl = document.getElementById('g-err'); errEl.textContent = '';
+  const name = document.getElementById('g-name').value;
+  const selected = Array.from(document.getElementById('g-members').selectedOptions).map(o=>o.value);
+  if(selected.length < 2){ errEl.textContent = 'Select at least 2 members.'; return; }
   try{
-    const res = await api(`/customers/${customerId}/credit-check`);
-    if(!res.configured){
-      document.getElementById('credit-modal-body').innerHTML = `
-        <p style="font-size:13.5px;color:#555;line-height:1.6">${esc(res.message)}</p>
-        <p style="font-size:12px;color:#888;margin-top:10px">This requires signing up with a licensed credit bureau or KYC aggregator (CIBIL, Karza, Signzy, Digio) — contact OS2 Studio once you have an account to enable live checks.</p>
-      `;
-    } else {
-      document.getElementById('credit-modal-body').innerHTML = `
-        <div class="stat-card"><div class="label">Credit Score</div><div class="value">${res.score}</div></div>
-        <p style="font-size:12px;color:#888;margin-top:10px">Source: ${esc(res.bureau)} · Pulled: ${new Date(res.pulled_at).toLocaleString()}</p>
-      `;
-    }
-  }catch(e){
-    document.getElementById('credit-modal-body').innerHTML = `<div class="err">${esc(e.message)}</div>`;
-  }
+    await api('/groups', { method:'POST', json:{ branch_id: state.branch_id, name, customer_ids: selected }});
+    document.getElementById('g-name').value = '';
+    loadGroupsList();
+  }catch(e){ errEl.textContent = e.message; }
+}
+async function loadGroupsList(){
+  try{
+    const groups = await api('/groups');
+    document.getElementById('groups-list').innerHTML = `
+      <table><thead><tr><th>Group Name</th><th>Members</th></tr></thead>
+      <tbody>${groups.map(g=>`<tr><td>${esc(g.name)}</td><td>${g.member_count} — ${esc(g.member_names.join(', '))}</td></tr>`).join('') || '<tr><td colspan="2" class="empty">No groups yet</td></tr>'}</tbody></table>
+    `;
+  }catch(e){}
 }
 let customerOtpSessionId = null;
 let customerPhoneVerified = false;
@@ -1551,8 +1442,7 @@ async function createCustomer(){
     `;
     const fresh = await api('/customers');
     document.getElementById('customers-tbody').innerHTML = fresh.map(c=>`<tr><td>${esc(c.customer_code)}</td><td>${esc(c.full_name)}</td><td>${esc(c.phone)}</td><td>${c.phone_verified?'✅':'—'}</td><td>${c.kyc_verified?'✅':'Pending'}</td><td>${c.bank_account_number?'✅':'—'}</td>
-        <td><button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="viewCustomerDocs('${c.id}','${esc(c.full_name)}')">View / Upload</button></td>
-        <td><button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="checkCreditScore('${c.id}','${esc(c.full_name)}')">Check</button></td></tr>`).join('') || '<tr><td colspan="8" class="empty">No customers yet</td></tr>';
+        <td><button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="viewCustomerDocs('${c.id}','${esc(c.full_name)}')">View / Upload</button></td></tr>`).join('') || '<tr><td colspan="7" class="empty">No customers yet</td></tr>';
   }catch(e){ errEl.textContent = e.message; }
 }
 async function uploadKycDoc(customerId, docType){
@@ -1616,23 +1506,92 @@ async function uploadKycDocModal(customerId, docType, customerName){
 async function renderCollections(){
   content().innerHTML = `<div class="empty">Loading…</div>`;
   const loans = (await api('/loans')).filter(l=>l.status==='active');
-  const opts = loans.map(l=>`<option value="${l.id}">${esc(l.loan_number)} — ${esc(l.customer_name)}</option>`).join('');
+  const opts = loans.map(l=>`<option value="${l.id}" data-group="${l.is_group_loan}">${esc(l.loan_number)} — ${esc(l.customer_name)}</option>`).join('');
   content().innerHTML = `
     <div class="panel"><h3>Record a collection</h3>
       <div class="form-grid">
-        <div class="field"><label>Loan</label><select id="p-loan" onchange="loadSchedule()">${opts || '<option>No active loans</option>'}</select></div>
-        <div class="field"><label>Installment</label><select id="p-emi" onchange="updateCollectionAmount()"></select></div>
-        <div class="field"><label>Amount (₹)</label><input id="p-amount" type="number" readonly style="background:#F6F5F2;cursor:not-allowed"><div style="font-size:11px;color:#888;margin-top:4px">Auto-filled from the selected installment's remaining due — must match exactly, so it isn't editable.</div></div>
+        <div class="field"><label>Loan</label><select id="p-loan" onchange="onCollectionLoanChange()">${opts || '<option>No active loans</option>'}</select></div>
       </div>
-      <div class="row-actions">
-        <button class="btn amber" onclick="collectCash()">Record cash payment</button>
-        <button class="btn" onclick="collectRazorpay()">Collect via Razorpay</button>
+      <div id="individual-collection-fields">
+        <div class="form-grid">
+          <div class="field"><label>Installment</label><select id="p-emi" onchange="updateCollectionAmount()"></select></div>
+          <div class="field"><label>Amount (₹)</label><input id="p-amount" type="number" readonly style="background:#F6F5F2;cursor:not-allowed"><div style="font-size:11px;color:#888;margin-top:4px">Auto-filled from the selected installment's remaining due — must match exactly, so it isn't editable.</div></div>
+        </div>
+        <div class="row-actions">
+          <button class="btn amber" onclick="collectCash()">Record cash payment</button>
+          <button class="btn" onclick="collectRazorpay()">Collect via Razorpay</button>
+        </div>
+        <div class="err" id="p-err"></div>
+        <div id="p-receipt"></div>
       </div>
-      <div class="err" id="p-err"></div>
-      <div id="p-receipt"></div>
+      <div id="group-collection-fields" class="hidden">
+        <div class="form-grid">
+          <div class="field"><label>Installment</label><select id="pg-emi" onchange="loadGroupInstallmentStatus()"></select></div>
+        </div>
+        <div id="group-status-body"></div>
+      </div>
     </div>
   `;
-  if(loans.length) loadSchedule();
+  if(loans.length) onCollectionLoanChange();
+}
+async function onCollectionLoanChange(){
+  const sel = document.getElementById('p-loan');
+  const isGroup = sel.options.length && sel.options[sel.selectedIndex].dataset.group === 'true';
+  document.getElementById('individual-collection-fields').classList.toggle('hidden', isGroup);
+  document.getElementById('group-collection-fields').classList.toggle('hidden', !isGroup);
+  if(isGroup) await loadGroupInstallmentOptions();
+  else await loadSchedule();
+}
+async function loadGroupInstallmentOptions(){
+  const loanId = document.getElementById('p-loan').value;
+  const sched = await api(`/loans/${loanId}/schedule`);
+  document.getElementById('pg-emi').innerHTML = sched.map(s=>
+    `<option value="${s.id}" ${s.is_paid?'':'selected'}>#${s.installment_no} — due ${s.due_date} — ${s.paid_count}/${s.total_members} paid ${s.is_paid?'✅':''}</option>`
+  ).join('');
+  await loadGroupInstallmentStatus();
+}
+async function loadGroupInstallmentStatus(){
+  const loanId = document.getElementById('p-loan').value;
+  const emiId = document.getElementById('pg-emi').value;
+  const bodyEl = document.getElementById('group-status-body');
+  if(!emiId){ bodyEl.innerHTML = ''; return; }
+  bodyEl.innerHTML = '<div class="empty">Loading…</div>';
+  try{
+    const status = await api(`/payments/group-status/${loanId}/${emiId}`);
+    bodyEl.innerHTML = `
+      <div class="stat-card" style="margin:14px 0;display:inline-block;${status.is_fully_paid?'':'border-color:#C0392B'}">
+        <div class="label">Group Status</div>
+        <div class="value" style="font-size:18px;color:${status.is_fully_paid?'#5A6B00':'#C0392B'}">${status.is_fully_paid?'✅ Fully Paid':`⚠ ${status.unpaid_count} of ${status.total_members} yet to pay`}</div>
+      </div>
+      <table><thead><tr><th>Member</th><th>Status</th><th>Action</th><th>Expected</th><th>Penalty</th></tr></thead>
+      <tbody>${status.members.map(m=>`<tr style="${m.is_paid?'':'background:#FBE4E1'}">
+        <td>${esc(m.customer_name)}</td>
+        <td>${m.is_paid?'<span class="badge active">Paid</span>':'<span class="badge pending_approval">Not Paid</span>'}</td>
+        <td>${m.is_paid?'—':`<button class="btn amber" style="padding:6px 10px;font-size:12px" onclick="collectGroupMemberPayment('${m.group_member_id}',${m.expected_amount},${m.penalty_amount})">Collect</button>`}</td>
+        <td>₹${m.expected_amount.toLocaleString()}</td>
+        <td>${m.penalty_amount>0?`<span style="color:#C0392B">+₹${m.penalty_amount.toLocaleString()}</span>`:'—'}</td>
+      </tr>`).join('')}</tbody></table>
+      <p style="font-size:11px;color:#888;margin-top:6px">Swipe the table left to see the exact amount and any late penalty.</p>
+      <div class="err" id="pg-err" style="margin-top:10px"></div>
+      <div id="pg-receipt"></div>
+    `;
+  }catch(e){
+    bodyEl.innerHTML = `<div class="err">${esc(e.message)}</div>`;
+  }
+}
+async function collectGroupMemberPayment(groupMemberId, expected, penalty){
+  const errEl = document.getElementById('pg-err'); errEl.textContent = '';
+  const total = (expected + penalty).toFixed(2);
+  if(!confirm(`Collect ₹${total} from this member${penalty>0?` (includes ₹${penalty.toLocaleString()} late penalty)`:''}?`)) return;
+  try{
+    const res = await api('/payments/group-cash', { method:'POST', json:{
+      loan_id: document.getElementById('p-loan').value,
+      emi_id: document.getElementById('pg-emi').value,
+      group_member_id: groupMemberId, amount: Number(total),
+    }});
+    document.getElementById('pg-receipt').innerHTML = `<p style="margin-top:12px;font-size:13.5px">✅ Recorded — ${res.receipt_number}. <button class="link-btn" onclick="downloadReceipt('${res.payment_id}','${res.receipt_number}')">Print / download receipt</button></p>`;
+    await loadGroupInstallmentOptions();
+  }catch(e){ errEl.textContent = e.message; }
 }
 async function loadSchedule(){
   const loanId = document.getElementById('p-loan').value;

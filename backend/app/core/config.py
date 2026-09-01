@@ -30,6 +30,6 @@ class Settings:
 
     # Credit bureau / KYC aggregator (CIBIL, Karza, Signzy, etc.) — not usable
     # until you've signed with a real provider; see app/utils/credit_check.py
-    CREDIT_BUREAU_API_KEY: str = os.getenv("CREDIT_BUREAU_API_KEY", "")
+    # (CREDIT_BUREAU_API_KEY removed — CIBIL integration is out of scope)
 
 settings = Settings()

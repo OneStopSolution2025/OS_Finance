@@ -51,6 +51,10 @@ def run_safe_migrations(engine: Engine):
         "loan_products": [
             ("custom_interest_label", "VARCHAR"),
             ("calculation_basis", "VARCHAR"),
+            ("is_group_loan", "BOOLEAN DEFAULT FALSE"),
+            ("group_member_count", "INTEGER"),
+            ("penalty_type", "VARCHAR"),
+            ("penalty_amount", "NUMERIC(10,2)"),
         ],
         "loans": [
             ("rejected_by", "UUID"),
@@ -59,6 +63,7 @@ def run_safe_migrations(engine: Engine):
             ("applied_by", "UUID"),
             ("disbursal_method", "VARCHAR"),
             ("disbursal_reference", "VARCHAR"),
+            ("group_id", "UUID"),
         ],
         "users": [
             ("address", "VARCHAR"),
@@ -69,6 +74,9 @@ def run_safe_migrations(engine: Engine):
         ],
         "documents": [
             ("employee_id", "UUID"),
+        ],
+        "payments": [
+            ("group_contribution_id", "UUID"),
         ],
     }
 
@@ -82,6 +90,7 @@ def run_safe_migrations(engine: Engine):
                     conn.execute(text(f'ALTER TABLE "{table}" ADD COLUMN "{col_name}" {ddl}'))
 
     fix_mistyped_columns(engine)
+    fix_column_nullability(engine)
 
 
 def fix_mistyped_columns(engine: Engine):
@@ -97,8 +106,9 @@ def fix_mistyped_columns(engine: Engine):
     inspector = inspect(engine)
     # table -> [column names that must be UUID type]
     should_be_uuid = {
-        "loans": ["applied_by", "rejected_by"],
+        "loans": ["applied_by", "rejected_by", "group_id"],
         "documents": ["employee_id"],
+        "payments": ["group_contribution_id"],
     }
 
     with engine.begin() as conn:
@@ -111,3 +121,28 @@ def fix_mistyped_columns(engine: Engine):
                     conn.execute(text(
                         f'ALTER TABLE "{table}" ALTER COLUMN "{col}" TYPE UUID USING "{col}"::uuid'
                     ))
+
+
+def fix_column_nullability(engine: Engine):
+    """
+    loans.customer_id used to be required on every loan — group loans changed
+    that (a group loan has group_id set instead, customer_id stays null).
+    On a database that predates group lending, the column is still NOT NULL
+    and would reject every group loan insert. Only applies to Postgres.
+    """
+    if engine.dialect.name != "postgresql":
+        return
+
+    inspector = inspect(engine)
+    should_be_nullable = {
+        "loans": ["customer_id"],
+    }
+
+    with engine.begin() as conn:
+        for table, columns in should_be_nullable.items():
+            if table not in inspector.get_table_names():
+                continue
+            current = {c["name"]: c["nullable"] for c in inspector.get_columns(table)}
+            for col in columns:
+                if col in current and current[col] is False:
+                    conn.execute(text(f'ALTER TABLE "{table}" ALTER COLUMN "{col}" DROP NOT NULL'))

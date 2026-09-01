@@ -3,10 +3,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.database import Base, engine
 from app.core.migrations import run_safe_migrations
-from app.routers import auth, tenants, branches, loans, payments, documents, reports, verification, payroll
+from app.routers import auth, tenants, branches, loans, payments, documents, reports, verification
 
 # Import models so they register on Base before create_all
-from app.models import tenancy, finance, payroll as payroll_models, audit  # noqa
+from app.models import tenancy, finance, audit  # noqa
 
 app = FastAPI(title="OS Finances API", version="1.0.0")
 
@@ -26,7 +26,6 @@ app.include_router(payments.router)
 app.include_router(documents.router)
 app.include_router(reports.router)
 app.include_router(verification.router)
-app.include_router(payroll.router)
 
 
 @app.on_event("startup")

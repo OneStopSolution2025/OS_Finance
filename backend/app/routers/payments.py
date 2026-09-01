@@ -1,7 +1,7 @@
 import os
 import hmac
 import hashlib
-from datetime import datetime
+from datetime import datetime, date
 from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
@@ -12,7 +12,7 @@ from app.core.database import get_db
 from app.core.security import require_any
 from app.core.config import settings
 from app.models.tenancy import User, Tenant
-from app.models.finance import Payment, EMISchedule, Loan, Customer, PaymentMethod
+from app.models.finance import Payment, EMISchedule, Loan, Customer, PaymentMethod, LoanGroup, LoanGroupMember, GroupContribution, LoanProduct
 from app.utils.receipts import generate_receipt_pdf
 from app.utils.whatsapp import send_payment_receipt_notification
 from app.utils.audit_log import log_money_event
@@ -113,6 +113,161 @@ def download_receipt(payment_id: str, db: Session = Depends(get_db), user: User 
     if not payment or not payment.receipt_pdf_path or not os.path.exists(payment.receipt_pdf_path):
         raise HTTPException(status_code=404, detail="Receipt not found")
     return FileResponse(payment.receipt_pdf_path, media_type="application/pdf", filename=f"{payment.receipt_number}.pdf")
+
+
+# ---------- Group loan repayments ----------
+
+def calculate_penalty(product: LoanProduct, expected_amount) -> Decimal:
+    """Flat rupee amount, or a percentage of that member's expected share."""
+    if not product.penalty_type or not product.penalty_amount:
+        return Decimal("0")
+    if product.penalty_type == "flat":
+        return Decimal(str(product.penalty_amount))
+    return (Decimal(str(expected_amount)) * Decimal(str(product.penalty_amount)) / Decimal(100)).quantize(Decimal("0.01"))
+
+
+class GroupContributionPayment(BaseModel):
+    loan_id: str
+    emi_id: str
+    group_member_id: str
+    amount: float
+
+
+@router.post("/group-cash")
+def record_group_contribution_payment(payload: GroupContributionPayment, db: Session = Depends(get_db), user: User = Depends(require_any)):
+    loan = db.query(Loan).filter(Loan.id == payload.loan_id, Loan.tenant_id == user.tenant_id, Loan.group_id.isnot(None)).first()
+    if not loan:
+        raise HTTPException(status_code=404, detail="Group loan not found")
+
+    emi = db.query(EMISchedule).filter(EMISchedule.id == payload.emi_id, EMISchedule.loan_id == loan.id).first()
+    if not emi:
+        raise HTTPException(status_code=404, detail="Installment not found on this loan.")
+
+    contribution = db.query(GroupContribution).filter(
+        GroupContribution.emi_schedule_id == payload.emi_id,
+        GroupContribution.group_member_id == payload.group_member_id,
+    ).first()
+    if not contribution:
+        raise HTTPException(status_code=404, detail="This member isn't part of this group's contribution schedule.")
+    if contribution.is_paid:
+        raise HTTPException(status_code=400, detail="This member has already paid their share for this installment.")
+
+    # Penalty applies ONLY to this specific member, only if they're paying after the due
+    # date — never to the rest of the group, and never charged before it's actually overdue.
+    product = db.query(LoanProduct).filter(LoanProduct.id == loan.loan_product_id).first()
+    if date.today() > emi.due_date and contribution.penalty_amount == 0:
+        contribution.penalty_amount = calculate_penalty(product, contribution.expected_amount)
+
+    required_total = Decimal(str(contribution.expected_amount)) + Decimal(str(contribution.penalty_amount or 0))
+    if abs(Decimal(str(payload.amount)) - required_total) > Decimal("0.01"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Amount must match this member's amount due of ₹{required_total:.2f}"
+                   + (f" (includes a ₹{contribution.penalty_amount:.2f} late penalty)" if contribution.penalty_amount else "") + "."
+        )
+
+    member = db.query(LoanGroupMember).filter(LoanGroupMember.id == payload.group_member_id).first()
+    customer = db.query(Customer).filter(Customer.id == member.customer_id).first() if member else None
+
+    count = db.query(Payment).filter(Payment.tenant_id == user.tenant_id).count()
+    receipt_number = f"RCPT-{count + 1:06d}"
+
+    payment = Payment(
+        tenant_id=user.tenant_id, branch_id=loan.branch_id, loan_id=loan.id, emi_id=payload.emi_id,
+        amount=payload.amount, method=PaymentMethod.cash, collected_by=user.id,
+        receipt_number=receipt_number, group_contribution_id=contribution.id,
+        notes=f"Group contribution — {customer.full_name if customer else 'member'}"
+              + (f" (incl. ₹{contribution.penalty_amount:.2f} penalty)" if contribution.penalty_amount else ""),
+    )
+    db.add(payment)
+
+    contribution.amount_paid = payload.amount
+    contribution.is_paid = True
+    contribution.paid_at = datetime.utcnow()
+    db.flush()
+
+    # Only once EVERY member's contribution for this installment is paid does the
+    # installment itself count as paid — a partial group is still an unpaid installment.
+    all_contributions = db.query(GroupContribution).filter(GroupContribution.emi_schedule_id == payload.emi_id).all()
+    all_paid = all(c.is_paid for c in all_contributions)
+    if all_paid:
+        emi.is_paid = True
+        emi.paid_at = datetime.utcnow()
+        emi.amount_paid = sum(Decimal(str(c.amount_paid)) for c in all_contributions)
+
+    log_money_event(
+        db, tenant_id=user.tenant_id, event_type=MoneyEventType.payment_collected,
+        amount=payload.amount, direction="in", actor_id=user.id, branch_id=loan.branch_id,
+        counterparty_type="customer", counterparty_id=member.customer_id if member else None,
+        method="cash", reference=receipt_number, related_record_id=payment.id,
+        notes=f"Group contribution collected against loan {loan.loan_number}"
+              + (f" — penalty ₹{contribution.penalty_amount:.2f} applied" if contribution.penalty_amount else ""),
+    )
+
+    try:
+        db.commit()
+        db.refresh(payment)
+        pdf_path = generate_receipt_pdf(payment, loan, customer)
+        payment.receipt_pdf_path = pdf_path
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Could not record payment: {e}")
+
+    try:
+        if customer and customer.phone:
+            send_payment_receipt_notification(customer.phone, customer.full_name, payload.amount, receipt_number, loan.loan_number)
+    except Exception:
+        pass
+
+    return {
+        "payment_id": payment.id, "receipt_number": receipt_number,
+        "penalty_applied": float(contribution.penalty_amount or 0),
+        "installment_fully_paid": all_paid,
+    }
+
+
+@router.get("/group-status/{loan_id}/{emi_id}")
+def get_group_installment_status(loan_id: str, emi_id: str, db: Session = Depends(get_db), user: User = Depends(require_any)):
+    """
+    Per-member breakdown for one installment of a group loan — exactly who's
+    paid, who hasn't, and how many payments are still outstanding, so staff
+    can see at a glance which member to follow up with.
+    """
+    loan = db.query(Loan).filter(Loan.id == loan_id, Loan.tenant_id == user.tenant_id, Loan.group_id.isnot(None)).first()
+    if not loan:
+        raise HTTPException(status_code=404, detail="Group loan not found")
+    emi = db.query(EMISchedule).filter(EMISchedule.id == emi_id, EMISchedule.loan_id == loan_id).first()
+    if not emi:
+        raise HTTPException(status_code=404, detail="Installment not found")
+
+    contributions = db.query(GroupContribution).filter(GroupContribution.emi_schedule_id == emi_id).all()
+    members_status = []
+    unpaid_count = 0
+    for c in contributions:
+        member = db.query(LoanGroupMember).filter(LoanGroupMember.id == c.group_member_id).first()
+        customer = db.query(Customer).filter(Customer.id == member.customer_id).first() if member else None
+        if not c.is_paid:
+            unpaid_count += 1
+        members_status.append({
+            "group_member_id": c.group_member_id,
+            "customer_name": customer.full_name if customer else "—",
+            "expected_amount": float(c.expected_amount),
+            "penalty_amount": float(c.penalty_amount or 0),
+            "amount_paid": float(c.amount_paid or 0),
+            "is_paid": c.is_paid,
+        })
+
+    return {
+        "installment_no": emi.installment_no,
+        "due_date": emi.due_date.isoformat(),
+        "total_due": float(emi.total_due),
+        "is_fully_paid": emi.is_paid,
+        "total_members": len(contributions),
+        "paid_count": len(contributions) - unpaid_count,
+        "unpaid_count": unpaid_count,
+        "members": members_status,
+    }
 
 
 # ---------- Razorpay online repayment ----------
