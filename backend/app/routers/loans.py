@@ -143,7 +143,7 @@ class LoanProductCreate(BaseModel):
     def validate_group(self):
         if self.is_group_loan and (not self.group_member_count or self.group_member_count < 2):
             raise HTTPException(status_code=400, detail="Group loan products need a member count of at least 2.")
-        if self.penalty_type and self.penalty_type not in ("flat", "percentage"):
+        if self.penalty_type and self.penalty_type not in ("flat", "percentage", "per_day"):
             raise HTTPException(status_code=400, detail="penalty_type must be 'flat' or 'percentage'.")
         if self.penalty_type and not self.penalty_amount:
             raise HTTPException(status_code=400, detail="Set a penalty amount when a penalty type is chosen.")

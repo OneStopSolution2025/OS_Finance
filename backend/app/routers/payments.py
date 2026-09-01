@@ -117,12 +117,18 @@ def download_receipt(payment_id: str, db: Session = Depends(get_db), user: User 
 
 # ---------- Group loan repayments ----------
 
-def calculate_penalty(product: LoanProduct, expected_amount) -> Decimal:
-    """Flat rupee amount, or a percentage of that member's expected share."""
+def calculate_penalty(product: LoanProduct, expected_amount, days_late: int = 0) -> Decimal:
+    """
+    Flat rupee amount, a percentage of that member's expected share, or a
+    per-day rate multiplied by how many days late the payment is — e.g. ₹10/day
+    for 5 days late = ₹50, applied once for that installment.
+    """
     if not product.penalty_type or not product.penalty_amount:
         return Decimal("0")
     if product.penalty_type == "flat":
         return Decimal(str(product.penalty_amount))
+    if product.penalty_type == "per_day":
+        return (Decimal(str(product.penalty_amount)) * max(days_late, 0)).quantize(Decimal("0.01"))
     return (Decimal(str(expected_amount)) * Decimal(str(product.penalty_amount)) / Decimal(100)).quantize(Decimal("0.01"))
 
 
@@ -156,7 +162,8 @@ def record_group_contribution_payment(payload: GroupContributionPayment, db: Ses
     # date — never to the rest of the group, and never charged before it's actually overdue.
     product = db.query(LoanProduct).filter(LoanProduct.id == loan.loan_product_id).first()
     if date.today() > emi.due_date and contribution.penalty_amount == 0:
-        contribution.penalty_amount = calculate_penalty(product, contribution.expected_amount)
+        days_late = (date.today() - emi.due_date).days
+        contribution.penalty_amount = calculate_penalty(product, contribution.expected_amount, days_late)
 
     required_total = Decimal(str(contribution.expected_amount)) + Decimal(str(contribution.penalty_amount or 0))
     if abs(Decimal(str(payload.amount)) - required_total) > Decimal("0.01"):

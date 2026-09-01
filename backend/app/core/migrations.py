@@ -67,10 +67,8 @@ def run_safe_migrations(engine: Engine):
         ],
         "users": [
             ("address", "VARCHAR"),
-            ("bank_account_holder_name", "VARCHAR"),
-            ("bank_account_number", "VARCHAR"),
-            ("bank_ifsc", "VARCHAR"),
-            ("bank_name", "VARCHAR"),
+            ("photo_id_type", "VARCHAR"),
+            ("photo_id_number", "VARCHAR"),
         ],
         "documents": [
             ("employee_id", "UUID"),

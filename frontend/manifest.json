@@ -1,11 +1,11 @@
 {
-  "name": "OS Finances",
-  "short_name": "OS Finances",
-  "description": "Multi-branch microfinance management platform by OS2 Studio",
+  "name": "Udhayam Micro Finance Institutions",
+  "short_name": "Udhayam MFI",
+  "description": "Loan management platform for Udhayam Micro Finance Institutions",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#231F20",
-  "theme_color": "#231F20",
+  "background_color": "#183b66",
+  "theme_color": "#183b66",
   "orientation": "portrait-primary",
   "icons": [
     { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },

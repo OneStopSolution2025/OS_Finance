@@ -79,9 +79,7 @@ class User(Base):
     employee_code = Column(String, nullable=True)
     designation = Column(String, nullable=True)   # e.g. "Loan Officer", "Cashier", "Field Agent"
     address = Column(String, nullable=True)
-    bank_account_holder_name = Column(String, nullable=True)
-    bank_account_number = Column(String, nullable=True)
-    bank_ifsc = Column(String, nullable=True)
-    bank_name = Column(String, nullable=True)
+    photo_id_type = Column(String, nullable=True)    # 'aadhaar' | 'pan' | 'voter_id' | 'driving_license'
+    photo_id_number = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)

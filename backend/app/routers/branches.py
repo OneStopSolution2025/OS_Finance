@@ -98,10 +98,8 @@ class EmployeeCreate(BaseModel):
     designation: str | None = None
     employee_code: str | None = None
     address: str | None = None
-    bank_account_holder_name: str | None = None
-    bank_account_number: str | None = None
-    bank_ifsc: str | None = None
-    bank_name: str | None = None
+    photo_id_type: str | None = None    # 'aadhaar' | 'pan' | 'voter_id' | 'driving_license'
+    photo_id_number: str | None = None
 
 
 @router.post("/employees")
@@ -126,10 +124,8 @@ def create_employee(payload: EmployeeCreate, db: Session = Depends(get_db), user
         designation=payload.designation,
         employee_code=payload.employee_code,
         address=payload.address,
-        bank_account_holder_name=payload.bank_account_holder_name,
-        bank_account_number=payload.bank_account_number,
-        bank_ifsc=payload.bank_ifsc,
-        bank_name=payload.bank_name,
+        photo_id_type=payload.photo_id_type,
+        photo_id_number=payload.photo_id_number,
     )
     db.add(employee)
     db.commit()
@@ -154,8 +150,7 @@ def list_employees(db: Session = Depends(get_db), user: User = Depends(require_s
             "id": e.id, "full_name": e.full_name, "email": e.email, "phone": e.phone,
             "designation": e.designation, "employee_code": e.employee_code,
             "branch_id": e.branch_id, "is_active": e.is_active, "created_at": e.created_at.isoformat(),
-            "address": e.address, "bank_account_holder_name": e.bank_account_holder_name,
-            "bank_account_number": e.bank_account_number, "bank_ifsc": e.bank_ifsc, "bank_name": e.bank_name,
+            "address": e.address, "photo_id_type": e.photo_id_type, "photo_id_number": e.photo_id_number,
         }
         for e in employees
     ]
@@ -168,10 +163,8 @@ class EmployeeUpdate(BaseModel):
     employee_code: str | None = None
     branch_id: str | None = None
     address: str | None = None
-    bank_account_holder_name: str | None = None
-    bank_account_number: str | None = None
-    bank_ifsc: str | None = None
-    bank_name: str | None = None
+    photo_id_type: str | None = None
+    photo_id_number: str | None = None
 
 
 @router.patch("/employees/{employee_id}")

@@ -3,25 +3,27 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>OS Finances</title>
-<meta name="theme-color" content="#231F20">
+<title>Udhayam MFI</title>
+<meta name="theme-color" content="#183B66">
 <link rel="manifest" href="manifest.json">
-<link rel="icon" href="data:,">
+<link rel="icon" href="favicon.png" type="image/png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="config.js"></script>
 <style>
   :root{
-    --ink:#1B1613;
-    --amber:#FFB600;
-    --charcoal:#231F20;
-    --lime:#B5DE00;
-    --trust:#231F20;
-    --trust-dark:#141110;
+    /* Udhayam MFI brand palette — variable names kept as-is (amber/charcoal/lime)
+       to avoid a risky find-replace across the whole file; only the VALUES changed. */
+    --ink:#1B1B1B;
+    --amber:#64A844;      /* was gold #FFB600 — now Udhayam green, primary accent/CTA */
+    --charcoal:#183B66;   /* was dark charcoal #231F20 — now Udhayam navy, sidebar/dark surfaces */
+    --lime:#8BC34A;       /* lighter green, used for gradient accents alongside --amber */
+    --trust:#183B66;
+    --trust-dark:#0F2847;
     --surface:#FFFFFF;
-    --bg:#F6F5F2;
-    --border:#E7E3DC;
+    --bg:#F5F7F6;
+    --border:#DCE3E0;
     --danger:#C0392B;
     --radius:10px;
   }
@@ -29,7 +31,7 @@
   body{margin:0;font-family:'Space Grotesk',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--ink)}
   h1,h2,h3{font-family:'Archivo Black','Space Grotesk',sans-serif;letter-spacing:-0.01em;margin:0;font-weight:400}
   .app{display:none;min-height:100vh}
-  .app.active{display:flex}
+  .app.active{display:flex;height:100vh;overflow:hidden}
   /* ---- Login ---- */
   #login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(160deg,var(--charcoal) 0%,#100D0C 100%);padding:20px;position:relative;overflow:hidden}
   #login-screen::before{content:'';position:absolute;inset:0;background-image:radial-gradient(circle,rgba(255,182,0,.08) 1.5px,transparent 1.5px);background-size:28px 28px;pointer-events:none}
@@ -51,7 +53,7 @@
   .btn-block{width:100%;margin-top:22px;padding:13px}
   .err{color:var(--danger);font-size:13px;margin-top:10px;min-height:16px}
   /* ---- Shell ---- */
-  .sidebar{width:230px;background:var(--charcoal);color:#EFEAE0;flex-shrink:0;display:flex;flex-direction:column;padding:20px 14px}
+  .sidebar{width:230px;background:var(--charcoal);color:#EFEAE0;flex-shrink:0;display:flex;flex-direction:column;padding:20px 14px;overflow-y:auto}
   .sidebar .brand{display:flex;align-items:center;gap:10px;padding:0 6px 20px;border-bottom:1px solid rgba(255,255,255,.1);margin-bottom:14px}
   .sidebar .brand-name{color:#fff;font-size:16px}
   .role-pill{font-size:10px;text-transform:uppercase;letter-spacing:.06em;background:var(--amber);color:var(--ink);padding:3px 9px;border-radius:20px;display:inline-block;margin-top:4px;font-weight:700;box-shadow:0 1px 4px rgba(255,182,0,.4)}
@@ -143,9 +145,8 @@
 <!-- LOGIN -->
 <div id="login-screen">
   <div class="login-card">
-    <div class="brand">
-      <div class="brand-mark">OS</div>
-      <div class="brand-name">OS Finances</div>
+    <div class="brand" style="justify-content:center;margin-bottom:8px">
+      <img src="logo-horizontal.png" alt="Udhayam Micro Finance Institutions" style="max-width:260px;width:100%;height:auto">
     </div>
     <label>Email</label>
     <input id="login-email" type="email" placeholder="you@company.com" autocomplete="username">
@@ -200,16 +201,15 @@
   <div class="overlay" id="overlay" onclick="toggleSidebar(false)"></div>
   <div class="sidebar" id="sidebar">
     <div class="brand">
-      <div class="brand-mark">OS</div>
+      <img src="logo-icon.png" alt="Udhayam" class="brand-mark" style="background:#fff;padding:4px;object-fit:contain">
       <div>
-        <div class="brand-name">OS Finances</div>
+        <div class="brand-name">Udhayam MFI</div>
         <div class="role-pill" id="role-pill">—</div>
       </div>
     </div>
     <div id="nav-items"></div>
     <div class="sidebar-footer">
-      <div style="font-size:13px;color:#D8D3C8;margin-bottom:8px" id="user-name">—</div>
-      <button class="btn ghost btn-block" style="color:#fff;border-color:rgba(255,255,255,.2)" onclick="logout()">Sign out</button>
+      <div style="font-size:13px;color:#D8D3C8" id="user-name">—</div>
     </div>
   </div>
   <div class="main">
@@ -217,6 +217,10 @@
       <div style="display:flex;align-items:center;gap:10px">
         <button class="menu-toggle" onclick="toggleSidebar(true)">☰</button>
         <h2 id="page-title">Dashboard</h2>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <span id="topbar-user-name" style="font-size:13px;color:#555;display:none"></span>
+        <button class="btn ghost" style="padding:8px 14px;font-size:13px" onclick="logout()">Sign out</button>
       </div>
     </div>
     <div class="content" id="content"></div>
@@ -568,12 +572,18 @@ async function renderEmployees(){
         <div class="field"><label>Designation</label><input id="e-desig" placeholder="Loan Officer"></div>
         <div class="field" style="grid-column:1/-1"><label>Address</label><input id="e-address"></div>
       </div>
-      <h3 style="font-size:14px;margin:18px 0 10px">Bank details</h3>
+      <h3 style="font-size:14px;margin:18px 0 10px">Photo Identity</h3>
       <div class="form-grid">
-        <div class="field"><label>Account holder name</label><input id="e-bank-holder"></div>
-        <div class="field"><label>Account number</label><input id="e-bank-account"></div>
-        <div class="field"><label>IFSC code</label><input id="e-bank-ifsc" style="text-transform:uppercase"></div>
-        <div class="field"><label>Bank name</label><input id="e-bank-name"></div>
+        <div class="field"><label>ID type</label>
+          <select id="e-photo-id-type">
+            <option value="">Select ID type</option>
+            <option value="aadhaar">Aadhaar</option>
+            <option value="pan">PAN Card</option>
+            <option value="voter_id">Voter ID</option>
+            <option value="driving_license">Driving License</option>
+          </select>
+        </div>
+        <div class="field"><label>ID number</label><input id="e-photo-id-number"></div>
       </div>
       <div class="form-grid" style="margin-top:14px">
         <div class="field" style="grid-column:1/-1">
@@ -586,7 +596,7 @@ async function renderEmployees(){
       <div id="e-doc-upload"></div>
     </div>
     <div class="panel"><h3>All employees</h3>
-      <table><thead><tr><th>Name</th><th>Email</th><th>Branch</th><th>Designation</th><th>Bank</th><th>Status</th><th>Actions</th></tr></thead>
+      <table><thead><tr><th>Name</th><th>Email</th><th>Branch</th><th>Designation</th><th>Photo ID</th><th>Status</th><th>Actions</th></tr></thead>
       <tbody id="employees-tbody">${employees.map(e=>employeeRow(e, branchName)).join('') || '<tr><td colspan="7" class="empty">No employees yet</td></tr>'}</tbody></table>
     </div>
     <div class="modal-overlay" id="edit-employee-modal">
@@ -597,10 +607,15 @@ async function renderEmployees(){
         <label>Designation</label><input id="ee-desig">
         <label>Branch</label><select id="ee-branch">${branchOpts}</select>
         <label>Address</label><input id="ee-address">
-        <label>Bank account holder</label><input id="ee-bank-holder">
-        <label>Bank account number</label><input id="ee-bank-account">
-        <label>IFSC code</label><input id="ee-bank-ifsc" style="text-transform:uppercase">
-        <label>Bank name</label><input id="ee-bank-name">
+        <label>ID type</label>
+        <select id="ee-photo-id-type">
+          <option value="">Select ID type</option>
+          <option value="aadhaar">Aadhaar</option>
+          <option value="pan">PAN Card</option>
+          <option value="voter_id">Voter ID</option>
+          <option value="driving_license">Driving License</option>
+        </select>
+        <label>ID number</label><input id="ee-photo-id-number">
         <div class="row-actions">
           <button class="btn amber" onclick="submitEditEmployee()">Save</button>
           <button class="btn ghost" onclick="document.getElementById('edit-employee-modal').classList.remove('show')">Cancel</button>
@@ -613,7 +628,7 @@ async function renderEmployees(){
 function employeeRow(e, branchName){
   return `<tr>
     <td>${esc(e.full_name)}</td><td>${esc(e.email)}</td><td>${esc(branchName(e.branch_id))}</td><td>${esc(e.designation||'—')}</td>
-    <td>${e.bank_account_number ? '✅' : '—'}</td>
+    <td>${e.photo_id_type ? `✅ ${esc(e.photo_id_type.replace('_',' '))}` : '—'}</td>
     <td><span class="badge ${e.is_active?'active':'suspended'}">${e.is_active?'Active':'Suspended'}</span></td>
     <td style="white-space:nowrap">
       <button class="btn ghost" style="padding:6px 8px;font-size:12px" onclick='openEditEmployee(${JSON.stringify(e)})'>Edit</button>
@@ -637,10 +652,8 @@ function openEditEmployee(e){
   document.getElementById('ee-desig').value = e.designation || '';
   document.getElementById('ee-branch').value = e.branch_id;
   document.getElementById('ee-address').value = e.address || '';
-  document.getElementById('ee-bank-holder').value = e.bank_account_holder_name || '';
-  document.getElementById('ee-bank-account').value = e.bank_account_number || '';
-  document.getElementById('ee-bank-ifsc').value = e.bank_ifsc || '';
-  document.getElementById('ee-bank-name').value = e.bank_name || '';
+  document.getElementById('ee-photo-id-type').value = e.photo_id_type || '';
+  document.getElementById('ee-photo-id-number').value = e.photo_id_number || '';
   document.getElementById('ee-err').textContent = '';
   document.getElementById('edit-employee-modal').classList.add('show');
 }
@@ -653,10 +666,8 @@ async function submitEditEmployee(){
       designation: document.getElementById('ee-desig').value,
       branch_id: document.getElementById('ee-branch').value,
       address: document.getElementById('ee-address').value,
-      bank_account_holder_name: document.getElementById('ee-bank-holder').value,
-      bank_account_number: document.getElementById('ee-bank-account').value,
-      bank_ifsc: document.getElementById('ee-bank-ifsc').value,
-      bank_name: document.getElementById('ee-bank-name').value,
+      photo_id_type: document.getElementById('ee-photo-id-type').value,
+      photo_id_number: document.getElementById('ee-photo-id-number').value,
     }});
     document.getElementById('edit-employee-modal').classList.remove('show');
     refreshEmployeesTable();
@@ -680,9 +691,8 @@ async function createEmployee(){
       email: document.getElementById('e-email').value, phone: document.getElementById('e-phone').value,
       password: autoPw ? null : document.getElementById('e-pass').value,
       designation: document.getElementById('e-desig').value, address: document.getElementById('e-address').value,
-      bank_account_holder_name: document.getElementById('e-bank-holder').value,
-      bank_account_number: document.getElementById('e-bank-account').value,
-      bank_ifsc: document.getElementById('e-bank-ifsc').value, bank_name: document.getElementById('e-bank-name').value,
+      photo_id_type: document.getElementById('e-photo-id-type').value || null,
+      photo_id_number: document.getElementById('e-photo-id-number').value || null,
     }});
     const credentialsHtml = res.password_was_generated ? credentialsBox(res.email, res.password) : `<div class="success-box">Employee created.</div>`;
     document.getElementById('e-doc-upload').innerHTML = `
@@ -751,13 +761,14 @@ async function renderLoanProducts(){
       <div class="form-grid hidden" id="lp-group-fields" style="margin-top:12px">
         <div class="field"><label>Group member count</label><input id="lp-group-count" type="number" min="2" placeholder="e.g. 10"></div>
         <div class="field"><label>Late penalty type</label>
-          <select id="lp-penalty-type">
+          <select id="lp-penalty-type" onchange="togglePenaltyAmountHint()">
             <option value="">No penalty</option>
             <option value="flat">Flat amount (₹)</option>
             <option value="percentage">Percentage of share</option>
+            <option value="per_day">Per day late (₹/day)</option>
           </select>
         </div>
-        <div class="field"><label>Penalty amount</label><input id="lp-penalty-amount" type="number" placeholder="e.g. 50 or 10"></div>
+        <div class="field"><label>Penalty amount</label><input id="lp-penalty-amount" type="number" placeholder="e.g. 50, 10, or 10/day"><div id="lp-penalty-hint" style="font-size:11px;color:#888;margin-top:4px"></div></div>
         <div class="field" style="grid-column:1/-1"><p style="font-size:11.5px;color:#888;margin:0">Penalty applies only to a member who pays late — it's never charged to the rest of the group.</p></div>
       </div>
       <div class="row-actions"><button class="btn amber" onclick="createLoanProduct()">Create product</button></div>
@@ -799,6 +810,11 @@ function toggleOtherInterestFields(prefix){
 }
 function toggleGroupFields(){
   document.getElementById('lp-group-fields').classList.toggle('hidden', !document.getElementById('lp-is-group').checked);
+}
+function togglePenaltyAmountHint(){
+  const type = document.getElementById('lp-penalty-type').value;
+  const hints = { flat: 'A one-time flat amount, charged once regardless of how late.', percentage: 'A % of the member\'s installment share, charged once.', per_day: 'Charged for every day late — e.g. ₹10/day × 5 days late = ₹50.' };
+  document.getElementById('lp-penalty-hint').textContent = hints[type] || '';
 }
 function interestTypeLabel(p){
   if(p.interest_type === 'other') return `${esc(p.custom_interest_label || 'Custom')} (${p.calculation_basis})`;
