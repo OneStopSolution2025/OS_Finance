@@ -1,3 +1,4 @@
+import re
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
@@ -101,9 +102,16 @@ class EmployeeCreate(BaseModel):
     photo_id_type: str | None = None    # 'aadhaar' | 'pan' | 'voter_id' | 'driving_license'
     photo_id_number: str | None = None
 
+    def validate_fields(self):
+        if self.phone and not re.fullmatch(r"\d{10}", self.phone):
+            raise HTTPException(status_code=400, detail="Contact number must be exactly 10 digits.")
+        if self.photo_id_type == "aadhaar" and self.photo_id_number and not re.fullmatch(r"\d{12}", self.photo_id_number):
+            raise HTTPException(status_code=400, detail="Aadhaar number must be exactly 12 digits.")
+
 
 @router.post("/employees")
 def create_employee(payload: EmployeeCreate, db: Session = Depends(get_db), user: User = Depends(require_superadmin)):
+    payload.validate_fields()
     branch = db.query(Branch).filter(Branch.id == payload.branch_id, Branch.tenant_id == user.tenant_id).first()
     if not branch:
         raise HTTPException(status_code=404, detail="Branch not found")
@@ -166,9 +174,16 @@ class EmployeeUpdate(BaseModel):
     photo_id_type: str | None = None
     photo_id_number: str | None = None
 
+    def validate_fields(self):
+        if self.phone and not re.fullmatch(r"\d{10}", self.phone):
+            raise HTTPException(status_code=400, detail="Contact number must be exactly 10 digits.")
+        if self.photo_id_type == "aadhaar" and self.photo_id_number and not re.fullmatch(r"\d{12}", self.photo_id_number):
+            raise HTTPException(status_code=400, detail="Aadhaar number must be exactly 12 digits.")
+
 
 @router.patch("/employees/{employee_id}")
 def update_employee(employee_id: str, payload: EmployeeUpdate, db: Session = Depends(get_db), user: User = Depends(require_superadmin)):
+    payload.validate_fields()
     employee = db.query(User).filter(User.id == employee_id, User.tenant_id == user.tenant_id, User.role == UserRole.employee).first()
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
@@ -210,6 +225,10 @@ def delete_employee(employee_id: str, db: Session = Depends(get_db), user: User 
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
     try:
+        # An employee's own KYC/ID documents aren't financial history — deleting
+        # the employee should take these with them rather than block the delete.
+        from app.models.finance import Document
+        db.query(Document).filter(Document.employee_id == employee_id).delete()
         db.delete(employee)
         db.commit()
         return {"status": "deleted"}
@@ -217,6 +236,6 @@ def delete_employee(employee_id: str, db: Session = Depends(get_db), user: User 
         db.rollback()
         raise HTTPException(
             status_code=409,
-            detail="This employee has existing records (customers, loans, or payments tied to them) and can't be "
-                   "deleted. Suspend their login instead to keep the history intact."
+            detail="This employee has financial history (loans, payments, or audit records tied to them) and can't "
+                   "be deleted, to protect that record. Suspend their login instead to keep the history intact."
         )

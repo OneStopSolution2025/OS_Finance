@@ -47,7 +47,7 @@
   .btn:active{transform:translateY(1px);box-shadow:0 1px 0 rgba(0,0,0,.08)}
   .btn:hover{background:#E6A500}
   .btn.amber{background:var(--amber);color:var(--ink)}
-  .btn.amber:hover{background:#e6a500}
+  .btn.amber:hover{background:#548F38}
   .btn.ghost{background:transparent;border:1px solid var(--border);color:var(--ink)}
   .btn:disabled{opacity:.5;cursor:not-allowed}
   .btn-block{width:100%;margin-top:22px;padding:13px}
@@ -232,6 +232,26 @@ const API = window.OSF_API_BASE || localStorage.getItem('osf_api_base') || 'http
 let state = { token:null, role:null, name:null, tenant_id:null, branch_id:null, view:'dashboard' };
 
 // ---------- Show/hide password ----------
+// ---------- Input validation helpers ----------
+function digitsOnly(el, maxLen){
+  el.value = el.value.replace(/\D/g, '').slice(0, maxLen);
+}
+function isValidPhone(v){ return /^\d{10}$/.test(v); }
+function isValidAadhaar(v){ return /^\d{12}$/.test(v); }
+function onPhotoIdTypeChange(){
+  const type = document.getElementById('e-photo-id-type').value;
+  const input = document.getElementById('e-photo-id-number');
+  input.value = '';
+  if(type === 'aadhaar'){
+    input.setAttribute('inputmode', 'numeric'); input.setAttribute('maxlength', '12');
+    input.placeholder = '12-digit Aadhaar number';
+    input.oninput = () => digitsOnly(input, 12);
+  } else {
+    input.removeAttribute('inputmode'); input.removeAttribute('maxlength');
+    input.placeholder = ''; input.oninput = null;
+  }
+}
+
 function togglePw(id, btn){
   const input = document.getElementById(id);
   const showing = input.type === 'text';
@@ -568,14 +588,14 @@ async function renderEmployees(){
         <div class="field"><label>Branch</label><select id="e-branch">${branchOpts || '<option>Create a branch first</option>'}</select></div>
         <div class="field"><label>Full name</label><input id="e-name"></div>
         <div class="field"><label>Email</label><input id="e-email" type="email"></div>
-        <div class="field"><label>Contact number</label><input id="e-phone"></div>
+        <div class="field"><label>Contact number</label><input id="e-phone" inputmode="numeric" maxlength="10" placeholder="10-digit mobile number" oninput="digitsOnly(this,10)"></div>
         <div class="field"><label>Designation</label><input id="e-desig" placeholder="Loan Officer"></div>
         <div class="field" style="grid-column:1/-1"><label>Address</label><input id="e-address"></div>
       </div>
       <h3 style="font-size:14px;margin:18px 0 10px">Photo Identity</h3>
       <div class="form-grid">
         <div class="field"><label>ID type</label>
-          <select id="e-photo-id-type">
+          <select id="e-photo-id-type" onchange="onPhotoIdTypeChange()">
             <option value="">Select ID type</option>
             <option value="aadhaar">Aadhaar</option>
             <option value="pan">PAN Card</option>
@@ -586,10 +606,7 @@ async function renderEmployees(){
         <div class="field"><label>ID number</label><input id="e-photo-id-number"></div>
       </div>
       <div class="form-grid" style="margin-top:14px">
-        <div class="field" style="grid-column:1/-1">
-          <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;width:fit-content"><input type="checkbox" id="e-auto-pw" checked onchange="toggleManualPw('e')" style="margin:0"><span>Auto-generate a secure password</span></label>
-        </div>
-        <div class="field hidden" id="e-manual-pw-field"><label class="pw-label">Password</label><div class="pw-wrap"><input id="e-pass" type="password"><button type="button" class="pw-toggle" onclick="togglePw('e-pass', this)">👁</button></div></div>
+        <div class="field"><label class="pw-label">Set a password</label><div class="pw-wrap"><input id="e-pass" type="password" placeholder="At least 8 characters"><button type="button" class="pw-toggle" onclick="togglePw('e-pass', this)">👁</button></div></div>
       </div>
       <div class="row-actions"><button class="btn amber" onclick="createEmployee()">Create employee</button></div>
       <div class="err" id="e-err"></div>
@@ -603,7 +620,7 @@ async function renderEmployees(){
       <div class="modal-card" style="max-width:480px;max-height:85vh;overflow-y:auto">
         <h3>Edit Employee</h3>
         <label>Full name</label><input id="ee-name">
-        <label>Contact number</label><input id="ee-phone">
+        <label>Contact number</label><input id="ee-phone" inputmode="numeric" maxlength="10" oninput="digitsOnly(this,10)">
         <label>Designation</label><input id="ee-desig">
         <label>Branch</label><select id="ee-branch">${branchOpts}</select>
         <label>Address</label><input id="ee-address">
@@ -658,16 +675,21 @@ function openEditEmployee(e){
   document.getElementById('edit-employee-modal').classList.add('show');
 }
 async function submitEditEmployee(){
-  const errEl = document.getElementById('ee-err');
+  const errEl = document.getElementById('ee-err'); errEl.textContent = '';
+  const phone = document.getElementById('ee-phone').value.trim();
+  if(phone && !isValidPhone(phone)){ errEl.textContent = 'Contact number must be exactly 10 digits.'; return; }
+  const photoIdType = document.getElementById('ee-photo-id-type').value;
+  const photoIdNumber = document.getElementById('ee-photo-id-number').value.trim();
+  if(photoIdType === 'aadhaar' && photoIdNumber && !isValidAadhaar(photoIdNumber)){ errEl.textContent = 'Aadhaar number must be exactly 12 digits.'; return; }
   try{
     await api(`/branches/employees/${editingEmployeeId}`, { method:'PATCH', json:{
       full_name: document.getElementById('ee-name').value,
-      phone: document.getElementById('ee-phone').value,
+      phone: phone,
       designation: document.getElementById('ee-desig').value,
       branch_id: document.getElementById('ee-branch').value,
       address: document.getElementById('ee-address').value,
-      photo_id_type: document.getElementById('ee-photo-id-type').value,
-      photo_id_number: document.getElementById('ee-photo-id-number').value,
+      photo_id_type: photoIdType,
+      photo_id_number: photoIdNumber,
     }});
     document.getElementById('edit-employee-modal').classList.remove('show');
     refreshEmployeesTable();
@@ -683,22 +705,27 @@ async function deleteEmployee(id){
   }catch(e){ alert(e.message); }
 }
 async function createEmployee(){
-  const errEl = document.getElementById('e-err');
-  const autoPw = document.getElementById('e-auto-pw').checked;
+  const errEl = document.getElementById('e-err'); errEl.textContent = '';
+  const password = document.getElementById('e-pass').value;
+  if(!password || password.length < 8){ errEl.textContent = 'Set a password of at least 8 characters.'; return; }
+  const phone = document.getElementById('e-phone').value.trim();
+  if(phone && !/^\d{10}$/.test(phone)){ errEl.textContent = 'Contact number must be exactly 10 digits.'; return; }
+  const photoIdNumber = document.getElementById('e-photo-id-number').value.trim();
+  const photoIdType = document.getElementById('e-photo-id-type').value;
+  if(photoIdType === 'aadhaar' && photoIdNumber && !/^\d{12}$/.test(photoIdNumber)){ errEl.textContent = 'Aadhaar number must be exactly 12 digits.'; return; }
   try{
     const res = await api('/branches/employees', { method:'POST', json:{
       branch_id: document.getElementById('e-branch').value, full_name: document.getElementById('e-name').value,
-      email: document.getElementById('e-email').value, phone: document.getElementById('e-phone').value,
-      password: autoPw ? null : document.getElementById('e-pass').value,
+      email: document.getElementById('e-email').value, phone: phone,
+      password: password,
       designation: document.getElementById('e-desig').value, address: document.getElementById('e-address').value,
-      photo_id_type: document.getElementById('e-photo-id-type').value || null,
-      photo_id_number: document.getElementById('e-photo-id-number').value || null,
+      photo_id_type: photoIdType || null,
+      photo_id_number: photoIdNumber || null,
     }});
-    const credentialsHtml = res.password_was_generated ? credentialsBox(res.email, res.password) : `<div class="success-box">Employee created.</div>`;
     document.getElementById('e-doc-upload').innerHTML = `
-      ${credentialsHtml}
+      <div class="success-box">Employee created — they can sign in with the email and password you set.</div>
       <div style="margin-top:12px">
-        <label>Upload address proof (optional)</label>
+        <label>Upload ID proof (optional)</label>
         <input type="file" id="e-address-proof-file" accept="image/*,.pdf">
         <button class="btn ghost" style="padding:6px 10px;font-size:12px;margin-top:6px" onclick="uploadEmployeeDoc('${res.id}')">Upload</button>
         <span id="e-address-proof-status" style="font-size:11px;margin-left:6px"></span>
@@ -755,7 +782,7 @@ async function renderLoanProducts(){
       </div>
       <div class="form-grid" style="margin-top:14px">
         <div class="field" style="grid-column:1/-1">
-          <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;width:fit-content"><input type="checkbox" id="lp-is-group" onchange="toggleGroupFields()" style="margin:0"><span>This is a group loan (e.g. women's SHG)</span></label>
+          <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;width:fit-content"><input type="checkbox" id="lp-is-group" onchange="toggleGroupFields()" style="margin:0"><span>This is a group loan (e.g. women's SHG)</span></label>
         </div>
       </div>
       <div class="form-grid hidden" id="lp-group-fields" style="margin-top:12px">
@@ -1321,7 +1348,7 @@ async function renderCustomers(){
         <div class="field"><label>Full name</label><input id="c-name"></div>
         <div class="field"><label>Phone</label>
           <div style="display:flex;gap:8px">
-            <input id="c-phone" style="flex:1">
+            <input id="c-phone" style="flex:1" inputmode="numeric" maxlength="10" placeholder="10-digit mobile number" oninput="digitsOnly(this,10)">
             <button class="btn ghost" style="padding:9px 12px;font-size:12px;white-space:nowrap" onclick="sendCustomerOtp()">Send OTP</button>
           </div>
           <div id="c-otp-row" class="hidden" style="margin-top:8px;display:flex;gap:8px">
@@ -1333,7 +1360,7 @@ async function renderCustomers(){
         <div class="field"><label>Address</label><input id="c-address"></div>
         <div class="field">
           <label>Aadhaar Number</label>
-          <input id="c-aadhaar" placeholder="12 digits" maxlength="12">
+          <input id="c-aadhaar" placeholder="12 digits" maxlength="12" inputmode="numeric" oninput="digitsOnly(this,12)">
         </div>
         <div class="field">
           <label>PAN Number</label>
@@ -1427,12 +1454,16 @@ async function verifyCustomerOtp(){
   }catch(e){ statusEl.textContent = e.message; statusEl.style.color = '#C0392B'; }
 }
 async function createCustomer(){
-  const errEl = document.getElementById('c-err');
+  const errEl = document.getElementById('c-err'); errEl.textContent = '';
+  const phone = document.getElementById('c-phone').value.trim();
+  if(!isValidPhone(phone)){ errEl.textContent = 'Phone number must be exactly 10 digits.'; return; }
+  const aadhaar = document.getElementById('c-aadhaar').value.trim();
+  if(aadhaar && !isValidAadhaar(aadhaar)){ errEl.textContent = 'Aadhaar number must be exactly 12 digits.'; return; }
   try{
     const customer = await api('/customers', { method:'POST', json:{
       branch_id: state.branch_id, full_name: document.getElementById('c-name').value,
-      phone: document.getElementById('c-phone').value, address: document.getElementById('c-address').value,
-      aadhaar_number: document.getElementById('c-aadhaar').value || null,
+      phone: phone, address: document.getElementById('c-address').value,
+      aadhaar_number: aadhaar || null,
       pan_number: document.getElementById('c-pan').value || null,
       phone_verified: customerPhoneVerified,
       bank_account_holder_name: document.getElementById('c-bank-holder').value || null,

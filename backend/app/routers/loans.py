@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+import re
 from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -42,9 +43,18 @@ class CustomerCreate(BaseModel):
     bank_ifsc: str | None = None
     bank_name: str | None = None
 
+    def validate_fields(self):
+        if not re.fullmatch(r"\d{10}", self.phone):
+            raise HTTPException(status_code=400, detail="Phone number must be exactly 10 digits.")
+        if self.aadhaar_number and not re.fullmatch(r"\d{12}", self.aadhaar_number):
+            raise HTTPException(status_code=400, detail="Aadhaar number must be exactly 12 digits.")
+        if self.guarantor_phone and not re.fullmatch(r"\d{10}", self.guarantor_phone):
+            raise HTTPException(status_code=400, detail="Guarantor phone number must be exactly 10 digits.")
+
 
 @router.post("/customers")
 def create_customer(payload: CustomerCreate, db: Session = Depends(get_db), user: User = Depends(require_any)):
+    payload.validate_fields()
     count = db.query(Customer).filter(Customer.branch_id == payload.branch_id).count()
     code = f"CUS-{count + 1:05d}"
     customer = Customer(tenant_id=user.tenant_id, customer_code=code, created_by=user.id, **payload.dict())
