@@ -238,6 +238,10 @@ function digitsOnly(el, maxLen){
 }
 function isValidPhone(v){ return /^\d{10}$/.test(v); }
 function isValidAadhaar(v){ return /^\d{12}$/.test(v); }
+function isValidPan(v){ return /^[A-Z]{5}[0-9]{4}[A-Z]$/.test(v); }
+function panOnly(el){
+  el.value = el.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
+}
 function onPhotoIdTypeChange(){
   const type = document.getElementById('e-photo-id-type').value;
   const input = document.getElementById('e-photo-id-number');
@@ -586,11 +590,11 @@ async function renderEmployees(){
     <div class="panel"><h3>Add an employee</h3>
       <div class="form-grid">
         <div class="field"><label>Branch</label><select id="e-branch">${branchOpts || '<option>Create a branch first</option>'}</select></div>
-        <div class="field"><label>Full name</label><input id="e-name"></div>
-        <div class="field"><label>Email</label><input id="e-email" type="email"></div>
-        <div class="field"><label>Contact number</label><input id="e-phone" inputmode="numeric" maxlength="10" placeholder="10-digit mobile number" oninput="digitsOnly(this,10)"></div>
-        <div class="field"><label>Designation</label><input id="e-desig" placeholder="Loan Officer"></div>
-        <div class="field" style="grid-column:1/-1"><label>Address</label><input id="e-address"></div>
+        <div class="field"><label>Full name</label><input id="e-name" autocomplete="off"></div>
+        <div class="field"><label>Email</label><input id="e-email" type="email" autocomplete="off"></div>
+        <div class="field"><label>Contact number</label><input id="e-phone" inputmode="numeric" maxlength="10" placeholder="10-digit mobile number" autocomplete="off" oninput="digitsOnly(this,10)"></div>
+        <div class="field"><label>Designation</label><input id="e-desig" placeholder="Loan Officer" autocomplete="off"></div>
+        <div class="field" style="grid-column:1/-1"><label>Address</label><input id="e-address" autocomplete="off"></div>
       </div>
       <h3 style="font-size:14px;margin:18px 0 10px">Photo Identity</h3>
       <div class="form-grid">
@@ -603,10 +607,10 @@ async function renderEmployees(){
             <option value="driving_license">Driving License</option>
           </select>
         </div>
-        <div class="field"><label>ID number</label><input id="e-photo-id-number"></div>
+        <div class="field"><label>ID number</label><input id="e-photo-id-number" autocomplete="off"></div>
       </div>
       <div class="form-grid" style="margin-top:14px">
-        <div class="field"><label class="pw-label">Set a password</label><div class="pw-wrap"><input id="e-pass" type="password" placeholder="At least 8 characters"><button type="button" class="pw-toggle" onclick="togglePw('e-pass', this)">👁</button></div></div>
+        <div class="field"><label class="pw-label">Set a password</label><div class="pw-wrap"><input id="e-pass" type="password" placeholder="At least 8 characters" autocomplete="new-password"><button type="button" class="pw-toggle" onclick="togglePw('e-pass', this)">👁</button></div></div>
       </div>
       <div class="row-actions"><button class="btn amber" onclick="createEmployee()">Create employee</button></div>
       <div class="err" id="e-err"></div>
@@ -938,11 +942,12 @@ async function renderLoans(){
   content().innerHTML = `<div class="empty">Loading…</div>`;
   const canManage = state.role === 'superadmin';
   const canApply = state.role === 'employee' || state.role === 'superadmin';
-  const [loans, customers, products, groups] = await Promise.all([
+  const [loans, customers, products, groups, branches] = await Promise.all([
     api('/loans'),
     canApply ? api('/customers') : Promise.resolve([]),
     canApply ? api('/loan-products') : Promise.resolve([]),
     canApply ? api('/groups') : Promise.resolve([]),
+    (canApply && state.role === 'superadmin') ? api('/branches/') : Promise.resolve([]),
   ]);
 
   const applyPanel = canApply ? `
@@ -952,6 +957,7 @@ async function renderLoans(){
         : !products.length ? `<p class="empty" style="padding:12px 0">No loan products available yet — ask your SuperAdmin to create one under Loan Products.</p>`
         : `
         <div class="form-grid">
+          ${state.role === 'superadmin' ? `<div class="field"><label>Branch</label><select id="la-branch">${branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('') || '<option value="">Create a branch first</option>'}</select></div>` : ''}
           <div class="field"><label>Loan product</label><select id="la-product" onchange="onApplyProductChange()">${products.map(p=>`<option value="${p.id}" data-min="${p.min_amount}" data-max="${p.max_amount}" data-group="${p.is_group_loan}" data-membercount="${p.group_member_count||''}">${esc(p.name)} — ${p.interest_rate_annual}% p.a.${p.is_group_loan?' (Group)':''}</option>`).join('')}</select></div>
           <div class="field" id="la-customer-field"><label>Customer</label><select id="la-customer">${customers.map(c=>`<option value="${c.id}">${esc(c.full_name)} (${esc(c.customer_code)})</option>`).join('')}</select></div>
           <div class="field hidden" id="la-group-field"><label>Group</label>
@@ -1036,11 +1042,13 @@ function onApplyProductChange(){
 }
 async function applyForLoan(){
   const errEl = document.getElementById('la-err'); errEl.textContent = '';
+  const branchId = state.role === 'superadmin' ? document.getElementById('la-branch').value : state.branch_id;
+  if(!branchId){ errEl.textContent = 'Select a branch first.'; return; }
   const productSel = document.getElementById('la-product');
   const isGroup = productSel.options[productSel.selectedIndex].dataset.group === 'true';
   const productId = productSel.value;
   const amount = Number(document.getElementById('la-amount').value);
-  const payload = { branch_id: state.branch_id, loan_product_id: productId, principal_amount: amount };
+  const payload = { branch_id: branchId, loan_product_id: productId, principal_amount: amount };
   if(isGroup){
     const groupId = document.getElementById('la-group').value;
     if(!groupId || !productId || !amount){ errEl.textContent = 'Fill in every field.'; return; }
@@ -1345,35 +1353,35 @@ async function renderCustomers(){
   content().innerHTML = `
     <div class="panel"><h3>Onboard a customer</h3>
       <div class="form-grid">
-        <div class="field"><label>Full name</label><input id="c-name"></div>
+        <div class="field"><label>Full name</label><input id="c-name" autocomplete="off"></div>
         <div class="field"><label>Phone</label>
           <div style="display:flex;gap:8px">
-            <input id="c-phone" style="flex:1" inputmode="numeric" maxlength="10" placeholder="10-digit mobile number" oninput="digitsOnly(this,10)">
+            <input id="c-phone" style="flex:1" inputmode="numeric" maxlength="10" placeholder="10-digit mobile number" autocomplete="off" oninput="digitsOnly(this,10)">
             <button class="btn ghost" style="padding:9px 12px;font-size:12px;white-space:nowrap" onclick="sendCustomerOtp()">Send OTP</button>
           </div>
           <div id="c-otp-row" class="hidden" style="margin-top:8px;display:flex;gap:8px">
-            <input id="c-otp" placeholder="Enter OTP" style="flex:1">
+            <input id="c-otp" placeholder="Enter OTP" style="flex:1" autocomplete="off">
             <button class="btn amber" style="padding:9px 12px;font-size:12px;white-space:nowrap" onclick="verifyCustomerOtp()">Verify</button>
           </div>
           <div id="c-otp-status" style="font-size:12px;margin-top:4px;font-weight:600"></div>
         </div>
-        <div class="field"><label>Address</label><input id="c-address"></div>
+        <div class="field"><label>Address</label><input id="c-address" autocomplete="off"></div>
         <div class="field">
           <label>Aadhaar Number</label>
-          <input id="c-aadhaar" placeholder="12 digits" maxlength="12" inputmode="numeric" oninput="digitsOnly(this,12)">
+          <input id="c-aadhaar" placeholder="12 digits" maxlength="12" inputmode="numeric" autocomplete="off" oninput="digitsOnly(this,12)">
         </div>
         <div class="field">
           <label>PAN Number</label>
-          <input id="c-pan" placeholder="AAAAA9999A" maxlength="10" style="text-transform:uppercase">
+          <input id="c-pan" placeholder="AAAAA9999A" maxlength="10" style="text-transform:uppercase" autocomplete="off" oninput="panOnly(this)">
         </div>
       </div>
       <h3 style="font-size:14px;margin:18px 0 10px">Bank details (for loan disbursal)</h3>
       <p style="font-size:12px;color:#888;margin:0 0 10px">Needed if the customer will be paid by bank transfer instead of cash. Also upload their bank passbook below.</p>
       <div class="form-grid">
-        <div class="field"><label>Account holder name</label><input id="c-bank-holder"></div>
-        <div class="field"><label>Account number</label><input id="c-bank-account"></div>
-        <div class="field"><label>IFSC code</label><input id="c-bank-ifsc" style="text-transform:uppercase"></div>
-        <div class="field"><label>Bank name</label><input id="c-bank-name"></div>
+        <div class="field"><label>Account holder name</label><input id="c-bank-holder" autocomplete="off"></div>
+        <div class="field"><label>Account number</label><input id="c-bank-account" inputmode="numeric" maxlength="18" placeholder="Digits only" autocomplete="off" oninput="digitsOnly(this,18)"></div>
+        <div class="field"><label>IFSC code</label><input id="c-bank-ifsc" style="text-transform:uppercase" autocomplete="off"></div>
+        <div class="field"><label>Bank name</label><input id="c-bank-name" autocomplete="off"></div>
       </div>
       <div class="row-actions"><button class="btn amber" onclick="createCustomer()">Add customer</button></div>
       <div class="err" id="c-err"></div>
@@ -1459,6 +1467,8 @@ async function createCustomer(){
   if(!isValidPhone(phone)){ errEl.textContent = 'Phone number must be exactly 10 digits.'; return; }
   const aadhaar = document.getElementById('c-aadhaar').value.trim();
   if(aadhaar && !isValidAadhaar(aadhaar)){ errEl.textContent = 'Aadhaar number must be exactly 12 digits.'; return; }
+  const pan = document.getElementById('c-pan').value.trim();
+  if(pan && !isValidPan(pan)){ errEl.textContent = 'PAN must be in the format AAAAA9999A (5 letters, 4 digits, 1 letter).'; return; }
   try{
     const customer = await api('/customers', { method:'POST', json:{
       branch_id: state.branch_id, full_name: document.getElementById('c-name').value,
