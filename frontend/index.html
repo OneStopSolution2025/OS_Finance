@@ -1384,15 +1384,7 @@ async function renderCustomers(){
       <div class="form-grid">
         <div class="field"><label>Full name</label><input id="c-name" autocomplete="off"></div>
         <div class="field"><label>Phone</label>
-          <div style="display:flex;gap:8px">
-            <input id="c-phone" style="flex:1" inputmode="numeric" maxlength="10" placeholder="10-digit mobile number" autocomplete="off" oninput="digitsOnly(this,10)">
-            <button class="btn ghost" style="padding:9px 12px;font-size:12px;white-space:nowrap" onclick="sendCustomerOtp()">Send OTP</button>
-          </div>
-          <div id="c-otp-row" class="hidden" style="margin-top:8px;display:flex;gap:8px">
-            <input id="c-otp" placeholder="Enter OTP" style="flex:1" autocomplete="off">
-            <button class="btn amber" style="padding:9px 12px;font-size:12px;white-space:nowrap" onclick="verifyCustomerOtp()">Verify</button>
-          </div>
-          <div id="c-otp-status" style="font-size:12px;margin-top:4px;font-weight:600"></div>
+          <input id="c-phone" inputmode="numeric" maxlength="10" placeholder="10-digit mobile number" autocomplete="off" oninput="digitsOnly(this,10)">
         </div>
         <div class="field"><label>Address</label><input id="c-address" autocomplete="off"></div>
         <div class="field">
@@ -1417,9 +1409,9 @@ async function renderCustomers(){
       <div id="c-kyc-upload"></div>
     </div>
     <div class="panel"><h3>Customers</h3>
-      <table><thead><tr><th>Code</th><th>Name</th><th>Phone</th><th>Phone Verified</th><th>KYC</th><th>Bank</th><th>Documents</th></tr></thead>
-      <tbody id="customers-tbody">${customers.map(c=>`<tr><td>${esc(c.customer_code)}</td><td>${esc(c.full_name)}</td><td>${esc(c.phone)}</td><td>${c.phone_verified?'✅':'—'}</td><td>${c.kyc_verified?'✅':'Pending'}</td><td>${c.bank_account_number?'✅':'—'}</td>
-        <td><button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="viewCustomerDocs('${c.id}','${esc(c.full_name)}')">View / Upload</button></td></tr>`).join('') || '<tr><td colspan="7" class="empty">No customers yet</td></tr>'}</tbody></table>
+      <table><thead><tr><th>Code</th><th>Name</th><th>Phone</th><th>KYC</th><th>Bank</th><th>Documents</th></tr></thead>
+      <tbody id="customers-tbody">${customers.map(c=>`<tr><td>${esc(c.customer_code)}</td><td>${esc(c.full_name)}</td><td>${esc(c.phone)}</td><td>${c.kyc_verified?'✅':'Pending'}</td><td>${c.bank_account_number?'✅':'—'}</td>
+        <td><button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="viewCustomerDocs('${c.id}','${esc(c.full_name)}')">View / Upload</button></td></tr>`).join('') || '<tr><td colspan="6" class="empty">No customers yet</td></tr>'}</tbody></table>
     </div>
     <div class="panel"><h3>Groups (for group/SHG loans)</h3>
       <p style="font-size:12.5px;color:#666;margin:0 0 14px">Create a group from existing customers — needed before applying for a group loan product.</p>
@@ -1464,32 +1456,6 @@ async function loadGroupsList(){
     `;
   }catch(e){}
 }
-let customerOtpSessionId = null;
-let customerPhoneVerified = false;
-async function sendCustomerOtp(){
-  const phone = document.getElementById('c-phone').value.trim();
-  const statusEl = document.getElementById('c-otp-status');
-  if(!phone){ statusEl.textContent = 'Enter a phone number first.'; statusEl.style.color = '#C0392B'; return; }
-  customerPhoneVerified = false;
-  statusEl.textContent = 'Sending OTP…'; statusEl.style.color = '#888';
-  try{
-    const res = await api('/verification/send-otp', { method:'POST', json:{ phone } });
-    customerOtpSessionId = res.session_id;
-    document.getElementById('c-otp-row').classList.remove('hidden');
-    statusEl.textContent = 'OTP sent. Ask the customer for the code.'; statusEl.style.color = '#5A6B00';
-  }catch(e){ statusEl.textContent = e.message; statusEl.style.color = '#C0392B'; }
-}
-async function verifyCustomerOtp(){
-  const otp = document.getElementById('c-otp').value.trim();
-  const statusEl = document.getElementById('c-otp-status');
-  if(!customerOtpSessionId || !otp){ statusEl.textContent = 'Send an OTP first, then enter it.'; statusEl.style.color = '#C0392B'; return; }
-  try{
-    await api('/verification/verify-otp', { method:'POST', json:{ session_id: customerOtpSessionId, otp } });
-    customerPhoneVerified = true;
-    statusEl.textContent = '✓ Phone verified'; statusEl.style.color = '#5A6B00';
-    document.getElementById('c-otp-row').classList.add('hidden');
-  }catch(e){ statusEl.textContent = e.message; statusEl.style.color = '#C0392B'; }
-}
 async function createCustomer(){
   const errEl = document.getElementById('c-err'); errEl.textContent = '';
   const phone = document.getElementById('c-phone').value.trim();
@@ -1504,13 +1470,11 @@ async function createCustomer(){
       phone: phone, address: document.getElementById('c-address').value,
       aadhaar_number: aadhaar || null,
       pan_number: document.getElementById('c-pan').value || null,
-      phone_verified: customerPhoneVerified,
       bank_account_holder_name: document.getElementById('c-bank-holder').value || null,
       bank_account_number: document.getElementById('c-bank-account').value || null,
       bank_ifsc: document.getElementById('c-bank-ifsc').value || null,
       bank_name: document.getElementById('c-bank-name').value || null,
     }});
-    customerPhoneVerified = false; customerOtpSessionId = null;
     document.getElementById('c-kyc-upload').innerHTML = `
       <div class="success-box" style="background:#F6F5F2;border-color:var(--border);color:var(--ink)">
         <strong>${esc(customer.full_name)} added.</strong> Upload their KYC documents now (optional, can also be done later from the Customers list):
@@ -1527,8 +1491,8 @@ async function createCustomer(){
       </div>
     `;
     const fresh = await api('/customers');
-    document.getElementById('customers-tbody').innerHTML = fresh.map(c=>`<tr><td>${esc(c.customer_code)}</td><td>${esc(c.full_name)}</td><td>${esc(c.phone)}</td><td>${c.phone_verified?'✅':'—'}</td><td>${c.kyc_verified?'✅':'Pending'}</td><td>${c.bank_account_number?'✅':'—'}</td>
-        <td><button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="viewCustomerDocs('${c.id}','${esc(c.full_name)}')">View / Upload</button></td></tr>`).join('') || '<tr><td colspan="7" class="empty">No customers yet</td></tr>';
+    document.getElementById('customers-tbody').innerHTML = fresh.map(c=>`<tr><td>${esc(c.customer_code)}</td><td>${esc(c.full_name)}</td><td>${esc(c.phone)}</td><td>${c.kyc_verified?'✅':'Pending'}</td><td>${c.bank_account_number?'✅':'—'}</td>
+        <td><button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="viewCustomerDocs('${c.id}','${esc(c.full_name)}')">View / Upload</button></td></tr>`).join('') || '<tr><td colspan="6" class="empty">No customers yet</td></tr>';
   }catch(e){ errEl.textContent = e.message; }
 }
 async function uploadKycDoc(customerId, docType){

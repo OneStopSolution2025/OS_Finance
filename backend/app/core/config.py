@@ -21,8 +21,7 @@ class Settings:
     # use it once to create your first platform login, then remove the variable.
     BOOTSTRAP_SECRET: str = os.getenv("BOOTSTRAP_SECRET", "")
 
-    # 2Factor.in — SMS OTP verification (customer phone verification during KYC)
-    TWOFACTOR_API_KEY: str = os.getenv("TWOFACTOR_API_KEY", "")
+    # (TWOFACTOR_API_KEY removed — SMS OTP verification is out of scope)
 
     # WhatsApp Cloud API (Meta) — payment receipts, loan status notifications
     WHATSAPP_API_TOKEN: str = os.getenv("WHATSAPP_API_TOKEN", "")
