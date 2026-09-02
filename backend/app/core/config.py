@@ -2,7 +2,7 @@ import os
 from datetime import timedelta
 
 class Settings:
-    APP_NAME = "OS Finances"
+    APP_NAME = "Udhayam MFI"
     APP_DATABASE_URL: str = os.getenv("APP_DATABASE_URL", "postgresql+psycopg://os_user:os_pass@localhost:5432/os_finances")
     JWT_SECRET: str = os.getenv("JWT_SECRET", "change-me-in-railway-env")
     JWT_ALGORITHM: str = "HS256"

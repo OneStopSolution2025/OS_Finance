@@ -3,16 +3,19 @@ from reportlab.lib.pagesizes import A5
 from reportlab.lib.units import mm
 from reportlab.lib import colors
 from reportlab.pdfgen import canvas
+from reportlab.lib.utils import ImageReader
 
 from app.core.config import settings
 
 RECEIPTS_DIR = os.path.join(settings.LOCAL_STORAGE_PATH, "receipts")
 os.makedirs(RECEIPTS_DIR, exist_ok=True)
 
-# OS2 EMS brand tokens
-INK = colors.HexColor("#1B1613")
-CHARCOAL = colors.HexColor("#231F20")
-AMBER = colors.HexColor("#FFB600")
+LOGO_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "logo-icon.png")
+
+# Udhayam MFI brand tokens
+INK = colors.HexColor("#1B1B1B")
+NAVY = colors.HexColor("#183B66")
+GREEN = colors.HexColor("#64A844")
 
 
 def generate_receipt_pdf(payment, loan, customer) -> str:
@@ -22,14 +25,24 @@ def generate_receipt_pdf(payment, loan, customer) -> str:
     width, height = A5
 
     # Header band
-    c.setFillColor(CHARCOAL)
+    c.setFillColor(NAVY)
     c.rect(0, height - 25 * mm, width, 25 * mm, fill=1, stroke=0)
-    c.setFillColor(AMBER)
-    c.setFont("Helvetica-Bold", 16)
-    c.drawString(12 * mm, height - 12 * mm, "OS FINANCES")
+
+    if os.path.exists(LOGO_PATH):
+        logo_size = 16 * mm
+        c.drawImage(
+            ImageReader(LOGO_PATH), 12 * mm, height - 21 * mm, width=logo_size, height=logo_size,
+            mask="auto", preserveAspectRatio=True,
+        )
+        text_x = 12 * mm + logo_size + 4 * mm
+    else:
+        text_x = 12 * mm
+
     c.setFillColor(colors.white)
+    c.setFont("Helvetica-Bold", 15)
+    c.drawString(text_x, height - 12 * mm, "UDHAYAM MFI")
     c.setFont("Helvetica", 9)
-    c.drawString(12 * mm, height - 18 * mm, "Payment Receipt")
+    c.drawString(text_x, height - 18 * mm, "Payment Receipt")
 
     y = height - 35 * mm
     c.setFillColor(INK)
@@ -58,14 +71,15 @@ def generate_receipt_pdf(payment, loan, customer) -> str:
     y -= 10 * mm
 
     c.setFont("Helvetica-Bold", 13)
-    c.setFillColor(CHARCOAL)
+    c.setFillColor(NAVY)
     c.drawString(12 * mm, y, "Amount Received:")
+    c.setFillColor(GREEN)
     c.drawRightString(width - 12 * mm, y, f"Rs. {payment.amount:,.2f}")
 
     y -= 20 * mm
     c.setFillColor(INK)
     c.setFont("Helvetica-Oblique", 8)
-    c.drawCentredString(width / 2, y, "This is a system-generated receipt from OS Finances.")
+    c.drawCentredString(width / 2, y, "This is a system-generated receipt from Udhayam MFI.")
 
     c.showPage()
     c.save()

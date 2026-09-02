@@ -9,8 +9,8 @@ from app.core.config import settings
 XLSX_REPORTS_DIR = os.path.join(settings.LOCAL_STORAGE_PATH, "reports")
 os.makedirs(XLSX_REPORTS_DIR, exist_ok=True)
 
-CHARCOAL_FILL = PatternFill(start_color="231F20", end_color="231F20", fill_type="solid")
-HEADER_FONT = Font(color="FFB600", bold=True, size=12)
+CHARCOAL_FILL = PatternFill(start_color="183B66", end_color="183B66", fill_type="solid")
+HEADER_FONT = Font(color="64A844", bold=True, size=12)
 LABEL_HEADERS = {"day": "Date", "week": "Week", "month": "Month", "employee": "Employee"}
 
 
@@ -20,7 +20,7 @@ def generate_breakdown_xlsx(tenant_name: str, group_by: str, rows: list[dict]) -
     ws.title = f"{group_by.capitalize()} Breakdown"
 
     ws.merge_cells("A1:C1")
-    ws["A1"] = f"OS Finances — {tenant_name} — {group_by.capitalize()}-wise Collections"
+    ws["A1"] = f"Udhayam MFI — {tenant_name} — {group_by.capitalize()}-wise Collections"
     ws["A1"].font = Font(bold=True, size=14)
     ws["A2"] = f"Generated {datetime.utcnow().strftime('%d %b %Y, %I:%M %p UTC')}"
     ws["A2"].font = Font(italic=True, size=9, color="888888")

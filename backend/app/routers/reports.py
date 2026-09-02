@@ -129,7 +129,7 @@ def recent_activity(db: Session = Depends(get_db), user: User = Depends(require_
 def download_report(db: Session = Depends(get_db), user: User = Depends(require_superadmin)):
     """SuperAdmin-only: generates a printable PDF snapshot of the tenant's performance."""
     tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
-    tenant_name = tenant.name if tenant else "OS Finances"
+    tenant_name = tenant.name if tenant else "Udhayam MFI"
 
     summary = branch_summary(db=db, user=user)
     par = portfolio_at_risk(db=db, user=user)
@@ -162,7 +162,7 @@ def export_breakdown(
         raise HTTPException(status_code=400, detail="format must be xlsx or pdf")
 
     tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
-    tenant_name = tenant.name if tenant else "OS Finances"
+    tenant_name = tenant.name if tenant else "Udhayam MFI"
 
     rows = build_breakdown(db, user, group_by)
 
@@ -264,7 +264,7 @@ def export_customer_leads(
         raise HTTPException(status_code=400, detail="Invalid loan_status value")
 
     tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
-    tenant_name = tenant.name if tenant else "OS Finances"
+    tenant_name = tenant.name if tenant else "Udhayam MFI"
 
     from app.models.tenancy import Branch
     customers_q = db.query(Customer).filter(Customer.tenant_id == user.tenant_id)

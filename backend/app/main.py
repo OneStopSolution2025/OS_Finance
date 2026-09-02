@@ -8,7 +8,7 @@ from app.routers import auth, tenants, branches, loans, payments, documents, rep
 # Import models so they register on Base before create_all
 from app.models import tenancy, finance, audit  # noqa
 
-app = FastAPI(title="OS Finances API", version="1.0.0")
+app = FastAPI(title="Udhayam MFI API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -36,4 +36,4 @@ def on_startup():
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "OS Finances"}
+    return {"status": "ok", "service": "Udhayam MFI"}

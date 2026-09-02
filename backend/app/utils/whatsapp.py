@@ -62,7 +62,7 @@ def send_whatsapp_text(phone: str, message: str) -> bool:
 def send_payment_receipt_notification(phone: str, customer_name: str, amount: float, receipt_number: str, loan_number: str) -> bool:
     message = (
         f"Hi {customer_name}, we've received your payment of ₹{amount:,.2f} "
-        f"for loan {loan_number}. Receipt: {receipt_number}. Thank you — OS Finances."
+        f"for loan {loan_number}. Receipt: {receipt_number}. Thank you — Udhayam MFI."
     )
     return send_whatsapp_text(phone, message)
 
@@ -76,5 +76,5 @@ def send_loan_status_notification(phone: str, customer_name: str, loan_number: s
     message = f"Hi {customer_name}, your loan {loan_number} {status_text}."
     if status == "rejected" and reason:
         message += f" Reason: {reason}."
-    message += " — OS Finances."
+    message += " — Udhayam MFI."
     return send_whatsapp_text(phone, message)
