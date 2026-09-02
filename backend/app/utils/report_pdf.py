@@ -27,11 +27,15 @@ def draw_header(c, width, height, subtitle: str, generated_at: str):
 
     if os.path.exists(LOGO_PATH):
         logo_size = 20 * mm
+        logo_x, logo_y = 18 * mm, height - 27 * mm
+        pad = 2 * mm
+        c.setFillColor(colors.white)
+        c.roundRect(logo_x - pad, logo_y - pad, logo_size + 2 * pad, logo_size + 2 * pad, 2.5 * mm, fill=1, stroke=0)
         c.drawImage(
-            ImageReader(LOGO_PATH), 18 * mm, height - 27 * mm, width=logo_size, height=logo_size,
+            ImageReader(LOGO_PATH), logo_x, logo_y, width=logo_size, height=logo_size,
             mask="auto", preserveAspectRatio=True,
         )
-        text_x = 18 * mm + logo_size + 5 * mm
+        text_x = 18 * mm + logo_size + 5 * mm + pad
     else:
         text_x = 18 * mm
 

@@ -30,11 +30,17 @@ def generate_receipt_pdf(payment, loan, customer) -> str:
 
     if os.path.exists(LOGO_PATH):
         logo_size = 16 * mm
+        logo_x, logo_y = 12 * mm, height - 21 * mm
+        # White chip behind the logo — its navy elements would otherwise blend
+        # invisibly into the navy header band without this contrast backing.
+        pad = 1.5 * mm
+        c.setFillColor(colors.white)
+        c.roundRect(logo_x - pad, logo_y - pad, logo_size + 2 * pad, logo_size + 2 * pad, 2 * mm, fill=1, stroke=0)
         c.drawImage(
-            ImageReader(LOGO_PATH), 12 * mm, height - 21 * mm, width=logo_size, height=logo_size,
+            ImageReader(LOGO_PATH), logo_x, logo_y, width=logo_size, height=logo_size,
             mask="auto", preserveAspectRatio=True,
         )
-        text_x = 12 * mm + logo_size + 4 * mm
+        text_x = 12 * mm + logo_size + 4 * mm + pad
     else:
         text_x = 12 * mm
 

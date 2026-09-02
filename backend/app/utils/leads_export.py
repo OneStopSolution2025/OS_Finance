@@ -75,11 +75,15 @@ def generate_leads_pdf(tenant_name: str, leads: list[dict]) -> str:
     if os.path.exists(LOGO_PATH):
         from reportlab.lib.utils import ImageReader
         logo_size = 14 * mm
+        logo_x, logo_y = 14 * mm, height - 18 * mm
+        pad = 1.5 * mm
+        c.setFillColor(colors.white)
+        c.roundRect(logo_x - pad, logo_y - pad, logo_size + 2 * pad, logo_size + 2 * pad, 2 * mm, fill=1, stroke=0)
         c.drawImage(
-            ImageReader(LOGO_PATH), 14 * mm, height - 18 * mm, width=logo_size, height=logo_size,
+            ImageReader(LOGO_PATH), logo_x, logo_y, width=logo_size, height=logo_size,
             mask="auto", preserveAspectRatio=True,
         )
-        text_x = 14 * mm + logo_size + 4 * mm
+        text_x = 14 * mm + logo_size + 4 * mm + pad
     else:
         text_x = 14 * mm
 
