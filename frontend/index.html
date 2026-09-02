@@ -77,6 +77,7 @@
   .stat-card .value{font-size:26px;font-weight:700;margin-top:6px;color:var(--trust)}
   .panel{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:20px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
   .panel table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .table-scroll-hint{font-size:11px;color:#999;text-align:center;padding:6px 0 0;font-style:italic}
   .panel h3{position:relative;padding-left:12px}
   .panel h3::before{content:'';position:absolute;left:0;top:2px;bottom:2px;width:3px;background:var(--amber);border-radius:2px}
   .panel h3{font-size:16px;margin-bottom:14px}
@@ -220,6 +221,7 @@
       </div>
       <div style="display:flex;align-items:center;gap:12px">
         <span id="topbar-user-name" style="font-size:13px;color:#555;display:none"></span>
+        <button id="install-app-btn" class="btn amber hidden" style="padding:8px 14px;font-size:13px" onclick="installApp()">⬇ Install App</button>
         <button class="btn ghost" style="padding:8px 14px;font-size:13px" onclick="logout()">Sign out</button>
       </div>
     </div>
@@ -404,6 +406,31 @@ function navigate(view){
 const content = () => document.getElementById('content');
 function esc(s){ return (s===undefined||s===null) ? '' : String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
+// Adds a "scroll for more" hint under any table that's genuinely wider than its
+// container — only shows when actually needed, works for every table in the
+// app automatically since it watches #content for changes rather than requiring
+// each page's render function to remember to call it.
+function addScrollHints(){
+  document.querySelectorAll('.panel table').forEach(table => {
+    const existingHint = table.nextElementSibling;
+    const isHint = existingHint && existingHint.classList && existingHint.classList.contains('table-scroll-hint');
+    if(table.scrollWidth > table.clientWidth + 2){
+      if(!isHint){
+        const hint = document.createElement('div');
+        hint.className = 'table-scroll-hint';
+        hint.textContent = '↔ Swipe to see more columns';
+        table.insertAdjacentElement('afterend', hint);
+      }
+    } else if(isHint){
+      existingHint.remove();
+    }
+  });
+}
+new MutationObserver(() => {
+  clearTimeout(window._scrollHintTimer);
+  window._scrollHintTimer = setTimeout(addScrollHints, 80);
+}).observe(document.getElementById('content'), { childList: true, subtree: true });
+
 // ---------- Dashboard (Smart Garage style: stats + growth trend + recent activity) ----------
 function renderTrendBars(trend, valueKey, labelPrefix){
   const max = Math.max(1, ...trend.map(d => d[valueKey]));
@@ -505,7 +532,7 @@ async function renderBranches(){
       <div class="err" id="b-err"></div>
     </div>
     <div class="panel"><h3>All branches</h3>
-      <table><thead><tr><th>Name</th><th>Code</th><th>City</th><th>State</th><th>Status</th><th>Actions</th></tr></thead>
+      <table><thead><tr><th>Name</th><th>Code</th><th>City</th><th>State</th><th style="width:1%;white-space:nowrap">Status</th><th style="width:1%;white-space:nowrap">Actions</th></tr></thead>
       <tbody id="branches-tbody">${branches.map(b=>branchRow(b)).join('') || '<tr><td colspan="6" class="empty">No branches yet</td></tr>'}</tbody></table>
     </div>
     <div class="modal-overlay" id="edit-branch-modal">
@@ -617,7 +644,7 @@ async function renderEmployees(){
       <div id="e-doc-upload"></div>
     </div>
     <div class="panel"><h3>All employees</h3>
-      <table><thead><tr><th>Name</th><th>Email</th><th>Branch</th><th>Designation</th><th>Photo ID</th><th>Status</th><th>Actions</th></tr></thead>
+      <table><thead><tr><th>Name</th><th>Email</th><th>Branch</th><th>Designation</th><th>Photo ID</th><th style="width:1%;white-space:nowrap">Status</th><th style="width:1%;white-space:nowrap">Actions</th></tr></thead>
       <tbody id="employees-tbody">${employees.map(e=>employeeRow(e, branchName)).join('') || '<tr><td colspan="7" class="empty">No employees yet</td></tr>'}</tbody></table>
     </div>
     <div class="modal-overlay" id="edit-employee-modal">
@@ -806,7 +833,7 @@ async function renderLoanProducts(){
       <div class="err" id="lp-err"></div>
     </div>
     <div class="panel"><h3>All products</h3>
-      <table><thead><tr><th>Name</th><th>Type</th><th>Rate</th><th>Range</th><th>Tenure</th><th>Group</th><th>Status</th><th>Actions</th></tr></thead>
+      <table><thead><tr><th>Name</th><th>Type</th><th>Rate</th><th>Range</th><th>Tenure</th><th>Group</th><th style="width:1%;white-space:nowrap">Status</th><th style="width:1%;white-space:nowrap">Actions</th></tr></thead>
       <tbody id="products-tbody">${products.map(p=>productRow(p)).join('') || '<tr><td colspan="8" class="empty">No loan products yet</td></tr>'}</tbody></table>
     </div>
     <div class="modal-overlay" id="edit-product-modal">
@@ -975,7 +1002,7 @@ async function renderLoans(){
   content().innerHTML = `
     ${applyPanel}
     <div class="panel"><h3>All loans</h3>
-      <table><thead><tr><th>Loan #</th><th>Customer</th><th>Principal</th><th>Status</th>${canManage?'<th>Documents</th><th>Action</th>':''}</tr></thead>
+      <table><thead><tr><th>Loan #</th><th>Customer</th><th>Principal</th><th>Status</th>${canManage?'<th style="width:1%;white-space:nowrap">Documents</th><th style="width:1%;white-space:nowrap">Action</th>':''}</tr></thead>
       <tbody>${loans.map(l=>`<tr><td>${esc(l.loan_number)}</td><td>${esc(l.customer_name)}</td><td>₹${l.principal_amount.toLocaleString()}</td>
         <td><span class="badge ${l.status}">${l.status.replace('_',' ')}</span>${l.status==='rejected' && l.rejection_reason ? `<div style="font-size:11px;color:#888;margin-top:4px">${esc(l.rejection_reason)}</div>` : ''}</td>
         ${canManage ? `<td>${l.is_group_loan ? '<span style="color:#888;font-size:12px">Group — see Collections tab</span>' : `<button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="viewCustomerDocs('${l.customer_id}','${esc(l.customer_name)}')">Review KYC</button>`}</td>
@@ -1702,6 +1729,31 @@ async function collectRazorpay(){
 if('serviceWorker' in navigator){
   window.addEventListener('load', () => navigator.serviceWorker.register('service-worker.js').catch(()=>{}));
 }
+
+// ---------- PWA install prompt (persistent, user-controlled) ----------
+// Chrome's own install banner shows once and vanishes within seconds — this
+// captures that same event instead and offers install via a button that stays
+// available in the topbar until the user actually acts on it or dismisses it.
+let deferredInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  const btn = document.getElementById('install-app-btn');
+  if(btn) btn.classList.remove('hidden');
+});
+async function installApp(){
+  if(!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  await deferredInstallPrompt.userChoice;
+  deferredInstallPrompt = null;
+  const btn = document.getElementById('install-app-btn');
+  if(btn) btn.classList.add('hidden');
+}
+window.addEventListener('appinstalled', () => {
+  deferredInstallPrompt = null;
+  const btn = document.getElementById('install-app-btn');
+  if(btn) btn.classList.add('hidden');
+});
 
 // Runs dead last, after every function/const above is defined — restoreSession
 // calls enterApp/navigate, which touch NAV, content(), and other consts
