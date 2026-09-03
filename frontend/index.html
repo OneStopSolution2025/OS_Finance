@@ -112,7 +112,6 @@
     .pw-wrap input{padding-right:40px}
     .pw-toggle{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:16px;padding:2px;color:#888}
     .link-btn{background:none;border:none;color:var(--trust);font-size:12.5px;cursor:pointer;padding:0;text-decoration:underline}
-    .forgot-link{text-align:right;margin-top:6px}
     .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:50;align-items:center;justify-content:center;padding:20px}
     .modal-overlay.show{display:flex}
     .modal-card{background:#fff;border-radius:16px;padding:32px;width:100%;max-width:440px}
@@ -158,44 +157,8 @@
       <input id="login-password" type="password" placeholder="••••••••" autocomplete="current-password">
       <button type="button" class="pw-toggle" onclick="togglePw('login-password', this)">👁</button>
     </div>
-    <div class="forgot-link"><button class="link-btn" onclick="openForgotModal()">Forgot password?</button></div>
     <button class="btn btn-block" onclick="doLogin()">Sign in</button>
     <div class="err" id="login-err"></div>
-  </div>
-</div>
-
-<!-- FORGOT PASSWORD MODAL -->
-<div class="modal-overlay" id="forgot-modal">
-  <div class="modal-card">
-    <div id="forgot-step-request">
-      <h3>Reset your password</h3>
-      <p class="sub">Enter the email on your OS Finances account.</p>
-      <label>Email</label>
-      <input id="forgot-email" type="email" placeholder="you@company.com">
-      <div class="row-actions">
-        <button class="btn amber" onclick="requestPasswordReset()">Send reset link</button>
-        <button class="btn ghost" onclick="closeForgotModal()">Cancel</button>
-      </div>
-      <div class="err" id="forgot-err"></div>
-      <div id="forgot-result"></div>
-    </div>
-    <div id="forgot-step-reset" class="hidden">
-      <h3>Set a new password</h3>
-      <p class="sub">Paste the reset code you were given, and choose a new password.</p>
-      <label>Reset code</label>
-      <input id="reset-token" type="text" placeholder="Reset code">
-      <label class="pw-label">New password</label>
-      <div class="pw-wrap">
-        <input id="reset-password" type="password" placeholder="At least 8 characters">
-        <button type="button" class="pw-toggle" onclick="togglePw('reset-password', this)">👁</button>
-      </div>
-      <div class="row-actions">
-        <button class="btn amber" onclick="submitPasswordReset()">Update password</button>
-        <button class="btn ghost" onclick="closeForgotModal()">Cancel</button>
-      </div>
-      <div class="err" id="reset-err"></div>
-      <div id="reset-result"></div>
-    </div>
   </div>
 </div>
 
@@ -265,47 +228,6 @@ function togglePw(id, btn){
   const showing = input.type === 'text';
   input.type = showing ? 'password' : 'text';
   btn.textContent = showing ? '👁' : '🙈';
-}
-
-// ---------- Forgot password ----------
-function openForgotModal(){
-  document.getElementById('forgot-modal').classList.add('show');
-  document.getElementById('forgot-step-request').classList.remove('hidden');
-  document.getElementById('forgot-step-reset').classList.add('hidden');
-  document.getElementById('forgot-err').textContent = '';
-  document.getElementById('forgot-result').innerHTML = '';
-}
-function closeForgotModal(){ document.getElementById('forgot-modal').classList.remove('show'); }
-async function requestPasswordReset(){
-  const email = document.getElementById('forgot-email').value.trim();
-  const errEl = document.getElementById('forgot-err'); errEl.textContent = '';
-  if(!email){ errEl.textContent = 'Enter your email.'; return; }
-  try{
-    const res = await fetch(API + '/auth/forgot-password', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({email}) });
-    const data = await res.json();
-    if(!res.ok) throw new Error(data.detail || 'Something went wrong.');
-    let html = `<p style="font-size:12.5px;color:#555;margin-top:10px">${data.message}</p>`;
-    if(data.dev_reset_token){
-      html += `<div class="success-box">Reset code (valid ${data.expires_in_minutes} min): <strong>${data.dev_reset_token}</strong><br><span style="font-weight:400">Email delivery isn't connected yet — for now, copy this code and use it below.</span></div>`;
-    }
-    document.getElementById('forgot-result').innerHTML = html;
-    document.getElementById('forgot-step-request').classList.add('hidden');
-    document.getElementById('forgot-step-reset').classList.remove('hidden');
-    if(data.dev_reset_token) document.getElementById('reset-token').value = data.dev_reset_token;
-  }catch(e){ errEl.textContent = e.message; }
-}
-async function submitPasswordReset(){
-  const token = document.getElementById('reset-token').value.trim();
-  const newPassword = document.getElementById('reset-password').value;
-  const errEl = document.getElementById('reset-err'); errEl.textContent = '';
-  if(!token || !newPassword){ errEl.textContent = 'Enter the reset code and a new password.'; return; }
-  try{
-    const res = await fetch(API + '/auth/reset-password', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({token, new_password:newPassword}) });
-    const data = await res.json();
-    if(!res.ok) throw new Error(data.detail || 'Something went wrong.');
-    document.getElementById('reset-result').innerHTML = `<div class="success-box">${data.message}</div>`;
-    setTimeout(closeForgotModal, 1800);
-  }catch(e){ errEl.textContent = e.message; }
 }
 
 // ---------- API helper ----------
