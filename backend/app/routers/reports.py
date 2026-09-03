@@ -153,11 +153,11 @@ def export_breakdown(
     user: User = Depends(require_superadmin),
 ):
     """
-    SuperAdmin-only. group_by: day | week | month | employee. format: xlsx | pdf.
+    SuperAdmin-only. group_by: day | week | month | employee | branch. format: xlsx | pdf.
     Exports collections grouped by the selected dimension.
     """
-    if group_by not in ("day", "week", "month", "employee"):
-        raise HTTPException(status_code=400, detail="group_by must be one of: day, week, month, employee")
+    if group_by not in ("day", "week", "month", "employee", "branch"):
+        raise HTTPException(status_code=400, detail="group_by must be one of: day, week, month, employee, branch")
     if format not in ("xlsx", "pdf"):
         raise HTTPException(status_code=400, detail="format must be xlsx or pdf")
 

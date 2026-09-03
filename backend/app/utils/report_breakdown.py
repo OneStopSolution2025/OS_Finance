@@ -10,7 +10,7 @@ from datetime import date
 from sqlalchemy.orm import Session
 
 from app.models.finance import Payment, Loan
-from app.models.tenancy import User, UserRole
+from app.models.tenancy import User, UserRole, Branch
 
 
 def _scoped_payments(db: Session, user: User):
@@ -27,9 +27,9 @@ def _week_label(d: date) -> str:
 
 def build_breakdown(db: Session, user: User, group_by: str) -> list[dict]:
     """
-    group_by: 'day' | 'week' | 'month' | 'employee'
+    group_by: 'day' | 'week' | 'month' | 'employee' | 'branch'
     Returns a list of rows, each with a label, total collected, and payment count,
-    sorted chronologically (or alphabetically for employee).
+    sorted chronologically (or alphabetically for employee/branch).
     """
     payments = _scoped_payments(db, user)
     buckets: dict[str, dict] = defaultdict(lambda: {"amount": 0.0, "count": 0})
@@ -45,6 +45,9 @@ def build_breakdown(db: Session, user: User, group_by: str) -> list[dict]:
         elif group_by == "employee":
             employee = db.query(User).filter(User.id == p.collected_by).first()
             key = employee.full_name if employee else "Unknown"
+        elif group_by == "branch":
+            branch = db.query(Branch).filter(Branch.id == p.branch_id).first()
+            key = branch.name if branch else "Unknown"
         else:
             raise ValueError(f"Unsupported group_by: {group_by}")
 

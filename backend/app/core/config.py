@@ -31,4 +31,15 @@ class Settings:
     # until you've signed with a real provider; see app/utils/credit_check.py
     # (CREDIT_BUREAU_API_KEY removed — CIBIL integration is out of scope)
 
+    # Sentry — error tracking. Get a DSN from sentry.io (free tier available),
+    # create a Python/FastAPI project, and paste the DSN it gives you here.
+    SENTRY_DSN: str = os.getenv("SENTRY_DSN", "")
+    SENTRY_ENVIRONMENT: str = os.getenv("SENTRY_ENVIRONMENT", "production")
+
+    # Better Stack (betterstack.com) — centralized log shipping. Create a
+    # "Source" under Logs in their dashboard (choose "Python" as the platform)
+    # and it gives you a source token — paste it here.
+    BETTERSTACK_SOURCE_TOKEN: str = os.getenv("BETTERSTACK_SOURCE_TOKEN", "")
+    BETTERSTACK_INGESTING_HOST: str = os.getenv("BETTERSTACK_INGESTING_HOST", "")
+
 settings = Settings()

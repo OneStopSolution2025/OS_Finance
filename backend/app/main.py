@@ -3,10 +3,14 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.database import Base, engine
 from app.core.migrations import run_safe_migrations
+from app.core.monitoring import init_sentry, init_betterstack
 from app.routers import auth, tenants, branches, loans, payments, documents, reports
 
 # Import models so they register on Base before create_all
 from app.models import tenancy, finance, audit  # noqa
+
+init_sentry()
+init_betterstack()
 
 app = FastAPI(title="Udhayam MFI API", version="1.0.0")
 

@@ -11,7 +11,7 @@ os.makedirs(XLSX_REPORTS_DIR, exist_ok=True)
 
 CHARCOAL_FILL = PatternFill(start_color="183B66", end_color="183B66", fill_type="solid")
 HEADER_FONT = Font(color="64A844", bold=True, size=12)
-LABEL_HEADERS = {"day": "Date", "week": "Week", "month": "Month", "employee": "Employee"}
+LABEL_HEADERS = {"day": "Date", "week": "Week", "month": "Month", "employee": "Employee", "branch": "Branch"}
 
 
 def generate_breakdown_xlsx(tenant_name: str, group_by: str, rows: list[dict]) -> str:

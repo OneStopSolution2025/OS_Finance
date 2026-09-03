@@ -12,6 +12,26 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="config.js"></script>
+<script>
+  // Sentry (frontend error tracking) — only loads the SDK at all if a DSN was
+  // actually injected via config.js above. Set FRONTEND_SENTRY_DSN in Railway
+  // on the frontend service to turn this on; leave it unset and this block
+  // does nothing, no extra script download, no console noise.
+  if (window.OSF_SENTRY_DSN) {
+    const sentryScript = document.createElement('script');
+    sentryScript.src = 'https://browser.sentry-cdn.com/8.9.2/bundle.tracing.min.js';
+    sentryScript.crossOrigin = 'anonymous';
+    sentryScript.onload = () => {
+      Sentry.init({
+        dsn: window.OSF_SENTRY_DSN,
+        environment: location.hostname === 'localhost' ? 'development' : 'production',
+        tracesSampleRate: 0.1,
+        sendDefaultPii: false, // this app handles KYC data — never send request/response bodies by default
+      });
+    };
+    document.head.appendChild(sentryScript);
+  }
+</script>
 <style>
   :root{
     /* Udhayam MFI brand palette — variable names kept as-is (amber/charcoal/lime)
@@ -544,7 +564,20 @@ async function renderEmployees(){
         <div class="field"><label>Full name</label><input id="e-name" autocomplete="off"></div>
         <div class="field"><label>Email</label><input id="e-email" type="email" autocomplete="off"></div>
         <div class="field"><label>Contact number</label><input id="e-phone" inputmode="numeric" maxlength="10" placeholder="10-digit mobile number" autocomplete="off" oninput="digitsOnly(this,10)"></div>
-        <div class="field"><label>Designation</label><input id="e-desig" placeholder="Loan Officer" autocomplete="off"></div>
+        <div class="field"><label>Designation</label>
+          <select id="e-desig" onchange="toggleCustomDesignation('e')">
+            <option value="Loan Officer">Loan Officer</option>
+            <option value="Branch Manager">Branch Manager</option>
+            <option value="Field Officer">Field Officer</option>
+            <option value="Collection Officer">Collection Officer</option>
+            <option value="Cashier">Cashier</option>
+            <option value="Relationship Manager">Relationship Manager</option>
+            <option value="Credit Analyst">Credit Analyst</option>
+            <option value="Operations Executive">Operations Executive</option>
+            <option value="Other">Other (specify)</option>
+          </select>
+          <input id="e-desig-other" class="hidden" placeholder="Enter designation" autocomplete="off" style="margin-top:8px">
+        </div>
         <div class="field" style="grid-column:1/-1"><label>Address</label><input id="e-address" autocomplete="off"></div>
       </div>
       <h3 style="font-size:14px;margin:18px 0 10px">Photo Identity</h3>
@@ -576,7 +609,19 @@ async function renderEmployees(){
         <h3>Edit Employee</h3>
         <label>Full name</label><input id="ee-name">
         <label>Contact number</label><input id="ee-phone" inputmode="numeric" maxlength="10" oninput="digitsOnly(this,10)">
-        <label>Designation</label><input id="ee-desig">
+        <label>Designation</label>
+        <select id="ee-desig" onchange="toggleCustomDesignation('ee')">
+          <option value="Loan Officer">Loan Officer</option>
+          <option value="Branch Manager">Branch Manager</option>
+          <option value="Field Officer">Field Officer</option>
+          <option value="Collection Officer">Collection Officer</option>
+          <option value="Cashier">Cashier</option>
+          <option value="Relationship Manager">Relationship Manager</option>
+          <option value="Credit Analyst">Credit Analyst</option>
+          <option value="Operations Executive">Operations Executive</option>
+          <option value="Other">Other (specify)</option>
+        </select>
+        <input id="ee-desig-other" class="hidden" placeholder="Enter designation" autocomplete="off" style="margin-bottom:10px">
         <label>Branch</label><select id="ee-branch">${branchOpts}</select>
         <label>Address</label><input id="ee-address">
         <label>ID type</label>
@@ -621,7 +666,7 @@ function openEditEmployee(e){
   editingEmployeeId = e.id;
   document.getElementById('ee-name').value = e.full_name;
   document.getElementById('ee-phone').value = e.phone || '';
-  document.getElementById('ee-desig').value = e.designation || '';
+  setDesignationValue('ee', e.designation || '');
   document.getElementById('ee-branch').value = e.branch_id;
   document.getElementById('ee-address').value = e.address || '';
   document.getElementById('ee-photo-id-type').value = e.photo_id_type || '';
@@ -640,7 +685,7 @@ async function submitEditEmployee(){
     await api(`/branches/employees/${editingEmployeeId}`, { method:'PATCH', json:{
       full_name: document.getElementById('ee-name').value,
       phone: phone,
-      designation: document.getElementById('ee-desig').value,
+      designation: getDesignationValue('ee'),
       branch_id: document.getElementById('ee-branch').value,
       address: document.getElementById('ee-address').value,
       photo_id_type: photoIdType,
@@ -673,7 +718,7 @@ async function createEmployee(){
       branch_id: document.getElementById('e-branch').value, full_name: document.getElementById('e-name').value,
       email: document.getElementById('e-email').value, phone: phone,
       password: password,
-      designation: document.getElementById('e-desig').value, address: document.getElementById('e-address').value,
+      designation: getDesignationValue('e'), address: document.getElementById('e-address').value,
       photo_id_type: photoIdType || null,
       photo_id_number: photoIdNumber || null,
     }});
@@ -789,6 +834,28 @@ function toggleOtherInterestFields(prefix){
   const isOther = document.getElementById(`${prefix}-type`).value === 'other';
   const fieldsId = prefix === 'lp' ? 'lp-other-fields' : 'ep-other-fields';
   document.getElementById(fieldsId).classList.toggle('hidden', !isOther);
+}
+function toggleCustomDesignation(prefix){
+  const sel = document.getElementById(`${prefix}-desig`);
+  const otherInput = document.getElementById(`${prefix}-desig-other`);
+  otherInput.classList.toggle('hidden', sel.value !== 'Other');
+}
+function getDesignationValue(prefix){
+  const sel = document.getElementById(`${prefix}-desig`);
+  if(sel.value === 'Other') return document.getElementById(`${prefix}-desig-other`).value.trim();
+  return sel.value;
+}
+function setDesignationValue(prefix, value){
+  const sel = document.getElementById(`${prefix}-desig`);
+  const knownValues = Array.from(sel.options).map(o=>o.value);
+  if(value && !knownValues.includes(value)){
+    sel.value = 'Other';
+    document.getElementById(`${prefix}-desig-other`).value = value;
+    document.getElementById(`${prefix}-desig-other`).classList.remove('hidden');
+  } else {
+    sel.value = value || 'Loan Officer';
+    document.getElementById(`${prefix}-desig-other`).classList.add('hidden');
+  }
 }
 function toggleGroupFields(){
   document.getElementById('lp-group-fields').classList.toggle('hidden', !document.getElementById('lp-is-group').checked);
@@ -1106,6 +1173,7 @@ async function renderReports(){
             <option value="week">Week-wise</option>
             <option value="month">Month-wise</option>
             <option value="employee">Employee-wise</option>
+            <option value="branch">Branch-wise</option>
           </select>
         </div>
         <div class="field"><label>Format</label>

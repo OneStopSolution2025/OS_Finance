@@ -56,11 +56,11 @@ def generate_breakdown_pdf(tenant_name: str, group_by: str, rows: list[dict]) ->
     width, height = A4
 
     c.setFont("Helvetica-Bold", 20)
-    label = {"day": "Day-wise", "week": "Week-wise", "month": "Month-wise", "employee": "Employee-wise"}.get(group_by, group_by)
+    label = {"day": "Day-wise", "week": "Week-wise", "month": "Month-wise", "employee": "Employee-wise", "branch": "Branch-wise"}.get(group_by, group_by)
     draw_header(c, width, height, f"{label} Collections — {tenant_name}", datetime.utcnow().strftime("%d %b %Y, %I:%M %p UTC"))
 
     y = height - 45 * mm
-    col_label = {"day": "DATE", "week": "WEEK", "month": "MONTH", "employee": "EMPLOYEE"}.get(group_by, "LABEL")
+    col_label = {"day": "DATE", "week": "WEEK", "month": "MONTH", "employee": "EMPLOYEE", "branch": "BRANCH"}.get(group_by, "LABEL")
     c.setFont("Helvetica-Bold", 9)
     c.setFillColor(GREY)
     c.drawString(18 * mm, y, col_label)
