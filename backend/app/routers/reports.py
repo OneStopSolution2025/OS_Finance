@@ -9,7 +9,7 @@ from app.core.security import require_any, require_superadmin
 from app.models.tenancy import User, UserRole, Tenant
 from app.models.finance import Loan, Payment, EMISchedule, LoanStatus, Customer, LoanProduct
 from app.utils.report_pdf import generate_branch_report_pdf, generate_breakdown_pdf
-from app.utils.report_breakdown import build_breakdown
+from app.utils.report_breakdown import build_breakdown, build_outstanding
 from app.utils.report_xlsx import generate_breakdown_xlsx
 from app.utils.leads_export import generate_leads_xlsx, generate_leads_pdf
 
@@ -165,13 +165,14 @@ def export_breakdown(
     tenant_name = tenant.name if tenant else "Udhayam MFI"
 
     rows = build_breakdown(db, user, group_by)
+    outstanding_rows = build_outstanding(db, user, group_by)
 
     if format == "xlsx":
-        file_path = generate_breakdown_xlsx(tenant_name, group_by, rows)
+        file_path = generate_breakdown_xlsx(tenant_name, group_by, rows, outstanding_rows)
         media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         ext = "xlsx"
     else:
-        file_path = generate_breakdown_pdf(tenant_name, group_by, rows)
+        file_path = generate_breakdown_pdf(tenant_name, group_by, rows, outstanding_rows)
         media_type = "application/pdf"
         ext = "pdf"
 

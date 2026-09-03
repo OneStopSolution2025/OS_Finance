@@ -48,24 +48,33 @@ def draw_header(c, width, height, subtitle: str, generated_at: str):
     c.drawRightString(width - 18 * mm, height - 24 * mm, generated_at)
 
 
-def generate_breakdown_pdf(tenant_name: str, group_by: str, rows: list[dict]) -> str:
+def generate_breakdown_pdf(tenant_name: str, group_by: str, rows: list[dict], outstanding_rows: list[dict] | None = None) -> str:
     """
     Detailed, transaction-level A4-landscape report — one row per actual
     payment (never a rolled-up total), sectioned/sorted by group_by, showing
-    exactly who paid, what type (individual or group), who collected it, and
-    when.
+    exactly who paid (the specific individual or group member), on-time or
+    late, who collected it, and when. Followed by a highlighted section
+    listing every overdue installment still unpaid — including, for group
+    loans, exactly which member hasn't paid.
     """
+    outstanding_rows = outstanding_rows or []
     filename = f"breakdown-{group_by}-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}.pdf"
     file_path = os.path.join(REPORTS_DIR, filename)
     c = canvas.Canvas(file_path, pagesize=landscape(A4))
     width, height = landscape(A4)
 
     label = {"day": "Day-wise", "week": "Week-wise", "month": "Month-wise", "employee": "Employee-wise", "branch": "Branch-wise"}.get(group_by, group_by)
-    draw_header(c, width, height, f"{label} Collections — {tenant_name} (detailed — {len(rows)} payments)", datetime.utcnow().strftime("%d %b %Y, %I:%M %p UTC"))
+    draw_header(c, width, height, f"{label} Collections — {tenant_name} ({len(rows)} paid, {len(outstanding_rows)} outstanding)", datetime.utcnow().strftime("%d %b %Y, %I:%M %p UTC"))
 
     group_col_label = {"day": "DATE", "week": "WEEK", "month": "MONTH", "employee": "EMPLOYEE", "branch": "BRANCH"}.get(group_by, "GROUP")
-    col_x = [14, 40, 65, 120, 142, 178, 205, 235, 262]
-    headers = [group_col_label, "PAY DATE", "CUSTOMER / GROUP", "TYPE", "EMPLOYEE", "BRANCH", "LOAN #", "RECEIPT #", "AMOUNT"]
+    col_x = [14, 38, 62, 112, 132, 165, 195, 220, 248, 272]
+    headers = [group_col_label, "PAY DATE", "PAID BY", "TYPE", "GROUP", "EMPLOYEE", "LOAN #", "RECEIPT #", "STATUS", "AMOUNT"]
+
+    def draw_section_title(y, text):
+        c.setFont("Helvetica-Bold", 12)
+        c.setFillColor(NAVY)
+        c.drawString(14 * mm, y, text)
+        return y - 7 * mm
 
     def draw_table_header(y):
         c.setFont("Helvetica-Bold", 8)
@@ -74,7 +83,8 @@ def generate_breakdown_pdf(tenant_name: str, group_by: str, rows: list[dict]) ->
             c.drawString(x * mm, y, h)
         return y - 6 * mm
 
-    y = height - 42 * mm
+    y = height - 40 * mm
+    y = draw_section_title(y, f"Collected ({len(rows)} payments)")
     y = draw_table_header(y)
 
     total_amount = 0
@@ -87,11 +97,15 @@ def generate_breakdown_pdf(tenant_name: str, group_by: str, rows: list[dict]) ->
             c.setFont("Helvetica", 8)
         c.setFillColor(INK)
         values = [
-            row["group_label"], row["date"], row["payer_name"][:22], row["payer_type"],
-            row["employee_name"][:18], row["branch_name"][:16], row["loan_number"], row["receipt_number"],
-            f"Rs. {row['amount']:,.2f}",
+            row["group_label"], row["date"], row["payer_name"][:20], row["payer_type"],
+            row["group_name"][:18], row["employee_name"][:16], row["loan_number"], row["receipt_number"],
+            row["status"], f"Rs. {row['amount']:,.2f}",
         ]
         for x, val in zip(col_x, values):
+            if val == row.get("status") and "Late" in str(val):
+                c.setFillColor(colors.HexColor("#C0392B"))
+            else:
+                c.setFillColor(INK)
             c.drawString(x * mm, y, str(val))
         total_amount += row["amount"]
         y -= 5.5 * mm
@@ -102,8 +116,55 @@ def generate_breakdown_pdf(tenant_name: str, group_by: str, rows: list[dict]) ->
     y -= 7 * mm
     c.setFont("Helvetica-Bold", 9)
     c.setFillColor(NAVY)
-    c.drawString(14 * mm, y, f"TOTAL — {len(rows)} payments")
-    c.drawString(262 * mm, y, f"Rs. {total_amount:,.2f}")
+    c.drawString(14 * mm, y, f"TOTAL COLLECTED — {len(rows)} payments")
+    c.drawString(272 * mm, y, f"Rs. {total_amount:,.2f}")
+    y -= 14 * mm
+
+    # ---- Outstanding / Not Paid — highlighted section ----
+    if y < 40 * mm:
+        c.showPage()
+        y = height - 20 * mm
+    c.setFillColor(colors.HexColor("#FBE4E1"))
+    c.rect(10 * mm, y - 2 * mm, width - 20 * mm, 10 * mm, fill=1, stroke=0)
+    c.setFillColor(colors.HexColor("#C0392B"))
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(14 * mm, y + 1 * mm, f"⚠ Outstanding / Not Paid ({len(outstanding_rows)} overdue installments)")
+    y -= 12 * mm
+
+    out_col_x = [14, 45, 78, 128, 150, 185, 215, 250]
+    out_headers = [group_col_label, "DUE DATE", "OWES", "TYPE", "GROUP", "EMPLOYEE", "DAYS LATE", "AMOUNT DUE"]
+    c.setFont("Helvetica-Bold", 8)
+    c.setFillColor(GREY)
+    for x, h in zip(out_col_x, out_headers):
+        c.drawString(x * mm, y, h)
+    y -= 6 * mm
+
+    total_outstanding = 0
+    c.setFont("Helvetica", 8)
+    for row in outstanding_rows:
+        if y < 18 * mm:
+            c.showPage()
+            y = height - 20 * mm
+        c.setFillColor(colors.HexColor("#FBE4E1"))
+        c.rect(10 * mm, y - 1.3 * mm, width - 20 * mm, 5.3 * mm, fill=1, stroke=0)
+        c.setFillColor(colors.HexColor("#C0392B"))
+        values = [
+            row["group_label"], row["due_date"], row["payer_name"][:20], row["payer_type"],
+            row["group_name"][:18], row["employee_name"][:16], f"{row['days_overdue']}d", f"Rs. {row['amount_due']:,.2f}",
+        ]
+        for x, val in zip(out_col_x, values):
+            c.drawString(x * mm, y, str(val))
+        total_outstanding += row["amount_due"]
+        y -= 5.5 * mm
+
+    y -= 3 * mm
+    c.setStrokeColor(colors.HexColor("#DDDDDD"))
+    c.line(14 * mm, y, width - 14 * mm, y)
+    y -= 7 * mm
+    c.setFont("Helvetica-Bold", 9)
+    c.setFillColor(colors.HexColor("#C0392B"))
+    c.drawString(14 * mm, y, f"TOTAL OUTSTANDING — {len(outstanding_rows)} unpaid")
+    c.drawString(250 * mm, y, f"Rs. {total_outstanding:,.2f}")
 
     c.setFillColor(GREY)
     c.setFont("Helvetica-Oblique", 7)
