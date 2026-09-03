@@ -994,7 +994,7 @@ async function renderLoans(){
     ${applyPanel}
     <div class="panel"><h3>All loans</h3>
       <table><thead><tr><th>Loan #</th><th>Customer</th><th>Principal</th><th>Status</th>${canManage?'<th style="width:1%;white-space:nowrap">Documents</th><th style="width:1%;white-space:nowrap">Action</th>':''}</tr></thead>
-      <tbody>${loans.map(l=>`<tr><td>${esc(l.loan_number)}</td><td>${esc(l.customer_name)}</td><td>₹${l.principal_amount.toLocaleString()}</td>
+      <tbody>${loans.map(l=>`<tr style="${l.has_defaulter ? 'background:#FBE4E1' : ''}"><td>${esc(l.loan_number)}</td><td>${esc(l.customer_name)}${l.has_defaulter ? ' <span style="color:#C0392B;font-weight:700;font-size:11px">⚠ Payment pending</span>' : ''}</td><td>₹${l.principal_amount.toLocaleString()}</td>
         <td><span class="badge ${l.status}">${l.status.replace('_',' ')}</span>${l.status==='rejected' && l.rejection_reason ? `<div style="font-size:11px;color:#888;margin-top:4px">${esc(l.rejection_reason)}</div>` : ''}</td>
         ${canManage ? `<td>${l.is_group_loan ? '<span style="color:#888;font-size:12px">Group — see Collections tab</span>' : `<button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="viewCustomerDocs('${l.customer_id}','${esc(l.customer_name)}')">Review KYC</button>`}</td>
         <td style="white-space:nowrap">${l.status==='pending_approval'?`<button class="btn" style="padding:6px 10px;font-size:12px" onclick="approveLoan('${l.id}')">Approve</button>

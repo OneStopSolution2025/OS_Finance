@@ -524,6 +524,29 @@ def list_loans(db: Session = Depends(get_db), user: User = Depends(require_any))
     customers = {c.id: c for c in db.query(Customer).filter(Customer.id.in_(customer_ids)).all()} if customer_ids else {}
     group_ids = {l.group_id for l in loans if l.group_id}
     groups = {g.id: g for g in db.query(LoanGroup).filter(LoanGroup.id.in_(group_ids)).all()} if group_ids else {}
+
+    # For every active group loan, work out whether ANY overdue installment
+    # currently has an unpaid member — this is what powers the "⚠ Payment
+    # pending" flag on the loans list, so a defaulting member is visible here
+    # without having to open Collections and pick through installments.
+    active_group_loan_ids = [l.id for l in loans if l.group_id and l.status == LoanStatus.active]
+    defaulter_loan_ids = set()
+    if active_group_loan_ids:
+        from datetime import date
+        overdue_emis = (
+            db.query(EMISchedule)
+            .filter(EMISchedule.loan_id.in_(active_group_loan_ids), EMISchedule.is_paid == False, EMISchedule.due_date < date.today())  # noqa: E712
+            .all()
+        )
+        overdue_emi_ids = [e.id for e in overdue_emis]
+        if overdue_emi_ids:
+            emi_to_loan = {e.id: e.loan_id for e in overdue_emis}
+            unpaid_contribution_emi_ids = {
+                c.emi_schedule_id for c in
+                db.query(GroupContribution).filter(GroupContribution.emi_schedule_id.in_(overdue_emi_ids), GroupContribution.is_paid == False).all()  # noqa: E712
+            }
+            defaulter_loan_ids = {emi_to_loan[eid] for eid in unpaid_contribution_emi_ids}
+
     result = []
     for l in loans:
         if l.group_id:
@@ -536,6 +559,7 @@ def list_loans(db: Session = Depends(get_db), user: User = Depends(require_any))
             "id": l.id, "loan_number": l.loan_number, "principal_amount": float(l.principal_amount),
             "status": l.status.value, "customer_id": l.customer_id, "group_id": l.group_id,
             "customer_name": display_name, "is_group_loan": l.group_id is not None,
+            "has_defaulter": l.id in defaulter_loan_ids,
             "applied_at": l.applied_at.isoformat(),
             "rejection_reason": l.rejection_reason,
         })
