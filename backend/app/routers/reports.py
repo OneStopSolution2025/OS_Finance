@@ -121,6 +121,8 @@ def branch_summary(db: Session = Depends(get_db), user: User = Depends(require_a
     total_collected = payment_q.with_entities(func.coalesce(func.sum(Payment.amount), 0)).scalar()
     active_loans = loan_q.filter(Loan.status == LoanStatus.active).count()
     closed_loans = loan_q.filter(Loan.status == LoanStatus.closed).count()
+    individual_loans = loan_q.filter(Loan.customer_id.isnot(None)).count()
+    group_loans = loan_q.filter(Loan.group_id.isnot(None)).count()
 
     overdue_q = db.query(EMISchedule).join(Loan).filter(
         Loan.tenant_id == user.tenant_id,
@@ -137,6 +139,8 @@ def branch_summary(db: Session = Depends(get_db), user: User = Depends(require_a
         "total_collected": float(total_collected),
         "active_loans": active_loans,
         "closed_loans": closed_loans,
+        "individual_loans": individual_loans,
+        "group_loans": group_loans,
         "overdue_installments": overdue_count,
         "overdue_amount": float(overdue_amount),
         "collection_efficiency_pct": round(
@@ -324,6 +328,8 @@ def my_activity(db: Session = Depends(get_db), user: User = Depends(require_any)
     pending_loans = my_loans.filter(Loan.status == LoanStatus.pending_approval).count()
     closed_loans = my_loans.filter(Loan.status == LoanStatus.closed).count()
     rejected_loans = my_loans.filter(Loan.status == LoanStatus.rejected).count()
+    individual_loans = my_loans.filter(Loan.customer_id.isnot(None)).count()
+    group_loans = my_loans.filter(Loan.group_id.isnot(None)).count()
 
     my_payments = db.query(Payment).filter(Payment.collected_by == user.id)
     total_collected = my_payments.with_entities(func.coalesce(func.sum(Payment.amount), 0)).scalar()
@@ -334,6 +340,8 @@ def my_activity(db: Session = Depends(get_db), user: User = Depends(require_any)
         "pending_loans": pending_loans,
         "closed_loans": closed_loans,
         "rejected_loans": rejected_loans,
+        "individual_loans": individual_loans,
+        "group_loans": group_loans,
         "total_collected": float(total_collected),
         "payment_count": payment_count,
     }

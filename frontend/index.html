@@ -429,7 +429,7 @@ function renderUpcomingReminders(rows, showEmployeeBranch){
   return `
     <div class="panel"><h3>Upcoming repayments (next 7 days)</h3>
       <div class="activity-list-scroll">
-        <table><thead><tr><th>Due</th><th>Customer</th>${showEmployeeBranch?'<th>Branch</th><th>Employee</th>':''}<th>Loan #</th><th>Amount</th></tr></thead>
+        <table><thead><tr><th style="width:1%;white-space:nowrap">Due</th><th>Customer</th>${showEmployeeBranch?'<th>Branch</th><th>Employee</th>':''}<th style="width:1%;white-space:nowrap">Loan #</th><th style="width:1%;white-space:nowrap">Amount</th></tr></thead>
         <tbody>${rows.map(r=>`<tr>
           <td style="white-space:nowrap"><span style="color:${urgencyColor(r.days_until_due)};font-weight:600">${r.days_until_due===0?'Today':r.days_until_due===1?'Tomorrow':`In ${r.days_until_due}d`}</span><div style="font-size:11px;color:#888">${r.due_date}</div></td>
           <td>${esc(r.payer_name)}${r.group_name!=='—'?`<div style="font-size:11px;color:#888">${esc(r.group_name)}</div>`:''}</td>
@@ -459,6 +459,7 @@ async function renderDashboard(){
           <div class="stat-card clickable" onclick="navigate('collections')"><div class="label">Collected by You</div><div class="value">₹${mine.total_collected.toLocaleString()}</div><div style="font-size:11.5px;color:#888;margin-top:4px">${mine.payment_count} payments</div></div>
           <div class="stat-card"><div class="label">Closed Loans</div><div class="value">${mine.closed_loans}</div></div>
           <div class="stat-card"><div class="label">Rejected</div><div class="value" style="color:${mine.rejected_loans>0?'#C0392B':'var(--charcoal)'}">${mine.rejected_loans}</div></div>
+          <div class="stat-card clickable" onclick="navigate('loans')"><div class="label">Individual / Group Loans</div><div class="value" style="font-size:22px">${mine.individual_loans} <span style="color:#888;font-size:16px">indiv.</span> · ${mine.group_loans} <span style="color:#888;font-size:16px">group</span></div></div>
         </div>
         <div class="trend-card">
           <h3 style="font-size:15px">Your collections — last 7 days</h3>
@@ -492,6 +493,7 @@ async function renderDashboard(){
           <div class="stat-card clickable" onclick="navigate('collections')"><div class="label">Total Collected</div><div class="value">₹${r.total_collected.toLocaleString()}</div><div style="font-size:11.5px;color:#888;margin-top:4px">${r.collection_efficiency_pct}% efficiency</div></div>
           <div class="stat-card clickable" onclick="navigate('loans')"><div class="label">Active Loans</div><div class="value">${r.active_loans}</div><div style="font-size:11.5px;color:#888;margin-top:4px">${r.closed_loans} closed</div></div>
           <div class="stat-card clickable" onclick="navigate('reports')"><div class="label">Overdue Installments</div><div class="value" style="color:${r.overdue_installments>0?'#C0392B':'var(--trust)'}">${r.overdue_installments}</div><div style="font-size:11.5px;color:#888;margin-top:4px">₹${r.overdue_amount.toLocaleString()} outstanding</div></div>
+          <div class="stat-card clickable" onclick="navigate('loans')"><div class="label">Individual / Group Loans</div><div class="value" style="font-size:22px">${r.individual_loans} <span style="color:#888;font-size:16px">indiv.</span> · ${r.group_loans} <span style="color:#888;font-size:16px">group</span></div></div>
         </div>
         <div class="trend-card">
           <h3 style="font-size:15px">Collections — last 7 days</h3>
