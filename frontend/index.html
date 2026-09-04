@@ -130,7 +130,7 @@
     label.pw-label{display:flex;justify-content:space-between;align-items:center}
     .pw-wrap{position:relative}
     .pw-wrap input{padding-right:40px}
-    .pw-toggle{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:16px;padding:2px;color:#888}
+    .pw-toggle{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;padding:2px;color:#888;display:flex;align-items:center}
     .link-btn{background:none;border:none;color:var(--trust);font-size:12.5px;cursor:pointer;padding:0;text-decoration:underline}
     .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:50;align-items:center;justify-content:center;padding:20px}
     .modal-overlay.show{display:flex}
@@ -175,7 +175,7 @@
     <label class="pw-label">Password</label>
     <div class="pw-wrap">
       <input id="login-password" type="password" placeholder="••••••••" autocomplete="current-password">
-      <button type="button" class="pw-toggle" onclick="togglePw('login-password', this)">👁</button>
+      <button type="button" class="pw-toggle" onclick="togglePw('login-password', this)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z"/><circle cx="12" cy="12" r="3"/></svg></button>
     </div>
     <button class="btn btn-block" onclick="doLogin()">Sign in</button>
     <div class="err" id="login-err"></div>
@@ -243,11 +243,13 @@ function onPhotoIdTypeChange(){
   }
 }
 
+const EYE_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z"/><circle cx="12" cy="12" r="3"/></svg>';
+const EYE_OFF_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.53 13.53 0 0 0 1 12s4 8 11 8a9.26 9.26 0 0 0 5.39-1.61"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
 function togglePw(id, btn){
   const input = document.getElementById(id);
   const showing = input.type === 'text';
   input.type = showing ? 'password' : 'text';
-  btn.textContent = showing ? '👁' : '🙈';
+  btn.innerHTML = showing ? EYE_ICON : EYE_OFF_ICON;
 }
 
 // ---------- API helper ----------
@@ -594,7 +596,7 @@ async function renderEmployees(){
         <div class="field"><label>ID number</label><input id="e-photo-id-number" autocomplete="off"></div>
       </div>
       <div class="form-grid" style="margin-top:14px">
-        <div class="field"><label class="pw-label">Set a password</label><div class="pw-wrap"><input id="e-pass" type="password" placeholder="At least 8 characters" autocomplete="new-password"><button type="button" class="pw-toggle" onclick="togglePw('e-pass', this)">👁</button></div></div>
+        <div class="field"><label class="pw-label">Set a password</label><div class="pw-wrap"><input id="e-pass" type="password" placeholder="At least 8 characters" autocomplete="new-password"><button type="button" class="pw-toggle" onclick="togglePw('e-pass', this)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>
       </div>
       <div class="row-actions"><button class="btn amber" onclick="createEmployee()">Create employee</button></div>
       <div class="err" id="e-err"></div>
@@ -1451,8 +1453,19 @@ async function loadGroupsList(){
   try{
     const groups = await api('/groups');
     document.getElementById('groups-list').innerHTML = `
-      <table><thead><tr><th>Group Name</th><th>Members</th></tr></thead>
-      <tbody>${groups.map(g=>`<tr><td>${esc(g.name)}</td><td>${g.member_count} — ${esc(g.member_names.join(', '))}</td></tr>`).join('') || '<tr><td colspan="2" class="empty">No groups yet</td></tr>'}</tbody></table>
+      <table><thead><tr><th>Group Name</th><th>Branch</th><th>Created By</th><th>Members</th><th>Loan #</th><th>Amount Disbursed</th><th>Loan Status</th></tr></thead>
+      <tbody>${groups.map(g=>`<tr>
+        <td><strong>${g.name ? esc(g.name) : '<span style="color:#C0392B">(no name)</span>'}</strong></td>
+        <td>${esc(g.branch_name)}</td>
+        <td>${esc(g.created_by_name)}</td>
+        <td>
+          <div>${g.member_count} member${g.member_count===1?'':'s'}</div>
+          <div style="font-size:11.5px;color:#888;margin-top:2px">${esc(g.member_names.join(', '))}</div>
+        </td>
+        <td>${g.loan_number ? esc(g.loan_number) : '<span style="color:#888">No loan yet</span>'}</td>
+        <td>${g.disbursed_amount ? `₹${g.disbursed_amount.toLocaleString()}` : (g.principal_amount ? `₹${g.principal_amount.toLocaleString()} (pending)` : '—')}</td>
+        <td>${g.loan_status ? `<span class="badge ${g.loan_status}">${g.loan_status.replace('_',' ')}</span>` : '—'}</td>
+      </tr>`).join('') || '<tr><td colspan="7" class="empty">No groups yet</td></tr>'}</tbody></table>
     `;
   }catch(e){}
 }

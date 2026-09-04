@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from app.core.database import get_db
 from app.core.security import require_any, require_superadmin
-from app.models.tenancy import User, UserRole, Tenant
+from app.models.tenancy import User, UserRole, Tenant, Branch
 from app.models.finance import Customer, LoanProduct, Loan, EMISchedule, LoanStatus, InterestType, LoanGroup, LoanGroupMember, GroupContribution, Payment, PaymentMethod
 from app.utils.whatsapp import send_loan_status_notification
 from app.utils.payouts import send_payout, is_configured as payout_configured
@@ -103,6 +103,16 @@ def create_group(payload: GroupCreate, db: Session = Depends(get_db), user: User
 @router.get("/groups")
 def list_groups(db: Session = Depends(get_db), user: User = Depends(require_any)):
     groups = scope_branch(db.query(LoanGroup), LoanGroup, user).all()
+    branch_ids = {g.branch_id for g in groups}
+    branches = {b.id: b for b in db.query(Branch).filter(Branch.id.in_(branch_ids)).all()} if branch_ids else {}
+    creator_ids = {g.created_by for g in groups if g.created_by}
+    creators = {u.id: u for u in db.query(User).filter(User.id.in_(creator_ids)).all()} if creator_ids else {}
+    group_ids = [g.id for g in groups]
+    loans_by_group = {}
+    if group_ids:
+        for l in db.query(Loan).filter(Loan.group_id.in_(group_ids)).order_by(Loan.applied_at.desc()).all():
+            loans_by_group.setdefault(l.group_id, l)  # most recent loan per group, since applied_at desc
+
     result = []
     for g in groups:
         members = db.query(LoanGroupMember).filter(LoanGroupMember.group_id == g.id).all()
@@ -110,7 +120,22 @@ def list_groups(db: Session = Depends(get_db), user: User = Depends(require_any)
         for m in members:
             c = db.query(Customer).filter(Customer.id == m.customer_id).first()
             member_names.append(c.full_name if c else "—")
-        result.append({"id": g.id, "name": g.name, "branch_id": g.branch_id, "member_count": len(members), "member_names": member_names})
+
+        branch = branches.get(g.branch_id)
+        creator = creators.get(g.created_by)
+        loan = loans_by_group.get(g.id)
+
+        result.append({
+            "id": g.id, "name": g.name, "branch_id": g.branch_id,
+            "branch_name": branch.name if branch else "Unknown",
+            "created_by_name": creator.full_name if creator else "Unknown",
+            "created_at": g.created_at.isoformat() if g.created_at else None,
+            "member_count": len(members), "member_names": member_names,
+            "loan_number": loan.loan_number if loan else None,
+            "loan_status": loan.status.value if loan else None,
+            "principal_amount": float(loan.principal_amount) if loan else None,
+            "disbursed_amount": float(loan.disbursed_amount) if loan and loan.disbursed_amount else None,
+        })
     return result
 
 
