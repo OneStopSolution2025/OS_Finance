@@ -79,6 +79,8 @@ class GroupCreate(BaseModel):
 
 @router.post("/groups")
 def create_group(payload: GroupCreate, db: Session = Depends(get_db), user: User = Depends(require_any)):
+    if not payload.name or not payload.name.strip():
+        raise HTTPException(status_code=400, detail="Group name is required.")
     if len(payload.customer_ids) < 2:
         raise HTTPException(status_code=400, detail="A group needs at least 2 members.")
     if len(set(payload.customer_ids)) != len(payload.customer_ids):
@@ -88,7 +90,7 @@ def create_group(payload: GroupCreate, db: Session = Depends(get_db), user: User
     if len(customers) != len(payload.customer_ids):
         raise HTTPException(status_code=404, detail="One or more selected customers were not found.")
 
-    group = LoanGroup(tenant_id=user.tenant_id, branch_id=payload.branch_id, name=payload.name, created_by=user.id)
+    group = LoanGroup(tenant_id=user.tenant_id, branch_id=payload.branch_id, name=payload.name.strip(), created_by=user.id)
     db.add(group)
     db.flush()
     for cid in payload.customer_ids:

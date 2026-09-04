@@ -1038,10 +1038,10 @@ async function renderLoans(){
       </div>
     </div>
     <div class="modal-overlay" id="docs-modal">
-      <div class="modal-card" style="max-width:480px;max-height:85vh;overflow-y:auto">
-        <h3 id="docs-modal-title">Documents</h3>
+      <div class="modal-card" style="max-width:480px;max-height:85vh;overflow-y:auto;position:relative">
+        <button onclick="document.getElementById('docs-modal').classList.remove('show')" style="position:absolute;top:14px;right:14px;background:none;border:none;font-size:20px;line-height:1;cursor:pointer;color:#888;padding:4px" aria-label="Close">&times;</button>
+        <h3 id="docs-modal-title" style="padding-right:28px">Documents</h3>
         <div id="docs-modal-body"></div>
-        <div class="row-actions"><button class="btn ghost" onclick="document.getElementById('docs-modal').classList.remove('show')">Close</button></div>
       </div>
     </div>
   `;
@@ -1394,7 +1394,16 @@ async function renderCustomers(){
         <div class="field"><label>IFSC code</label><input id="c-bank-ifsc" style="text-transform:uppercase" autocomplete="off"></div>
         <div class="field"><label>Bank name</label><input id="c-bank-name" autocomplete="off"></div>
       </div>
-      <div class="row-actions"><button class="btn amber" onclick="createCustomer()">Add customer</button></div>
+      <h3 style="font-size:14px;margin:18px 0 10px">KYC documents (optional — can also be added later)</h3>
+      <div class="form-grid">
+        ${KYC_DOC_TYPES.map(t => `
+          <div class="field">
+            <label>${t.label}</label>
+            <input type="file" id="c-file-${t.key}" accept="image/*,.pdf">
+          </div>
+        `).join('')}
+      </div>
+      <div class="row-actions"><button class="btn amber" id="c-submit-btn" onclick="createCustomer()">Add customer</button></div>
       <div class="err" id="c-err"></div>
       <div id="c-kyc-upload"></div>
     </div>
@@ -1417,10 +1426,10 @@ async function renderCustomers(){
       <div id="groups-list" style="margin-top:16px"></div>
     </div>
     <div class="modal-overlay" id="docs-modal">
-      <div class="modal-card" style="max-width:480px;max-height:85vh;overflow-y:auto">
-        <h3 id="docs-modal-title">Documents</h3>
+      <div class="modal-card" style="max-width:480px;max-height:85vh;overflow-y:auto;position:relative">
+        <button onclick="document.getElementById('docs-modal').classList.remove('show')" style="position:absolute;top:14px;right:14px;background:none;border:none;font-size:20px;line-height:1;cursor:pointer;color:#888;padding:4px" aria-label="Close">&times;</button>
+        <h3 id="docs-modal-title" style="padding-right:28px">Documents</h3>
         <div id="docs-modal-body"></div>
-        <div class="row-actions"><button class="btn ghost" onclick="document.getElementById('docs-modal').classList.remove('show')">Close</button></div>
       </div>
     </div>
   `;
@@ -1428,7 +1437,8 @@ async function renderCustomers(){
 }
 async function createGroup(){
   const errEl = document.getElementById('g-err'); errEl.textContent = '';
-  const name = document.getElementById('g-name').value;
+  const name = document.getElementById('g-name').value.trim();
+  if(!name){ errEl.textContent = 'Group name is required.'; return; }
   const selected = Array.from(document.getElementById('g-members').selectedOptions).map(o=>o.value);
   if(selected.length < 2){ errEl.textContent = 'Select at least 2 members.'; return; }
   try{
@@ -1448,12 +1458,17 @@ async function loadGroupsList(){
 }
 async function createCustomer(){
   const errEl = document.getElementById('c-err'); errEl.textContent = '';
+  const submitBtn = document.getElementById('c-submit-btn');
+  if(submitBtn.disabled) return; // hard guard — a second click while the first is still running can never fire
   const phone = document.getElementById('c-phone').value.trim();
   if(!isValidPhone(phone)){ errEl.textContent = 'Phone number must be exactly 10 digits.'; return; }
   const aadhaar = document.getElementById('c-aadhaar').value.trim();
   if(aadhaar && !isValidAadhaar(aadhaar)){ errEl.textContent = 'Aadhaar number must be exactly 12 digits.'; return; }
   const pan = document.getElementById('c-pan').value.trim();
   if(pan && !isValidPan(pan)){ errEl.textContent = 'PAN must be in the format AAAAA9999A (5 letters, 4 digits, 1 letter).'; return; }
+
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Adding…';
   try{
     const customer = await api('/customers', { method:'POST', json:{
       branch_id: state.branch_id, full_name: document.getElementById('c-name').value,
@@ -1465,43 +1480,49 @@ async function createCustomer(){
       bank_ifsc: document.getElementById('c-bank-ifsc').value || null,
       bank_name: document.getElementById('c-bank-name').value || null,
     }});
+
+    // Customer is created — from this point on we NEVER re-enable the button
+    // for this form instance, even if a document upload below fails. Retrying
+    // a failed upload happens from the Customers list (View / Upload), not by
+    // resubmitting this form, since that's exactly what caused duplicate
+    // customers before.
+    submitBtn.textContent = 'Uploading documents…';
+    const uploadResults = [];
+    for(const t of KYC_DOC_TYPES){
+      const fileInput = document.getElementById(`c-file-${t.key}`);
+      if(fileInput && fileInput.files.length){
+        const formData = new FormData();
+        formData.append('doc_type', t.key);
+        formData.append('customer_id', customer.id);
+        formData.append('file', fileInput.files[0]);
+        try{
+          const res = await fetch(API + '/documents/upload', { method:'POST', headers:{'Authorization':`Bearer ${state.token}`}, body: formData });
+          const data = await res.json();
+          uploadResults.push({ label: t.label, ok: res.ok, message: res.ok ? 'Uploaded' : (data.detail || 'Failed') });
+        }catch(e){
+          uploadResults.push({ label: t.label, ok: false, message: 'Upload failed' });
+        }
+      }
+    }
+
+    submitBtn.textContent = '✓ Customer added';
+    const uploadSummary = uploadResults.length
+      ? `<ul style="margin:8px 0 0;padding-left:18px;font-size:12.5px">${uploadResults.map(r=>`<li style="color:${r.ok?'#5A6B00':'#C0392B'}">${esc(r.label)}: ${esc(r.message)}</li>`).join('')}</ul>`
+      : '';
     document.getElementById('c-kyc-upload').innerHTML = `
       <div class="success-box" style="background:#F6F5F2;border-color:var(--border);color:var(--ink)">
-        <strong>${esc(customer.full_name)} added.</strong> Upload their KYC documents now (optional, can also be done later from the Customers list):
-        <div class="form-grid" style="margin-top:10px">
-          ${KYC_DOC_TYPES.map(t => `
-            <div class="field">
-              <label>${t.label}</label>
-              <input type="file" id="kyc-${t.key}-${customer.id}" accept="image/*,.pdf">
-              <button class="btn ghost" style="padding:6px 10px;font-size:12px;margin-top:6px" onclick="uploadKycDoc('${customer.id}','${t.key}')">Upload</button>
-              <span id="kyc-${t.key}-${customer.id}-status" style="font-size:11px;margin-left:6px"></span>
-            </div>
-          `).join('')}
-        </div>
+        <strong>${esc(customer.full_name)} added</strong> (${esc(customer.customer_code)}).${uploadSummary}
+        <div style="margin-top:10px"><button class="btn ghost" style="padding:8px 14px;font-size:13px" onclick="renderCustomers()">Add another customer</button></div>
       </div>
     `;
     const fresh = await api('/customers');
     document.getElementById('customers-tbody').innerHTML = fresh.map(c=>`<tr><td>${esc(c.customer_code)}</td><td>${esc(c.full_name)}</td><td>${esc(c.phone)}</td><td>${c.kyc_verified?'✅':'Pending'}</td><td>${c.bank_account_number?'✅':'—'}</td>
         <td><button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="viewCustomerDocs('${c.id}','${esc(c.full_name)}')">View / Upload</button></td></tr>`).join('') || '<tr><td colspan="6" class="empty">No customers yet</td></tr>';
-  }catch(e){ errEl.textContent = e.message; }
-}
-async function uploadKycDoc(customerId, docType){
-  const fileInput = document.getElementById(`kyc-${docType}-${customerId}`);
-  const statusEl = document.getElementById(`kyc-${docType}-${customerId}-status`);
-  if(!fileInput.files.length){ statusEl.textContent = 'Choose a file first'; statusEl.style.color = '#C0392B'; return; }
-  statusEl.textContent = 'Uploading…'; statusEl.style.color = '#888';
-  const formData = new FormData();
-  formData.append('doc_type', docType);
-  formData.append('customer_id', customerId);
-  formData.append('file', fileInput.files[0]);
-  try{
-    const res = await fetch(API + '/documents/upload', {
-      method: 'POST', headers: { 'Authorization': `Bearer ${state.token}` }, body: formData,
-    });
-    const data = await res.json();
-    if(!res.ok) throw new Error(data.detail || 'Upload failed');
-    statusEl.textContent = '✓ Uploaded'; statusEl.style.color = '#5A6B00';
-  }catch(e){ statusEl.textContent = e.message; statusEl.style.color = '#C0392B'; }
+  }catch(e){
+    errEl.textContent = e.message;
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Add customer';
+  }
 }
 async function viewCustomerDocs(customerId, customerName){
   document.getElementById('docs-modal-title').textContent = `Documents — ${customerName}`;
