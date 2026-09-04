@@ -12,11 +12,21 @@ from app.models import tenancy, finance, audit  # noqa
 init_sentry()
 init_betterstack()
 
+from app.core.config import settings
+
 app = FastAPI(title="Udhayam MFI API", version="1.0.0")
+
+# Locked to the actual frontend origin(s) — a wildcard here would let any
+# website on the internet make authenticated requests using a stolen/leaked
+# token from a logged-in user's browser. FRONTEND_URL is set in Railway;
+# localhost stays allowed for local development regardless.
+allowed_origins = [o.strip() for o in settings.FRONTEND_URL.split(",") if o.strip()] + [
+    "http://localhost:3000", "http://localhost:8080",
+]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten to your frontend domain in production
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

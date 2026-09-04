@@ -350,6 +350,12 @@ def build_emi_schedule(loan: Loan, product: LoanProduct, db: Session):
 
 @router.post("/loans/apply")
 def apply_loan(payload: LoanApply, db: Session = Depends(get_db), user: User = Depends(require_any)):
+    # An employee can only ever apply against their own branch — without this,
+    # any authenticated employee could pass any branch_id/customer_id in the
+    # same tenant and create loans against a branch they have no business in.
+    if user.role == UserRole.employee and payload.branch_id != user.branch_id:
+        raise HTTPException(status_code=403, detail="You can only apply for loans in your own branch.")
+
     product = db.query(LoanProduct).filter(LoanProduct.id == payload.loan_product_id, LoanProduct.tenant_id == user.tenant_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Loan product not found")
@@ -362,6 +368,8 @@ def apply_loan(payload: LoanApply, db: Session = Depends(get_db), user: User = D
         group = db.query(LoanGroup).filter(LoanGroup.id == payload.group_id, LoanGroup.tenant_id == user.tenant_id).first()
         if not group:
             raise HTTPException(status_code=404, detail="Group not found")
+        if group.branch_id != payload.branch_id:
+            raise HTTPException(status_code=400, detail="That group belongs to a different branch than the one selected.")
         member_count = db.query(LoanGroupMember).filter(LoanGroupMember.group_id == group.id).count()
         if product.group_member_count and member_count != product.group_member_count:
             raise HTTPException(
@@ -373,6 +381,11 @@ def apply_loan(payload: LoanApply, db: Session = Depends(get_db), user: User = D
     else:
         if not payload.customer_id:
             raise HTTPException(status_code=400, detail="Select a customer for this individual loan.")
+        customer = db.query(Customer).filter(Customer.id == payload.customer_id, Customer.tenant_id == user.tenant_id).first()
+        if not customer:
+            raise HTTPException(status_code=404, detail="Customer not found")
+        if customer.branch_id != payload.branch_id:
+            raise HTTPException(status_code=400, detail="That customer belongs to a different branch than the one selected.")
         customer_id = payload.customer_id
         group_id = None
 
@@ -551,6 +564,10 @@ def list_loans(db: Session = Depends(get_db), user: User = Depends(require_any))
     customers = {c.id: c for c in db.query(Customer).filter(Customer.id.in_(customer_ids)).all()} if customer_ids else {}
     group_ids = {l.group_id for l in loans if l.group_id}
     groups = {g.id: g for g in db.query(LoanGroup).filter(LoanGroup.id.in_(group_ids)).all()} if group_ids else {}
+    branch_ids = {l.branch_id for l in loans if l.branch_id}
+    branches = {b.id: b for b in db.query(Branch).filter(Branch.id.in_(branch_ids)).all()} if branch_ids else {}
+    employee_ids = {l.applied_by for l in loans if l.applied_by}
+    employees = {u.id: u for u in db.query(User).filter(User.id.in_(employee_ids)).all()} if employee_ids else {}
 
     # For every active group loan, work out whether ANY overdue installment
     # currently has an unpaid member — this is what powers the "⚠ Payment
@@ -582,6 +599,8 @@ def list_loans(db: Session = Depends(get_db), user: User = Depends(require_any))
         else:
             c = customers.get(l.customer_id)
             display_name = c.full_name if c else "—"
+        branch = branches.get(l.branch_id)
+        employee = employees.get(l.applied_by)
         result.append({
             "id": l.id, "loan_number": l.loan_number, "principal_amount": float(l.principal_amount),
             "status": l.status.value, "customer_id": l.customer_id, "group_id": l.group_id,
@@ -589,6 +608,11 @@ def list_loans(db: Session = Depends(get_db), user: User = Depends(require_any))
             "has_defaulter": l.id in defaulter_loan_ids,
             "applied_at": l.applied_at.isoformat(),
             "rejection_reason": l.rejection_reason,
+            "branch_name": branch.name if branch else "Unknown",
+            "employee_name": employee.full_name if employee else "Unknown",
+            "disbursed_amount": float(l.disbursed_amount) if l.disbursed_amount else None,
+            "disbursal_method": l.disbursal_method,
+            "disbursed_at": l.disbursed_at.isoformat() if l.disbursed_at else None,
         })
     return result
 

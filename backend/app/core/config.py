@@ -3,6 +3,9 @@ from datetime import timedelta
 
 class Settings:
     APP_NAME = "Udhayam MFI"
+    # Comma-separated list if you ever have more than one frontend origin
+    # (e.g. a staging URL alongside production).
+    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "https://motivated-beauty-production-74c0.up.railway.app")
     APP_DATABASE_URL: str = os.getenv("APP_DATABASE_URL", "postgresql+psycopg://os_user:os_pass@localhost:5432/os_finances")
     JWT_SECRET: str = os.getenv("JWT_SECRET", "change-me-in-railway-env")
     JWT_ALGORITHM: str = "HS256"

@@ -995,14 +995,22 @@ async function renderLoans(){
   content().innerHTML = `
     ${applyPanel}
     <div class="panel"><h3>All loans</h3>
-      <table><thead><tr><th>Loan #</th><th>Customer</th><th>Principal</th><th>Status</th>${canManage?'<th style="width:1%;white-space:nowrap">Documents</th><th style="width:1%;white-space:nowrap">Action</th>':''}</tr></thead>
-      <tbody>${loans.map(l=>`<tr style="${l.has_defaulter ? 'background:#FBE4E1' : ''}"><td>${esc(l.loan_number)}</td><td>${esc(l.customer_name)}${l.has_defaulter ? ' <span style="color:#C0392B;font-weight:700;font-size:11px">⚠ Payment pending</span>' : ''}</td><td>₹${l.principal_amount.toLocaleString()}</td>
+      <table><thead><tr><th>Loan #</th><th>Customer / Group</th><th>Type</th><th>Branch</th><th>Employee</th><th>Principal</th><th>Disbursed</th><th>Applied</th><th>Status</th>${canManage?'<th style="width:1%;white-space:nowrap">Documents</th><th style="width:1%;white-space:nowrap">Action</th>':''}</tr></thead>
+      <tbody>${loans.map(l=>`<tr style="${l.has_defaulter ? 'background:#FBE4E1' : ''}">
+        <td>${esc(l.loan_number)}</td>
+        <td>${esc(l.customer_name)}${l.has_defaulter ? '<br><span style="color:#C0392B;font-weight:700;font-size:11px">⚠ Payment pending</span>' : ''}</td>
+        <td>${l.is_group_loan ? 'Group' : 'Individual'}</td>
+        <td>${esc(l.branch_name)}</td>
+        <td>${esc(l.employee_name)}</td>
+        <td>₹${l.principal_amount.toLocaleString()}</td>
+        <td>${l.disbursed_amount ? `₹${l.disbursed_amount.toLocaleString()}${l.disbursal_method ? `<div style="font-size:11px;color:#888">${esc(l.disbursal_method.replace('_',' '))}</div>` : ''}` : '—'}</td>
+        <td style="white-space:nowrap;font-size:12.5px">${new Date(l.applied_at).toLocaleDateString()}</td>
         <td><span class="badge ${l.status}">${l.status.replace('_',' ')}</span>${l.status==='rejected' && l.rejection_reason ? `<div style="font-size:11px;color:#888;margin-top:4px">${esc(l.rejection_reason)}</div>` : ''}</td>
         ${canManage ? `<td>${l.is_group_loan ? '<span style="color:#888;font-size:12px">Group — see Collections tab</span>' : `<button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="viewCustomerDocs('${l.customer_id}','${esc(l.customer_name)}')">Review KYC</button>`}</td>
         <td style="white-space:nowrap">${l.status==='pending_approval'?`<button class="btn" style="padding:6px 10px;font-size:12px" onclick="approveLoan('${l.id}')">Approve</button>
           <button class="btn ghost" style="padding:6px 10px;font-size:12px;color:#C0392B" onclick="rejectLoan('${l.id}')">Reject</button>`
           : l.status==='approved'?`<button class="btn amber" style="padding:6px 10px;font-size:12px" onclick="openDisburseModal('${l.id}','${l.customer_id}')">Disburse</button>`:'—'}</td>`:''}
-        </tr>`).join('') || `<tr><td colspan="${canManage?6:4}" class="empty">No loans yet</td></tr>`}
+        </tr>`).join('') || `<tr><td colspan="${canManage?11:9}" class="empty">No loans yet</td></tr>`}
       </tbody></table>
     </div>
     <div class="modal-overlay" id="disburse-loan-modal">
