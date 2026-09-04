@@ -304,14 +304,21 @@ def resolve_calculation_basis(product: LoanProduct) -> InterestType:
     return InterestType.flat  # default basis if somehow unset
 
 
-def build_emi_schedule(loan: Loan, product: LoanProduct, db: Session):
-    """Generates a flat or reducing-balance EMI schedule."""
+def build_emi_schedule(loan: Loan, product: LoanProduct, db: Session, first_due_date: date | None = None):
+    """
+    Generates a flat or reducing-balance EMI schedule. By default the first
+    installment falls one repayment cycle after today (unchanged, existing
+    behavior). If first_due_date is given, that becomes the first installment's
+    due date instead, with every later installment still spaced the product's
+    normal cycle length apart — same formula, just anchored to a chosen date.
+    """
     principal = Decimal(str(loan.principal_amount))
     annual_rate = Decimal(str(loan.interest_rate_annual)) / Decimal(100)
     months = loan.tenure_months
     freq_days = {"weekly": 7, "biweekly": 14, "monthly": 30}.get(product.repayment_frequency, 30)
     installments = months if product.repayment_frequency == "monthly" else int(months * 30 / freq_days)
     basis = resolve_calculation_basis(product)
+    start = (first_due_date - timedelta(days=freq_days)) if first_due_date else date.today()
 
     if basis == InterestType.flat:
         total_interest = principal * annual_rate * Decimal(months) / Decimal(12)
@@ -320,7 +327,7 @@ def build_emi_schedule(loan: Loan, product: LoanProduct, db: Session):
         principal_per = (principal / installments).quantize(Decimal("0.01"))
         interest_per = (total_interest / installments).quantize(Decimal("0.01"))
 
-        due = date.today()
+        due = start
         for i in range(1, installments + 1):
             due = due + timedelta(days=freq_days)
             db.add(EMISchedule(
@@ -334,7 +341,7 @@ def build_emi_schedule(loan: Loan, product: LoanProduct, db: Session):
         outstanding = principal
         principal_per = (principal / installments).quantize(Decimal("0.01"))
         total_payable = Decimal("0")
-        due = date.today()
+        due = start
         for i in range(1, installments + 1):
             due = due + timedelta(days=freq_days)
             interest_due = (outstanding * monthly_rate).quantize(Decimal("0.01"))
@@ -460,6 +467,7 @@ def reject_loan(loan_id: str, payload: LoanRejectRequest, db: Session = Depends(
 class LoanDisburse(BaseModel):
     disbursal_method: str = "cash"  # 'cash' | 'bank_transfer'
     disbursal_reference: str | None = None  # required if bank_transfer, e.g. UTR number
+    first_due_date: date | None = None  # optional — defaults to one cycle after today if not given
 
 
 @router.patch("/loans/{loan_id}/disburse")
@@ -515,7 +523,7 @@ def disburse_loan(loan_id: str, payload: LoanDisburse = LoanDisburse(), db: Sess
     loan.disbursed_at = datetime.utcnow()
     loan.disbursal_method = payload.disbursal_method
     loan.disbursal_reference = payload.disbursal_reference
-    build_emi_schedule(loan, product, db)
+    build_emi_schedule(loan, product, db, first_due_date=payload.first_due_date)
     db.flush()  # need EMISchedule.id values before creating GroupContribution rows
 
     if is_group:

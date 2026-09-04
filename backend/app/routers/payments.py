@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from app.core.database import get_db
 from app.core.security import require_any
 from app.core.config import settings
-from app.models.tenancy import User, Tenant
+from app.models.tenancy import User, Tenant, UserRole
 from app.models.finance import Payment, EMISchedule, Loan, Customer, PaymentMethod, LoanGroup, LoanGroupMember, GroupContribution, LoanProduct
 from app.utils.receipts import generate_receipt_pdf
 from app.utils.whatsapp import send_payment_receipt_notification
@@ -113,6 +113,41 @@ def download_receipt(payment_id: str, db: Session = Depends(get_db), user: User 
     if not payment or not payment.receipt_pdf_path or not os.path.exists(payment.receipt_pdf_path):
         raise HTTPException(status_code=404, detail="Receipt not found")
     return FileResponse(payment.receipt_pdf_path, media_type="application/pdf", filename=f"{payment.receipt_number}.pdf")
+
+
+@router.get("/history")
+def payment_history(limit: int = 50, db: Session = Depends(get_db), user: User = Depends(require_any)):
+    """
+    Every payment this person has collected (or, for SuperAdmin, every payment
+    in the tenant), most recent first — this is what makes an old receipt
+    re-downloadable instead of only available in the instant it was recorded.
+    """
+    q = db.query(Payment).filter(Payment.tenant_id == user.tenant_id)
+    if user.role == UserRole.employee:
+        q = q.filter(Payment.collected_by == user.id)
+    payments = q.order_by(Payment.paid_at.desc()).limit(min(limit, 200)).all()
+
+    result = []
+    for p in payments:
+        loan = db.query(Loan).filter(Loan.id == p.loan_id).first()
+        payer_name = "—"
+        if loan:
+            if p.group_contribution_id:
+                contribution = db.query(GroupContribution).filter(GroupContribution.id == p.group_contribution_id).first()
+                member = db.query(LoanGroupMember).filter(LoanGroupMember.id == contribution.group_member_id).first() if contribution else None
+                if member:
+                    c = db.query(Customer).filter(Customer.id == member.customer_id).first()
+                    payer_name = c.full_name if c else "—"
+            elif loan.customer_id:
+                c = db.query(Customer).filter(Customer.id == loan.customer_id).first()
+                payer_name = c.full_name if c else "—"
+        result.append({
+            "payment_id": p.id, "receipt_number": p.receipt_number, "amount": float(p.amount),
+            "method": p.method.value, "paid_at": p.paid_at.isoformat(),
+            "loan_number": loan.loan_number if loan else "—", "payer_name": payer_name,
+            "has_receipt": bool(p.receipt_pdf_path),
+        })
+    return result
 
 
 # ---------- Group loan repayments ----------

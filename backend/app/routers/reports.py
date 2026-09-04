@@ -6,8 +6,8 @@ from sqlalchemy import func
 
 from app.core.database import get_db
 from app.core.security import require_any, require_superadmin
-from app.models.tenancy import User, UserRole, Tenant
-from app.models.finance import Loan, Payment, EMISchedule, LoanStatus, Customer, LoanProduct
+from app.models.tenancy import User, UserRole, Tenant, Branch
+from app.models.finance import Loan, Payment, EMISchedule, LoanStatus, Customer, LoanProduct, LoanGroupMember, GroupContribution
 from app.utils.report_pdf import generate_branch_report_pdf, generate_breakdown_pdf
 from app.utils.report_breakdown import build_breakdown, build_outstanding
 from app.utils.report_xlsx import generate_breakdown_xlsx
@@ -79,25 +79,36 @@ def portfolio_at_risk(db: Session = Depends(get_db), user: User = Depends(requir
 
 @router.get("/collections-trend")
 def collections_trend(db: Session = Depends(get_db), user: User = Depends(require_any)):
-    """Last 7 days of collections, for the dashboard growth chart."""
-    q = db.query(Payment).filter(Payment.tenant_id == user.tenant_id)
+    """
+    Last 7 days of collections — both what was actually received AND what was
+    due that day (from the EMI schedule), so a day showing ₹1,000 required vs
+    ₹1,000 collected reads as fully on-target, not just "some money came in."
+    """
+    payment_q = db.query(Payment).filter(Payment.tenant_id == user.tenant_id)
+    due_q = db.query(EMISchedule).join(Loan, EMISchedule.loan_id == Loan.id).filter(Loan.tenant_id == user.tenant_id)
     if user.role == UserRole.employee:
-        q = q.filter(Payment.branch_id == user.branch_id)
+        payment_q = payment_q.filter(Payment.branch_id == user.branch_id)
+        due_q = due_q.filter(Loan.branch_id == user.branch_id)
 
     today = date.today()
     days = [today - timedelta(days=i) for i in range(6, -1, -1)]
     trend = []
     for d in days:
-        day_total = q.filter(func.date(Payment.paid_at) == d).with_entities(
+        received = payment_q.filter(func.date(Payment.paid_at) == d).with_entities(
             func.coalesce(func.sum(Payment.amount), 0)
         ).scalar()
-        trend.append({"date": d.isoformat(), "amount": float(day_total)})
+        required = due_q.filter(EMISchedule.due_date == d).with_entities(
+            func.coalesce(func.sum(EMISchedule.total_due), 0)
+        ).scalar()
+        trend.append({"date": d.isoformat(), "amount": float(received), "required": float(required)})
     return trend
 
 
 @router.get("/recent-activity")
 def recent_activity(db: Session = Depends(get_db), user: User = Depends(require_any)):
     """Recent loans and recent payments, scoped by role — feeds the dashboard activity list."""
+    from app.models.finance import LoanGroup
+
     loan_q = db.query(Loan).filter(Loan.tenant_id == user.tenant_id)
     payment_q = db.query(Payment).filter(Payment.tenant_id == user.tenant_id)
     if user.role == UserRole.employee:
@@ -107,19 +118,48 @@ def recent_activity(db: Session = Depends(get_db), user: User = Depends(require_
     recent_loans = loan_q.order_by(Loan.applied_at.desc()).limit(5).all()
     recent_payments = payment_q.order_by(Payment.paid_at.desc()).limit(5).all()
 
-    def loan_customer_name(loan):
+    def loan_display_name(loan):
+        """Individual loans show the customer's name; group loans show the group's name — a
+        group loan has no customer_id at all, so this has to branch on which is set."""
+        if loan.group_id:
+            g = db.query(LoanGroup).filter(LoanGroup.id == loan.group_id).first()
+            return f"{g.name} (Group)" if g else "Unknown group"
         c = db.query(Customer).filter(Customer.id == loan.customer_id).first()
         return c.full_name if c else "—"
 
+    def payment_context(payment):
+        """Resolves everything the dashboard needs to show about one payment: which
+        employee collected it, which loan it's against, and who actually paid —
+        the specific group member if it's a group contribution, not just the group."""
+        employee = db.query(User).filter(User.id == payment.collected_by).first()
+        loan = db.query(Loan).filter(Loan.id == payment.loan_id).first()
+        payer_name = "—"
+        if loan:
+            if payment.group_contribution_id:
+                contribution = db.query(GroupContribution).filter(GroupContribution.id == payment.group_contribution_id).first()
+                if contribution:
+                    member = db.query(LoanGroupMember).filter(LoanGroupMember.id == contribution.group_member_id).first()
+                    if member:
+                        c = db.query(Customer).filter(Customer.id == member.customer_id).first()
+                        payer_name = c.full_name if c else "—"
+            elif loan.customer_id:
+                c = db.query(Customer).filter(Customer.id == loan.customer_id).first()
+                payer_name = c.full_name if c else "—"
+        return {
+            "employee_name": employee.full_name if employee else "Unknown",
+            "loan_number": loan.loan_number if loan else "—",
+            "payer_name": payer_name,
+        }
+
     return {
         "recent_loans": [
-            {"loan_number": l.loan_number, "customer": loan_customer_name(l),
+            {"loan_number": l.loan_number, "customer": loan_display_name(l),
              "amount": float(l.principal_amount), "status": l.status.value, "applied_at": l.applied_at.isoformat()}
             for l in recent_loans
         ],
         "recent_payments": [
             {"receipt_number": p.receipt_number, "amount": float(p.amount),
-             "method": p.method.value, "paid_at": p.paid_at.isoformat()}
+             "method": p.method.value, "paid_at": p.paid_at.isoformat(), **payment_context(p)}
             for p in recent_payments
         ],
     }
@@ -209,38 +249,66 @@ def my_activity(db: Session = Depends(get_db), user: User = Depends(require_any)
 
 @router.get("/my-collections-trend")
 def my_collections_trend(db: Session = Depends(get_db), user: User = Depends(require_any)):
-    """Last 7 days of collections BY THIS PERSON specifically — not the whole branch."""
-    q = db.query(Payment).filter(Payment.collected_by == user.id)
+    """Last 7 days of collections BY THIS PERSON specifically — not the whole branch.
+    'Required' uses the same loan.applied_by attribution as the rest of the app's
+    per-employee reporting, since an installment itself has no direct collector field
+    until it's actually paid."""
+    payment_q = db.query(Payment).filter(Payment.collected_by == user.id)
+    due_q = db.query(EMISchedule).join(Loan, EMISchedule.loan_id == Loan.id).filter(Loan.applied_by == user.id)
     today = date.today()
     days = [today - timedelta(days=i) for i in range(6, -1, -1)]
     trend = []
     for d in days:
-        day_total = q.filter(func.date(Payment.paid_at) == d).with_entities(
+        received = payment_q.filter(func.date(Payment.paid_at) == d).with_entities(
             func.coalesce(func.sum(Payment.amount), 0)
         ).scalar()
-        trend.append({"date": d.isoformat(), "amount": float(day_total)})
+        required = due_q.filter(EMISchedule.due_date == d).with_entities(
+            func.coalesce(func.sum(EMISchedule.total_due), 0)
+        ).scalar()
+        trend.append({"date": d.isoformat(), "amount": float(received), "required": float(required)})
     return trend
 
 
 @router.get("/my-recent-activity")
 def my_recent_activity(db: Session = Depends(get_db), user: User = Depends(require_any)):
     """This person's own recent loans and payments only — never another staff member's."""
+    from app.models.finance import LoanGroup
+
     recent_loans = db.query(Loan).filter(Loan.applied_by == user.id).order_by(Loan.applied_at.desc()).limit(5).all()
     recent_payments = db.query(Payment).filter(Payment.collected_by == user.id).order_by(Payment.paid_at.desc()).limit(5).all()
 
-    def loan_customer_name(loan):
+    def loan_display_name(loan):
+        if loan.group_id:
+            g = db.query(LoanGroup).filter(LoanGroup.id == loan.group_id).first()
+            return f"{g.name} (Group)" if g else "Unknown group"
         c = db.query(Customer).filter(Customer.id == loan.customer_id).first()
         return c.full_name if c else "—"
 
+    def payment_context(payment):
+        loan = db.query(Loan).filter(Loan.id == payment.loan_id).first()
+        payer_name = "—"
+        if loan:
+            if payment.group_contribution_id:
+                contribution = db.query(GroupContribution).filter(GroupContribution.id == payment.group_contribution_id).first()
+                if contribution:
+                    member = db.query(LoanGroupMember).filter(LoanGroupMember.id == contribution.group_member_id).first()
+                    if member:
+                        c = db.query(Customer).filter(Customer.id == member.customer_id).first()
+                        payer_name = c.full_name if c else "—"
+            elif loan.customer_id:
+                c = db.query(Customer).filter(Customer.id == loan.customer_id).first()
+                payer_name = c.full_name if c else "—"
+        return {"loan_number": loan.loan_number if loan else "—", "payer_name": payer_name}
+
     return {
         "recent_loans": [
-            {"loan_number": l.loan_number, "customer": loan_customer_name(l),
+            {"loan_number": l.loan_number, "customer": loan_display_name(l),
              "amount": float(l.principal_amount), "status": l.status.value, "applied_at": l.applied_at.isoformat()}
             for l in recent_loans
         ],
         "recent_payments": [
             {"receipt_number": p.receipt_number, "amount": float(p.amount),
-             "method": p.method.value, "paid_at": p.paid_at.isoformat()}
+             "method": p.method.value, "paid_at": p.paid_at.isoformat(), **payment_context(p)}
             for p in recent_payments
         ],
     }
@@ -341,9 +409,11 @@ def get_money_audit_log(
     result = []
     for e in entries:
         actor = db.query(User).filter(User.id == e.actor_id).first() if e.actor_id else None
+        branch = db.query(Branch).filter(Branch.id == e.branch_id).first() if e.branch_id else None
         result.append({
             "id": e.id, "event_type": e.event_type.value, "amount": float(e.amount), "direction": e.direction,
-            "actor_name": actor.full_name if actor else "—", "method": e.method, "reference": e.reference,
+            "actor_name": actor.full_name if actor else "—", "branch_name": branch.name if branch else "—",
+            "method": e.method, "reference": e.reference,
             "notes": e.notes, "created_at": e.created_at.isoformat(),
         })
     return result

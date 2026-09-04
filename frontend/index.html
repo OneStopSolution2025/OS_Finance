@@ -158,8 +158,11 @@
     .trend-bar{width:100%;background:var(--amber);border-radius:4px 4px 0 0;min-height:3px;transition:height .3s}
     .trend-bar-label{font-size:10px;color:#888;margin-top:6px}
     .trend-bar-value{font-size:10px;color:var(--trust);font-weight:700;margin-bottom:4px}
-    .activity-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-    @media(max-width:760px){.activity-grid{grid-template-columns:1fr}}
+    .activity-grid{display:grid;grid-template-columns:1fr 1fr;gap:44px}
+    .activity-grid>div:first-child{padding-right:0;border-right:none}
+    @media(min-width:761px){.activity-grid>div:first-child{padding-right:36px;border-right:1px solid var(--border)}}
+    @media(max-width:760px){.activity-grid{grid-template-columns:1fr;gap:28px}}
+    .activity-list-scroll{max-height:280px;overflow-y:auto}
     .activity-item{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--border);font-size:13px}
     .activity-item:last-child{border-bottom:none}
     .activity-main{font-weight:600}
@@ -396,13 +399,23 @@ new MutationObserver(() => {
 
 // ---------- Dashboard (Smart Garage style: stats + growth trend + recent activity) ----------
 function renderTrendBars(trend, valueKey, labelPrefix){
-  const max = Math.max(1, ...trend.map(d => d[valueKey]));
-  return `<div class="trend-bars">${trend.map(d => {
-    const h = Math.max(3, Math.round((d[valueKey] / max) * 100));
+  const max = Math.max(1, ...trend.map(d => Math.max(d[valueKey], d.required||0)));
+  return `
+    <div style="display:flex;gap:14px;font-size:11.5px;color:#666;margin-bottom:8px">
+      <span><span style="display:inline-block;width:10px;height:10px;background:var(--border);border-radius:2px;margin-right:5px"></span>Required</span>
+      <span><span style="display:inline-block;width:10px;height:10px;background:var(--amber);border-radius:2px;margin-right:5px"></span>Received</span>
+    </div>
+    <div class="trend-bars">${trend.map(d => {
+    const receivedH = Math.max(3, Math.round((d[valueKey] / max) * 100));
+    const requiredH = Math.max(3, Math.round(((d.required||0) / max) * 100));
     const label = new Date(d.date).toLocaleDateString(undefined, {weekday:'short'});
+    const met = (d.required||0) > 0 && d[valueKey] >= d.required;
     return `<div class="trend-bar-col">
-      <div class="trend-bar-value">${labelPrefix}${d[valueKey].toLocaleString()}</div>
-      <div class="trend-bar" style="height:${h}px"></div>
+      <div class="trend-bar-value" style="font-size:10.5px">${labelPrefix}${d[valueKey].toLocaleString()}${d.required!==undefined?` / ${labelPrefix}${d.required.toLocaleString()}`:''}</div>
+      <div style="display:flex;align-items:flex-end;gap:3px;height:100px">
+        <div class="trend-bar" style="height:${requiredH}px;width:10px;background:var(--border)" title="Required"></div>
+        <div class="trend-bar" style="height:${receivedH}px;width:10px;background:${met?'#5A6B00':'var(--amber)'}" title="Received"></div>
+      </div>
       <div class="trend-bar-label">${label}</div>
     </div>`;
   }).join('')}</div>`;
@@ -434,11 +447,11 @@ async function renderDashboard(){
           <div class="activity-grid">
             <div>
               <div style="font-size:12px;font-weight:600;color:#888;margin-bottom:6px;text-transform:uppercase">Your loan applications</div>
-              ${activity.recent_loans.map(l => `<div class="activity-item"><div><div class="activity-main">${esc(l.customer)}</div><div class="activity-sub">${esc(l.loan_number)}</div></div><div style="text-align:right"><div class="activity-main">₹${l.amount.toLocaleString()}</div><span class="badge ${l.status}">${l.status.replace('_',' ')}</span></div></div>`).join('') || `<div class="empty" style="padding:12px">You haven't applied for any loans yet</div>`}
+              <div class="activity-list-scroll">${activity.recent_loans.map(l => `<div class="activity-item"><div><div class="activity-main">${esc(l.customer)}</div><div class="activity-sub">${esc(l.loan_number)}</div></div><div style="text-align:right"><div class="activity-main">₹${l.amount.toLocaleString()}</div><span class="badge ${l.status}">${l.status.replace('_',' ')}</span></div></div>`).join('') || `<div class="empty" style="padding:12px">You haven't applied for any loans yet</div>`}</div>
             </div>
             <div>
               <div style="font-size:12px;font-weight:600;color:#888;margin-bottom:6px;text-transform:uppercase">Payments you collected</div>
-              ${activity.recent_payments.map(p => `<div class="activity-item"><div><div class="activity-main">${esc(p.receipt_number)}</div><div class="activity-sub">${p.method}</div></div><div class="activity-main">₹${p.amount.toLocaleString()}</div></div>`).join('') || `<div class="empty" style="padding:12px">You haven't collected any payments yet</div>`}
+              <div class="activity-list-scroll">${activity.recent_payments.map(p => `<div class="activity-item"><div><div class="activity-main">${esc(p.receipt_number)}</div><div class="activity-sub">${esc(p.payer_name||'—')} · ${esc(p.loan_number||'—')} · ${p.method}</div></div><div class="activity-main">₹${p.amount.toLocaleString()}</div></div>`).join('') || `<div class="empty" style="padding:12px">You haven't collected any payments yet</div>`}</div>
             </div>
           </div>
         </div>
@@ -465,11 +478,11 @@ async function renderDashboard(){
           <div class="activity-grid">
             <div>
               <div style="font-size:12px;font-weight:600;color:#888;margin-bottom:6px;text-transform:uppercase">Recent loans</div>
-              ${activity.recent_loans.map(l => `<div class="activity-item"><div><div class="activity-main">${esc(l.customer)}</div><div class="activity-sub">${esc(l.loan_number)}</div></div><div style="text-align:right"><div class="activity-main">₹${l.amount.toLocaleString()}</div><span class="badge ${l.status}">${l.status.replace('_',' ')}</span></div></div>`).join('') || '<div class="empty" style="padding:12px">No loans yet</div>'}
+              <div class="activity-list-scroll">${activity.recent_loans.map(l => `<div class="activity-item"><div><div class="activity-main">${esc(l.customer)}</div><div class="activity-sub">${esc(l.loan_number)}</div></div><div style="text-align:right"><div class="activity-main">₹${l.amount.toLocaleString()}</div><span class="badge ${l.status}">${l.status.replace('_',' ')}</span></div></div>`).join('') || '<div class="empty" style="padding:12px">No loans yet</div>'}</div>
             </div>
             <div>
               <div style="font-size:12px;font-weight:600;color:#888;margin-bottom:6px;text-transform:uppercase">Recent payments</div>
-              ${activity.recent_payments.map(p => `<div class="activity-item"><div><div class="activity-main">${esc(p.receipt_number)}</div><div class="activity-sub">${p.method}</div></div><div class="activity-main">₹${p.amount.toLocaleString()}</div></div>`).join('') || '<div class="empty" style="padding:12px">No payments yet</div>'}
+              <div class="activity-list-scroll">${activity.recent_payments.map(p => `<div class="activity-item"><div><div class="activity-main">${esc(p.receipt_number)}</div><div class="activity-sub">${esc(p.payer_name||'—')} · ${esc(p.loan_number||'—')} · by ${esc(p.employee_name||'—')} · ${p.method}</div></div><div class="activity-main">₹${p.amount.toLocaleString()}</div></div>`).join('') || '<div class="empty" style="padding:12px">No payments yet</div>'}</div>
             </div>
           </div>
         </div>
@@ -1025,9 +1038,13 @@ async function renderLoans(){
         <div class="form-grid">
           ${state.role === 'superadmin' ? `<div class="field"><label>Branch</label><select id="la-branch">${branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('') || '<option value="">Create a branch first</option>'}</select></div>` : ''}
           <div class="field"><label>Loan product</label><select id="la-product" onchange="onApplyProductChange()">${products.map(p=>`<option value="${p.id}" data-min="${p.min_amount}" data-max="${p.max_amount}" data-group="${p.is_group_loan}" data-membercount="${p.group_member_count||''}">${esc(p.name)} — ${p.interest_rate_annual}% p.a.${p.is_group_loan?' (Group)':''}</option>`).join('')}</select></div>
-          <div class="field" id="la-customer-field"><label>Customer</label><select id="la-customer">${customers.map(c=>`<option value="${c.id}">${esc(c.full_name)} (${esc(c.customer_code)})</option>`).join('')}</select></div>
+          <div class="field" id="la-customer-field"><label>Customer</label>
+            <input id="la-customer-search" placeholder="Search by name or mobile…" style="margin-bottom:6px" oninput="filterSelectOptions('la-customer-search','la-customer')">
+            <select id="la-customer" size="6" style="height:auto">${customers.map(c=>`<option value="${c.id}" data-search="${esc(c.full_name.toLowerCase())} ${esc(c.phone||'')}">${esc(c.full_name)} — ${esc(c.phone||'')} (${esc(c.customer_code)})</option>`).join('')}</select>
+          </div>
           <div class="field hidden" id="la-group-field"><label>Group</label>
-            <select id="la-group">${groups.map(g=>`<option value="${g.id}">${esc(g.name)} (${g.member_count} members)</option>`).join('') || '<option value="">No groups yet — create one on the Customers tab</option>'}</select>
+            <input id="la-group-search" placeholder="Search by group name…" style="margin-bottom:6px" oninput="filterSelectOptions('la-group-search','la-group')">
+            <select id="la-group" size="6" style="height:auto">${groups.map(g=>`<option value="${g.id}" data-search="${esc(g.name.toLowerCase())}">${esc(g.name)} (${g.member_count} members)</option>`).join('') || '<option value="">No groups yet — create one on the Customers tab</option>'}</select>
           </div>
           <div class="field"><label>Principal amount (₹)</label><input id="la-amount" type="number"><div id="la-hint" style="font-size:11px;color:#888;margin-top:4px"></div></div>
         </div>
@@ -1073,6 +1090,9 @@ async function renderLoans(){
           <input id="disburse-reference" placeholder="After transferring manually, enter the UTR here">
           <p style="font-size:11px;color:#888;margin-top:4px">Automated payouts aren't connected yet — transfer the funds yourself, then record the reference here.</p>
         </div>
+        <label style="margin-top:12px">First installment due date <span style="font-weight:400;color:#888">(optional)</span></label>
+        <input id="disburse-first-due" type="date">
+        <p style="font-size:11px;color:#888;margin-top:4px">Leave blank to use the default (one repayment cycle after today). Set this if the group's collection day needs to line up with a specific date.</p>
         <div class="row-actions">
           <button class="btn amber" onclick="submitDisburse()">Confirm disbursal</button>
           <button class="btn ghost" onclick="document.getElementById('disburse-loan-modal').classList.remove('show')">Cancel</button>
@@ -1164,6 +1184,7 @@ async function openDisburseModal(loanId, customerId){
   disbursingCustomerId = customerId;
   document.getElementById('disburse-method').value = 'cash';
   document.getElementById('disburse-reference').value = '';
+  document.getElementById('disburse-first-due').value = '';
   document.getElementById('disburse-err').textContent = '';
   toggleDisburseReference();
   document.getElementById('disburse-loan-modal').classList.add('show');
@@ -1187,13 +1208,16 @@ async function toggleDisburseReference(){
 async function submitDisburse(){
   const method = document.getElementById('disburse-method').value;
   const reference = document.getElementById('disburse-reference').value;
+  const firstDueDate = document.getElementById('disburse-first-due').value;
   const errEl = document.getElementById('disburse-err'); errEl.textContent = '';
   try{
     await api(`/loans/${disbursingLoanId}/disburse`, { method:'PATCH', json:{
       disbursal_method: method, disbursal_reference: reference || null,
+      first_due_date: firstDueDate || null,
     }});
     document.getElementById('disburse-loan-modal').classList.remove('show');
     renderLoans();
+    showToast('Loan disbursed');
   }catch(e){ errEl.textContent = e.message; }
 }
 
@@ -1376,15 +1400,16 @@ async function loadAuditLog(){
     const entries = await api('/reports/money-audit-log?limit=100');
     const eventLabel = { loan_disbursed: 'Loan Disbursed', payment_collected: 'Payment Collected', salary_paid: 'Salary Paid' };
     document.getElementById('audit-log-body').innerHTML = `
-      <table><thead><tr><th>Event</th><th>Amount</th><th>Method</th><th>By</th><th>Reference</th><th>When</th></tr></thead>
+      <table><thead><tr><th>Event</th><th>Amount</th><th>Method</th><th>By</th><th>Branch</th><th>Reference</th><th>When</th></tr></thead>
       <tbody>${entries.map(e => `<tr>
         <td>${eventLabel[e.event_type] || e.event_type}</td>
         <td style="color:${e.direction==='in'?'#5A6B00':'#C0392B'}">${e.direction==='in'?'+':'−'}₹${e.amount.toLocaleString()}</td>
         <td>${esc(e.method||'—')}</td>
         <td>${esc(e.actor_name)}</td>
+        <td>${esc(e.branch_name||'—')}</td>
         <td>${esc(e.reference||'—')}</td>
         <td>${new Date(e.created_at).toLocaleString()}</td>
-      </tr>`).join('') || '<tr><td colspan="6" class="empty">No money movements recorded yet</td></tr>'}</tbody></table>
+      </tr>`).join('') || '<tr><td colspan="7" class="empty">No money movements recorded yet</td></tr>'}</tbody></table>
     `;
   }catch(e){
     document.getElementById('audit-log-body').innerHTML = `<div class="err">${esc(e.message)}</div>`;
@@ -1505,6 +1530,14 @@ async function renderCustomers(){
     </div>
   `;
   loadGroupsList();
+}
+function filterSelectOptions(searchInputId, selectId){
+  const query = document.getElementById(searchInputId).value.trim().toLowerCase();
+  const options = document.getElementById(selectId).options;
+  for(const opt of options){
+    if(!opt.dataset.search){ continue; } // leave placeholder options (e.g. "No groups yet") always visible
+    opt.style.display = (!query || opt.dataset.search.includes(query)) ? '' : 'none';
+  }
 }
 function filterGroupMembers(){
   const query = document.getElementById('g-member-search').value.trim().toLowerCase();
@@ -1691,17 +1724,28 @@ async function uploadKycDocModal(customerId, docType, customerName){
 async function renderCollections(){
   content().innerHTML = `<div class="empty">Loading…</div>`;
   const loans = (await api('/loans')).filter(l=>l.status==='active');
-  const opts = loans.map(l=>`<option value="${l.id}" data-group="${l.is_group_loan}">${esc(l.loan_number)} — ${esc(l.customer_name)}</option>`).join('');
+  const opts = loans.map(l=>`<option value="${l.id}" data-group="${l.is_group_loan}" data-search="${esc(l.loan_number.toLowerCase())} ${esc(l.customer_name.toLowerCase())}">${esc(l.loan_number)} — ${esc(l.customer_name)}</option>`).join('');
   content().innerHTML = `
     <div class="panel"><h3>Record a collection</h3>
       <div class="form-grid">
-        <div class="field"><label>Loan</label><select id="p-loan" onchange="onCollectionLoanChange()">${opts || '<option>No active loans</option>'}</select></div>
+        <div class="field"><label>Loan</label>
+          <input id="p-loan-search" placeholder="Search by loan number, customer, or group…" style="margin-bottom:6px" oninput="filterSelectOptions('p-loan-search','p-loan')">
+          <select id="p-loan" size="6" style="height:auto" onchange="onCollectionLoanChange()">${opts || '<option>No active loans</option>'}</select>
+        </div>
       </div>
       <div id="individual-collection-fields">
+        <select id="p-emi" onchange="updateCollectionAmount()" class="hidden"></select>
         <div class="form-grid">
-          <div class="field"><label>Installment</label><select id="p-emi" onchange="updateCollectionAmount()"></select></div>
+          <div class="field"><label>Filter due list</label>
+            <select id="due-list-filter" onchange="renderDueListTable(this.value)">
+              <option value="unpaid">Unpaid only</option>
+              <option value="paid">Paid only</option>
+              <option value="all">All installments</option>
+            </select>
+          </div>
           <div class="field"><label>Amount (₹)</label><input id="p-amount" type="number" readonly style="background:#F6F5F2;cursor:not-allowed"><div style="font-size:11px;color:#888;margin-top:4px">Auto-filled from the selected installment's remaining due — must match exactly, so it isn't editable.</div></div>
         </div>
+        <div id="due-list-body" style="margin-bottom:14px"></div>
         <div class="row-actions">
           <button class="btn amber" onclick="collectCash()">Record cash payment</button>
           <button class="btn" onclick="collectRazorpay()">Collect via Razorpay</button>
@@ -1716,12 +1760,40 @@ async function renderCollections(){
         <div id="group-status-body"></div>
       </div>
     </div>
+    <div class="panel"><h3>Collection history</h3>
+      <p style="font-size:12.5px;color:#666;margin:0 0 14px">Every receipt you've ever collected, re-downloadable anytime — useful if a customer needs proof of an old payment, or if there's ever a question about a past collection.</p>
+      <div id="collection-history-body"><div class="empty">Loading…</div></div>
+    </div>
   `;
-  if(loans.length) onCollectionLoanChange();
+  if(loans.length){
+    document.getElementById('p-loan').selectedIndex = 0; // size>1 listboxes don't auto-select, unlike a normal dropdown
+    onCollectionLoanChange();
+  }
+  loadCollectionHistory();
+}
+async function loadCollectionHistory(){
+  try{
+    const history = await api('/payments/history');
+    document.getElementById('collection-history-body').innerHTML = `
+      <table><thead><tr><th>Receipt #</th><th>Customer</th><th>Loan #</th><th>Amount</th><th>Method</th><th>Date</th><th style="width:1%;white-space:nowrap">Receipt</th></tr></thead>
+      <tbody>${history.map(h=>`<tr>
+        <td>${esc(h.receipt_number)}</td>
+        <td>${esc(h.payer_name)}</td>
+        <td>${esc(h.loan_number)}</td>
+        <td>₹${h.amount.toLocaleString()}</td>
+        <td>${esc(h.method)}</td>
+        <td style="white-space:nowrap;font-size:12.5px">${new Date(h.paid_at).toLocaleDateString()}</td>
+        <td>${h.has_receipt ? `<button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="downloadReceipt('${h.payment_id}','${h.receipt_number}')">Download</button>` : '—'}</td>
+      </tr>`).join('') || '<tr><td colspan="7" class="empty">No collections recorded yet</td></tr>'}</tbody></table>
+    `;
+  }catch(e){
+    document.getElementById('collection-history-body').innerHTML = `<div class="err">${esc(e.message)}</div>`;
+  }
 }
 async function onCollectionLoanChange(){
   const sel = document.getElementById('p-loan');
-  const isGroup = sel.options.length && sel.options[sel.selectedIndex].dataset.group === 'true';
+  if(sel.selectedIndex === -1 && sel.options.length) sel.selectedIndex = 0;
+  const isGroup = sel.options.length && sel.selectedIndex >= 0 && sel.options[sel.selectedIndex].dataset.group === 'true';
   document.getElementById('individual-collection-fields').classList.toggle('hidden', isGroup);
   document.getElementById('group-collection-fields').classList.toggle('hidden', !isGroup);
   if(isGroup) await loadGroupInstallmentOptions();
@@ -1782,10 +1854,36 @@ async function loadSchedule(){
   const loanId = document.getElementById('p-loan').value;
   if(!loanId) return;
   const sched = await api(`/loans/${loanId}/schedule`);
-  document.getElementById('p-emi').innerHTML = sched.filter(s=>!s.is_paid).map(s=>
-    `<option value="${s.id}" data-due="${(s.total_due - (s.amount_paid||0)).toFixed(2)}">#${s.installment_no} — due ${s.due_date} — ₹${(s.total_due - (s.amount_paid||0)).toFixed(2)}</option>`
-  ).join('') || '<option value="">All installments paid</option>';
+  window._currentIndividualSchedule = sched;
+  // p-emi stays the real source of truth for collectCash()/collectRazorpay() — unchanged
+  // mechanism — it's just visually hidden now, driven by the due-list table below instead
+  // of a cryptic "#1 — due ..." dropdown.
+  document.getElementById('p-emi').innerHTML = sched.map(s=>
+    `<option value="${s.id}" data-due="${(s.total_due - (s.amount_paid||0)).toFixed(2)}">#${s.installment_no} — due ${s.due_date}</option>`
+  ).join('');
+  const firstUnpaid = sched.find(s=>!s.is_paid);
+  if(firstUnpaid) document.getElementById('p-emi').value = firstUnpaid.id;
   updateCollectionAmount();
+  renderDueListTable('unpaid');
+}
+function renderDueListTable(filter){
+  const sched = window._currentIndividualSchedule || [];
+  const filtered = sched.filter(s => filter==='all' || (filter==='paid'?s.is_paid:!s.is_paid));
+  document.getElementById('due-list-body').innerHTML = `
+    <table><thead><tr><th>Installment</th><th>Due Date</th><th>Amount</th><th>Status</th><th style="width:1%;white-space:nowrap">Action</th></tr></thead>
+    <tbody>${filtered.map(s=>`<tr style="${!s.is_paid ? 'background:#FBE4E1' : ''}">
+      <td>#${s.installment_no}</td>
+      <td>${s.due_date}</td>
+      <td>₹${(s.total_due - (s.amount_paid||0)).toFixed(2)}</td>
+      <td>${s.is_paid ? '<span class="badge active">Paid</span>' : '<span class="badge pending_approval">Unpaid</span>'}</td>
+      <td>${s.is_paid ? '—' : `<button class="btn amber" style="padding:6px 10px;font-size:12px" onclick="selectInstallmentForCollection('${s.id}')">Collect</button>`}</td>
+    </tr>`).join('') || '<tr><td colspan="5" class="empty">No installments match this filter</td></tr>'}</tbody></table>
+  `;
+}
+function selectInstallmentForCollection(emiId){
+  document.getElementById('p-emi').value = emiId;
+  updateCollectionAmount();
+  document.getElementById('p-amount').scrollIntoView({behavior:'smooth', block:'center'});
 }
 function updateCollectionAmount(){
   const sel = document.getElementById('p-emi');
