@@ -7,13 +7,105 @@ from sqlalchemy import func
 from app.core.database import get_db
 from app.core.security import require_any, require_superadmin
 from app.models.tenancy import User, UserRole, Tenant, Branch
-from app.models.finance import Loan, Payment, EMISchedule, LoanStatus, Customer, LoanProduct, LoanGroupMember, GroupContribution
+from app.models.finance import Loan, Payment, EMISchedule, LoanStatus, Customer, LoanProduct, LoanGroupMember, GroupContribution, LoanGroup
 from app.utils.report_pdf import generate_branch_report_pdf, generate_breakdown_pdf
 from app.utils.report_breakdown import build_breakdown, build_outstanding
 from app.utils.report_xlsx import generate_breakdown_xlsx
 from app.utils.leads_export import generate_leads_xlsx, generate_leads_pdf
 
 router = APIRouter(prefix="/reports", tags=["accounts & reports"])
+
+
+def _resolve_installment_payer(db: Session, loan: Loan, emi: EMISchedule):
+    """
+    For an individual loan: the customer's name, and how much of this
+    installment is still outstanding. For a group loan: one entry PER
+    NON-PAYING MEMBER, not a single lump entry for the group — a reminder
+    that just says "group owes ₹2,000" is useless for follow-up; it needs to
+    say who specifically hasn't paid yet.
+    """
+    entries = []
+    if loan.group_id:
+        group = db.query(LoanGroup).filter(LoanGroup.id == loan.group_id).first()
+        unpaid = db.query(GroupContribution).filter(
+            GroupContribution.emi_schedule_id == emi.id, GroupContribution.is_paid == False  # noqa: E712
+        ).all()
+        for c in unpaid:
+            member = db.query(LoanGroupMember).filter(LoanGroupMember.id == c.group_member_id).first()
+            customer = db.query(Customer).filter(Customer.id == member.customer_id).first() if member else None
+            entries.append({
+                "payer_name": customer.full_name if customer else "Unknown member",
+                "group_name": group.name if group else "Unknown group",
+                "payer_type": "Group member",
+                "amount_due": float(c.expected_amount) + float(c.penalty_amount or 0),
+            })
+    elif loan.customer_id and not emi.is_paid:
+        customer = db.query(Customer).filter(Customer.id == loan.customer_id).first()
+        entries.append({
+            "payer_name": customer.full_name if customer else "Unknown customer",
+            "group_name": "—", "payer_type": "Individual",
+            "amount_due": float(emi.total_due) - float(emi.amount_paid or 0),
+        })
+    return entries
+
+
+@router.get("/upcoming-repayments")
+def upcoming_repayments(days: int = 7, db: Session = Depends(get_db), user: User = Depends(require_superadmin)):
+    """
+    SuperAdmin-only. Every installment due in the next `days` days that isn't
+    fully paid yet, across the whole tenant — with the responsible employee
+    and branch attached to each one, so a reminder can actually be acted on:
+    who to follow up with, and which staff member owns that relationship.
+    """
+    today = date.today()
+    end = today + timedelta(days=days)
+    upcoming_emis = (
+        db.query(EMISchedule).join(Loan, EMISchedule.loan_id == Loan.id)
+        .filter(Loan.tenant_id == user.tenant_id, EMISchedule.is_paid == False, EMISchedule.due_date >= today, EMISchedule.due_date <= end)  # noqa: E712
+        .order_by(EMISchedule.due_date).all()
+    )
+    rows = []
+    for emi in upcoming_emis:
+        loan = db.query(Loan).filter(Loan.id == emi.loan_id).first()
+        if not loan:
+            continue
+        branch = db.query(Branch).filter(Branch.id == loan.branch_id).first()
+        employee = db.query(User).filter(User.id == loan.applied_by).first()
+        for entry in _resolve_installment_payer(db, loan, emi):
+            rows.append({
+                "due_date": emi.due_date.isoformat(),
+                "days_until_due": (emi.due_date - today).days,
+                "loan_number": loan.loan_number,
+                "branch_name": branch.name if branch else "Unknown",
+                "employee_name": employee.full_name if employee else "Unknown",
+                **entry,
+            })
+    return rows
+
+
+@router.get("/my-upcoming-repayments")
+def my_upcoming_repayments(days: int = 7, db: Session = Depends(get_db), user: User = Depends(require_any)):
+    """This person's own upcoming repayments only — loans they applied, within their branch."""
+    today = date.today()
+    end = today + timedelta(days=days)
+    upcoming_emis = (
+        db.query(EMISchedule).join(Loan, EMISchedule.loan_id == Loan.id)
+        .filter(Loan.applied_by == user.id, EMISchedule.is_paid == False, EMISchedule.due_date >= today, EMISchedule.due_date <= end)  # noqa: E712
+        .order_by(EMISchedule.due_date).all()
+    )
+    rows = []
+    for emi in upcoming_emis:
+        loan = db.query(Loan).filter(Loan.id == emi.loan_id).first()
+        if not loan:
+            continue
+        for entry in _resolve_installment_payer(db, loan, emi):
+            rows.append({
+                "due_date": emi.due_date.isoformat(),
+                "days_until_due": (emi.due_date - today).days,
+                "loan_number": loan.loan_number,
+                **entry,
+            })
+    return rows
 
 
 @router.get("/branch-summary")

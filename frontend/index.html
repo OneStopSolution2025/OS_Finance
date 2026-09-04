@@ -421,6 +421,27 @@ function renderTrendBars(trend, valueKey, labelPrefix){
   }).join('')}</div>`;
 }
 
+function renderUpcomingReminders(rows, showEmployeeBranch){
+  if(!rows.length){
+    return `<div class="panel"><h3>Upcoming repayments (next 7 days)</h3><div class="empty" style="padding:16px 0">Nothing due in the next 7 days.</div></div>`;
+  }
+  const urgencyColor = d => d<=1 ? '#C0392B' : d<=3 ? '#B8860B' : '#5A6B00';
+  return `
+    <div class="panel"><h3>Upcoming repayments (next 7 days)</h3>
+      <div class="activity-list-scroll">
+        <table><thead><tr><th>Due</th><th>Customer</th>${showEmployeeBranch?'<th>Branch</th><th>Employee</th>':''}<th>Loan #</th><th>Amount</th></tr></thead>
+        <tbody>${rows.map(r=>`<tr>
+          <td style="white-space:nowrap"><span style="color:${urgencyColor(r.days_until_due)};font-weight:600">${r.days_until_due===0?'Today':r.days_until_due===1?'Tomorrow':`In ${r.days_until_due}d`}</span><div style="font-size:11px;color:#888">${r.due_date}</div></td>
+          <td>${esc(r.payer_name)}${r.group_name!=='—'?`<div style="font-size:11px;color:#888">${esc(r.group_name)}</div>`:''}</td>
+          ${showEmployeeBranch?`<td>${esc(r.branch_name)}</td><td>${esc(r.employee_name)}</td>`:''}
+          <td>${esc(r.loan_number)}</td>
+          <td>₹${r.amount_due.toLocaleString()}</td>
+        </tr>`).join('')}</tbody></table>
+      </div>
+    </div>
+  `;
+}
+
 async function renderDashboard(){
   content().innerHTML = `<div class="empty">Loading…</div>`;
   try{
@@ -428,8 +449,9 @@ async function renderDashboard(){
       // Employee dashboard: strictly the individual's own numbers. No branch-wide
       // totals, no other staff member's loans/payments — that data belongs on the
       // SuperAdmin dashboard, not here.
-      const [mine, trend, activity] = await Promise.all([
-        api('/reports/my-activity'), api('/reports/my-collections-trend'), api('/reports/my-recent-activity')
+      const [mine, trend, activity, upcoming] = await Promise.all([
+        api('/reports/my-activity'), api('/reports/my-collections-trend'), api('/reports/my-recent-activity'),
+        api('/reports/my-upcoming-repayments')
       ]);
       content().innerHTML = `
         <div class="stat-grid">
@@ -442,6 +464,7 @@ async function renderDashboard(){
           <h3 style="font-size:15px">Your collections — last 7 days</h3>
           ${renderTrendBars(trend, 'amount', '₹')}
         </div>
+        ${renderUpcomingReminders(upcoming, false)}
         <div class="panel">
           <h3>Your recent activity</h3>
           <div class="activity-grid">
@@ -459,8 +482,9 @@ async function renderDashboard(){
     } else {
       // SuperAdmin dashboard: branch/tenant-wide totals — appropriate here, since
       // SuperAdmin oversees the whole branch, not just their own individual work.
-      const [r, trend, activity] = await Promise.all([
-        api('/reports/branch-summary'), api('/reports/collections-trend'), api('/reports/recent-activity')
+      const [r, trend, activity, upcoming] = await Promise.all([
+        api('/reports/branch-summary'), api('/reports/collections-trend'), api('/reports/recent-activity'),
+        api('/reports/upcoming-repayments')
       ]);
       content().innerHTML = `
         <div class="stat-grid">
@@ -473,6 +497,7 @@ async function renderDashboard(){
           <h3 style="font-size:15px">Collections — last 7 days</h3>
           ${renderTrendBars(trend, 'amount', '₹')}
         </div>
+        ${renderUpcomingReminders(upcoming, true)}
         <div class="panel">
           <h3>Recent activity</h3>
           <div class="activity-grid">
