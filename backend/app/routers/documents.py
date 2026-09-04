@@ -65,6 +65,22 @@ def download_document(document_id: str, db: Session = Depends(get_db), user: Use
     return FileResponse(doc.storage_path, filename=doc.file_name)
 
 
+@router.delete("/documents/{document_id}")
+def delete_document(document_id: str, db: Session = Depends(get_db), user: User = Depends(require_any)):
+    """
+    Removes a KYC document so a corrected or updated version can be uploaded
+    in its place — the same document_type slot reopens for upload immediately.
+    """
+    doc = db.query(Document).filter(Document.id == document_id, Document.tenant_id == user.tenant_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if doc.storage_path and os.path.exists(doc.storage_path):
+        os.remove(doc.storage_path)
+    db.delete(doc)
+    db.commit()
+    return {"status": "deleted"}
+
+
 @router.get("/customers/{customer_id}/documents")
 def list_customer_documents(customer_id: str, db: Session = Depends(get_db), user: User = Depends(require_any)):
     return db.query(Document).filter(Document.customer_id == customer_id, Document.tenant_id == user.tenant_id).all()

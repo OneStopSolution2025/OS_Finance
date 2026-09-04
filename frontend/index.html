@@ -74,6 +74,11 @@
   .btn:disabled{opacity:.5;cursor:not-allowed}
   .btn-block{width:100%;margin-top:22px;padding:13px}
   .err{color:var(--danger);font-size:13px;margin-top:10px;min-height:16px}
+  #toast-container{position:fixed;top:20px;right:20px;z-index:200;display:flex;flex-direction:column;gap:10px}
+  .toast{background:#fff;border-left:4px solid var(--amber);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.15);padding:12px 16px;font-size:13.5px;display:flex;align-items:center;gap:10px;min-width:220px;max-width:340px;animation:toast-in .2s ease-out}
+  .toast.error{border-left-color:var(--danger)}
+  @keyframes toast-in{from{transform:translateX(20px);opacity:0}to{transform:translateX(0);opacity:1}}
+  @media(max-width:600px){#toast-container{left:12px;right:12px;top:12px}.toast{max-width:none}}
   /* ---- Shell ---- */
   .sidebar{width:230px;background:var(--charcoal);color:#EFEAE0;flex-shrink:0;display:flex;flex-direction:column;padding:20px 14px;overflow-y:auto}
   .sidebar .brand{display:flex;align-items:center;gap:10px;padding:0 6px 20px;border-bottom:1px solid rgba(255,255,255,.1);margin-bottom:14px}
@@ -115,6 +120,7 @@
   .form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
   .field label{display:block;font-size:12px;font-weight:600;color:#555;margin-bottom:5px}
   .field input,.field select{width:100%;padding:9px 10px;border:1px solid var(--border);border-radius:7px;font-size:13.5px}
+  .field input[type=checkbox],.field input[type=radio]{width:auto;padding:0}
   .row-actions{display:flex;gap:8px;margin-top:16px}
   .empty{color:#999;font-size:13.5px;padding:32px 24px;text-align:center;line-height:1.6}
   .hidden{display:none !important}
@@ -181,6 +187,8 @@
     <div class="err" id="login-err"></div>
   </div>
 </div>
+
+<div id="toast-container"></div>
 
 <!-- APP SHELL -->
 <div class="app" id="app">
@@ -301,6 +309,7 @@ const NAV = {
     {id:'dashboard', label:'📊 Overview'},
     {id:'branches', label:'🏬 Branches'},
     {id:'employees', label:'👥 Employees'},
+    {id:'customers', label:'🧑‍🤝‍🧑 Customers'},
     {id:'loan-products', label:'📄 Loan Products'},
     {id:'loans', label:'💰 Loans'},
     {id:'reports', label:'📈 Reports'},
@@ -351,6 +360,14 @@ function navigate(view){
 
 const content = () => document.getElementById('content');
 function esc(s){ return (s===undefined||s===null) ? '' : String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function showToast(message, type){
+  const container = document.getElementById('toast-container');
+  const toast = document.createElement('div');
+  toast.className = 'toast' + (type === 'error' ? ' error' : '');
+  toast.innerHTML = `<span>${type==='error'?'⚠':'✅'}</span><span>${esc(message)}</span>`;
+  container.appendChild(toast);
+  setTimeout(() => { toast.style.opacity = '0'; toast.style.transition = 'opacity .3s'; setTimeout(() => toast.remove(), 300); }, 3000);
+}
 
 // Adds a "scroll for more" hint under any table that's genuinely wider than its
 // container — only shows when actually needed, works for every table in the
@@ -466,7 +483,14 @@ async function renderDashboard(){
 async function renderBranches(){
   content().innerHTML = `<div class="empty">Loading…</div>`;
   const branches = await api('/branches/');
+  const activeCount = branches.filter(b=>b.is_active).length;
+  const inactiveCount = branches.length - activeCount;
   content().innerHTML = `
+    <div class="stat-grid" style="margin-bottom:20px">
+      <div class="stat-card"><div class="label">Total Branches</div><div class="value">${branches.length}</div></div>
+      <div class="stat-card"><div class="label">Active</div><div class="value" style="color:#5A6B00">${activeCount}</div></div>
+      <div class="stat-card"><div class="label">Inactive</div><div class="value" style="color:${inactiveCount?'#C0392B':'inherit'}">${inactiveCount}</div></div>
+    </div>
     <div class="panel"><h3>Add a branch</h3>
       <div class="form-grid">
         <div class="field"><label>Name</label><input id="b-name"></div>
@@ -533,6 +557,7 @@ async function submitEditBranch(){
     }});
     document.getElementById('edit-branch-modal').classList.remove('show');
     refreshBranchesTable();
+    showToast('Branch updated');
   }catch(e){ errEl.textContent = e.message; }
 }
 async function activateBranch(id){ await api(`/branches/${id}/activate`, {method:'PATCH'}); refreshBranchesTable(); }
@@ -545,10 +570,14 @@ async function deleteBranch(id){
   }catch(e){ alert(e.message); }
 }
 async function createBranch(){
-  const errEl = document.getElementById('b-err');
+  const errEl = document.getElementById('b-err'); errEl.textContent = '';
+  const name = document.getElementById('b-name').value.trim();
+  const code = document.getElementById('b-code').value.trim();
+  if(!name){ errEl.textContent = 'Branch name is required.'; return; }
+  if(!code){ errEl.textContent = 'Branch code is required.'; return; }
   try{
     await api('/branches/', { method:'POST', json:{
-      name: document.getElementById('b-name').value, code: document.getElementById('b-code').value,
+      name: name, code: code,
       city: document.getElementById('b-city').value, state: document.getElementById('b-state').value,
     }});
     renderBranches();
@@ -557,6 +586,8 @@ async function createBranch(){
 async function renderEmployees(){
   content().innerHTML = `<div class="empty">Loading…</div>`;
   const [employees, branches] = await Promise.all([api('/branches/employees'), api('/branches/')]);
+  window._allEmployees = employees;
+  window._allBranches = branches;
   const branchOpts = branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('');
   const branchName = id => (branches.find(b=>b.id===id)||{}).name || '—';
   content().innerHTML = `
@@ -603,6 +634,10 @@ async function renderEmployees(){
       <div id="e-doc-upload"></div>
     </div>
     <div class="panel"><h3>All employees</h3>
+      <div class="form-grid" style="margin-bottom:14px">
+        <div class="field"><label>Filter by branch</label><select id="emp-filter-branch" onchange="filterEmployeesTable()"><option value="">All branches</option>${branchOpts}</select></div>
+        <div class="field"><label>Filter by designation</label><select id="emp-filter-desig" onchange="filterEmployeesTable()"><option value="">All designations</option>${[...new Set(employees.map(e=>e.designation).filter(Boolean))].sort().map(d=>`<option value="${esc(d)}">${esc(d)}</option>`).join('')}</select></div>
+      </div>
       <table><thead><tr><th>Name</th><th>Email</th><th>Branch</th><th>Designation</th><th>Photo ID</th><th style="width:1%;white-space:nowrap">Status</th><th style="width:1%;white-space:nowrap">Actions</th></tr></thead>
       <tbody id="employees-tbody">${employees.map(e=>employeeRow(e, branchName)).join('') || '<tr><td colspan="7" class="empty">No employees yet</td></tr>'}</tbody></table>
     </div>
@@ -643,6 +678,15 @@ async function renderEmployees(){
       </div>
     </div>
   `;
+}
+function filterEmployeesTable(){
+  const branchFilter = document.getElementById('emp-filter-branch').value;
+  const desigFilter = document.getElementById('emp-filter-desig').value;
+  const branchName = id => (window._allBranches.find(b=>b.id===id)||{}).name || '—';
+  const filtered = window._allEmployees.filter(e =>
+    (!branchFilter || e.branch_id === branchFilter) && (!desigFilter || e.designation === desigFilter)
+  );
+  document.getElementById('employees-tbody').innerHTML = filtered.map(e=>employeeRow(e, branchName)).join('') || '<tr><td colspan="7" class="empty">No employees match this filter</td></tr>';
 }
 function employeeRow(e, branchName){
   return `<tr>
@@ -695,6 +739,7 @@ async function submitEditEmployee(){
     }});
     document.getElementById('edit-employee-modal').classList.remove('show');
     refreshEmployeesTable();
+    showToast('Employee updated');
   }catch(e){ errEl.textContent = e.message; }
 }
 async function suspendEmployee(id){ await api(`/branches/employees/${id}/suspend`, {method:'PATCH'}); refreshEmployeesTable(); }
@@ -917,6 +962,7 @@ async function submitEditProduct(){
     await api(`/loan-products/${editingProductId}`, { method:'PATCH', json: payload });
     document.getElementById('edit-product-modal').classList.remove('show');
     refreshProductsTable();
+    showToast('Loan product updated');
   }catch(e){ errEl.textContent = e.message; }
 }
 async function activateProduct(id){ await api(`/loan-products/${id}/activate`, {method:'PATCH'}); refreshProductsTable(); }
@@ -1378,10 +1424,15 @@ const KYC_DOC_TYPES = [
 
 async function renderCustomers(){
   content().innerHTML = `<div class="empty">Loading…</div>`;
-  const customers = await api('/customers');
+  const isSuperAdmin = state.role === 'superadmin';
+  const [customers, branches] = await Promise.all([
+    api('/customers'),
+    isSuperAdmin ? api('/branches/') : Promise.resolve([]),
+  ]);
   content().innerHTML = `
     <div class="panel"><h3>Onboard a customer</h3>
       <div class="form-grid">
+        ${isSuperAdmin ? `<div class="field"><label>Branch</label><select id="c-branch">${branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('') || '<option value="">Create a branch first</option>'}</select></div>` : ''}
         <div class="field"><label>Full name</label><input id="c-name" autocomplete="off"></div>
         <div class="field"><label>Phone</label>
           <input id="c-phone" inputmode="numeric" maxlength="10" placeholder="10-digit mobile number" autocomplete="off" oninput="digitsOnly(this,10)">
@@ -1425,10 +1476,20 @@ async function renderCustomers(){
     <div class="panel"><h3>Groups (for group/SHG loans)</h3>
       <p style="font-size:12.5px;color:#666;margin:0 0 14px">Create a group from existing customers — needed before applying for a group loan product.</p>
       <div class="form-grid">
+        ${isSuperAdmin ? `<div class="field"><label>Branch</label><select id="g-branch">${branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('') || '<option value="">Create a branch first</option>'}</select></div>` : ''}
         <div class="field"><label>Group name</label><input id="g-name" placeholder="e.g. Amman Nagar SHG"></div>
-        <div class="field" style="grid-column:1/-1"><label>Members</label>
-          <select id="g-members" multiple style="min-height:100px">${customers.map(c=>`<option value="${c.id}">${esc(c.full_name)} (${esc(c.customer_code)})</option>`).join('')}</select>
-          <div style="font-size:11px;color:#888;margin-top:4px">Hold Ctrl/Cmd to select multiple members.</div>
+      </div>
+      <div class="field" style="margin-top:12px">
+        <label>Members <span id="g-member-count" style="font-weight:400;color:#888">(0 selected)</span></label>
+        <input id="g-member-search" placeholder="Search by name or mobile number…" style="margin-bottom:8px" oninput="filterGroupMembers()">
+        <div id="g-member-list" style="max-height:260px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:8px">
+          ${customers.map(c=>`
+            <label data-search="${esc(c.full_name.toLowerCase())} ${esc(c.phone||'')}" style="display:flex;align-items:center;gap:10px;padding:8px 6px;cursor:pointer;border-radius:6px" onmouseover="this.style.background='#F6F5F2'" onmouseout="this.style.background='transparent'">
+              <input type="checkbox" class="g-member-checkbox" value="${c.id}" onchange="updateGroupMemberCount()" style="width:18px;height:18px;flex-shrink:0">
+              <span style="flex:1">${esc(c.full_name)}</span>
+              <span style="color:#888;font-size:12.5px">${esc(c.phone||'')} · ${esc(c.customer_code)}</span>
+            </label>
+          `).join('') || '<p class="empty" style="padding:12px 0">Onboard customers first — they\'ll show up here to add to a group.</p>'}
         </div>
       </div>
       <div class="row-actions"><button class="btn amber" onclick="createGroup()">Create group</button></div>
@@ -1445,15 +1506,31 @@ async function renderCustomers(){
   `;
   loadGroupsList();
 }
+function filterGroupMembers(){
+  const query = document.getElementById('g-member-search').value.trim().toLowerCase();
+  document.querySelectorAll('#g-member-list label').forEach(label => {
+    const matches = !query || label.dataset.search.includes(query);
+    label.style.display = matches ? 'flex' : 'none';
+  });
+}
+function updateGroupMemberCount(){
+  const count = document.querySelectorAll('.g-member-checkbox:checked').length;
+  document.getElementById('g-member-count').textContent = `(${count} selected)`;
+}
 async function createGroup(){
   const errEl = document.getElementById('g-err'); errEl.textContent = '';
   const name = document.getElementById('g-name').value.trim();
   if(!name){ errEl.textContent = 'Group name is required.'; return; }
-  const selected = Array.from(document.getElementById('g-members').selectedOptions).map(o=>o.value);
+  const branchEl = document.getElementById('g-branch');
+  const branchId = branchEl ? branchEl.value : state.branch_id;
+  if(!branchId){ errEl.textContent = 'Select a branch first.'; return; }
+  const selected = Array.from(document.querySelectorAll('.g-member-checkbox:checked')).map(cb => cb.value);
   if(selected.length < 2){ errEl.textContent = 'Select at least 2 members.'; return; }
   try{
-    await api('/groups', { method:'POST', json:{ branch_id: state.branch_id, name, customer_ids: selected }});
+    await api('/groups', { method:'POST', json:{ branch_id: branchId, name, customer_ids: selected }});
     document.getElementById('g-name').value = '';
+    document.querySelectorAll('.g-member-checkbox:checked').forEach(cb => cb.checked = false);
+    updateGroupMemberCount();
     loadGroupsList();
   }catch(e){ errEl.textContent = e.message; }
 }
@@ -1490,9 +1567,12 @@ async function createCustomer(){
 
   submitBtn.disabled = true;
   submitBtn.textContent = 'Adding…';
+  const branchEl = document.getElementById('c-branch');
+  const branchId = branchEl ? branchEl.value : state.branch_id;
+  if(!branchId){ errEl.textContent = 'Select a branch first.'; submitBtn.disabled = false; submitBtn.textContent = 'Add customer'; return; }
   try{
     const customer = await api('/customers', { method:'POST', json:{
-      branch_id: state.branch_id, full_name: document.getElementById('c-name').value,
+      branch_id: branchId, full_name: document.getElementById('c-name').value,
       phone: phone, address: document.getElementById('c-address').value,
       aadhaar_number: aadhaar || null,
       pan_number: document.getElementById('c-pan').value || null,
@@ -1539,6 +1619,18 @@ async function createCustomer(){
     const fresh = await api('/customers');
     document.getElementById('customers-tbody').innerHTML = fresh.map(c=>`<tr><td>${esc(c.customer_code)}</td><td>${esc(c.full_name)}</td><td>${esc(c.phone)}</td><td>${c.kyc_verified?'✅':'Pending'}</td><td>${c.bank_account_number?'✅':'—'}</td>
         <td><button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="viewCustomerDocs('${c.id}','${esc(c.full_name)}')">View / Upload</button></td></tr>`).join('') || '<tr><td colspan="6" class="empty">No customers yet</td></tr>';
+    // Also refresh the group member picker — without this, a customer added
+    // just now wouldn't show up as selectable until the whole page reloaded.
+    const memberListEl = document.getElementById('g-member-list');
+    if(memberListEl){
+      memberListEl.innerHTML = fresh.map(c=>`
+        <label data-search="${esc(c.full_name.toLowerCase())} ${esc(c.phone||'')}" style="display:flex;align-items:center;gap:10px;padding:8px 6px;cursor:pointer;border-radius:6px" onmouseover="this.style.background='#F6F5F2'" onmouseout="this.style.background='transparent'">
+          <input type="checkbox" class="g-member-checkbox" value="${c.id}" onchange="updateGroupMemberCount()" style="width:18px;height:18px;flex-shrink:0">
+          <span style="flex:1">${esc(c.full_name)}</span>
+          <span style="color:#888;font-size:12.5px">${esc(c.phone||'')} · ${esc(c.customer_code)}</span>
+        </label>
+      `).join('') || '<p class="empty" style="padding:12px 0">Onboard customers first — they\'ll show up here to add to a group.</p>';
+    }
   }catch(e){
     errEl.textContent = e.message;
     submitBtn.disabled = false;
@@ -1556,7 +1648,10 @@ async function viewCustomerDocs(customerId, customerName){
       ${docs.length ? `<div style="margin-bottom:16px">${docs.map(d => `
         <div class="activity-item">
           <div><div class="activity-main">${KYC_DOC_TYPES.find(t=>t.key===d.doc_type)?.label || d.doc_type}</div><div class="activity-sub">${esc(d.file_name)}</div></div>
-          <button class="link-btn" style="font-size:12px" onclick="downloadDocument('${d.id}','${esc(d.file_name)}')">Download</button>
+          <div style="display:flex;gap:10px;align-items:center">
+            <button class="link-btn" style="font-size:12px" onclick="downloadDocument('${d.id}','${esc(d.file_name)}')">Download</button>
+            <button class="link-btn" style="font-size:12px;color:#C0392B" onclick="deleteCustomerDocument('${d.id}','${customerId}','${esc(customerName)}')">Delete</button>
+          </div>
         </div>`).join('')}</div>` : '<p class="empty" style="padding:12px 0">No documents uploaded yet.</p>'}
       <div style="border-top:1px solid var(--border);padding-top:14px">
         <p style="font-size:12px;color:#888;margin:0 0 10px">Upload missing documents:</p>
@@ -1572,6 +1667,14 @@ async function viewCustomerDocs(customerId, customerName){
   }catch(e){
     document.getElementById('docs-modal-body').innerHTML = `<div class="err">${esc(e.message)}</div>`;
   }
+}
+async function deleteCustomerDocument(documentId, customerId, customerName){
+  if(!confirm('Delete this document? You can upload a replacement right after.')) return;
+  try{
+    await api(`/documents/${documentId}`, { method:'DELETE' });
+    showToast('Document deleted');
+    viewCustomerDocs(customerId, customerName);
+  }catch(e){ showToast(e.message, 'error'); }
 }
 async function uploadKycDocModal(customerId, docType, customerName){
   const fileInput = document.getElementById(`kyc2-${docType}-${customerId}`);

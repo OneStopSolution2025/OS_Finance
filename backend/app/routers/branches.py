@@ -21,7 +21,14 @@ class BranchCreate(BaseModel):
 
 @router.post("/")
 def create_branch(payload: BranchCreate, db: Session = Depends(get_db), user: User = Depends(require_superadmin)):
-    branch = Branch(tenant_id=user.tenant_id, **payload.dict())
+    if not payload.name or not payload.name.strip():
+        raise HTTPException(status_code=400, detail="Branch name is required.")
+    if not payload.code or not payload.code.strip():
+        raise HTTPException(status_code=400, detail="Branch code is required.")
+    branch = Branch(
+        tenant_id=user.tenant_id, name=payload.name.strip(), code=payload.code.strip(),
+        address=payload.address, city=payload.city, state=payload.state,
+    )
     db.add(branch)
     db.commit()
     db.refresh(branch)
