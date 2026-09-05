@@ -53,8 +53,13 @@ def update_branch(branch_id: str, payload: BranchUpdate, db: Session = Depends(g
     branch = db.query(Branch).filter(Branch.id == branch_id, Branch.tenant_id == user.tenant_id).first()
     if not branch:
         raise HTTPException(status_code=404, detail="Branch not found")
-    for field, value in payload.dict(exclude_unset=True).items():
-        setattr(branch, field, value)
+    updates = payload.dict(exclude_unset=True)
+    if "name" in updates and not (updates["name"] or "").strip():
+        raise HTTPException(status_code=400, detail="Branch name cannot be empty.")
+    if "code" in updates and not (updates["code"] or "").strip():
+        raise HTTPException(status_code=400, detail="Branch code cannot be empty.")
+    for field, value in updates.items():
+        setattr(branch, field, value.strip() if isinstance(value, str) else value)
     db.commit()
     return {"status": "updated"}
 
@@ -182,6 +187,8 @@ class EmployeeUpdate(BaseModel):
     photo_id_number: str | None = None
 
     def validate_fields(self):
+        if self.full_name is not None and not self.full_name.strip():
+            raise HTTPException(status_code=400, detail="Full name cannot be empty.")
         if self.phone and not re.fullmatch(r"\d{10}", self.phone):
             raise HTTPException(status_code=400, detail="Contact number must be exactly 10 digits.")
         if self.photo_id_type == "aadhaar" and self.photo_id_number and not re.fullmatch(r"\d{12}", self.photo_id_number):

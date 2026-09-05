@@ -30,6 +30,10 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition"],  # without this, browsers silently hide this header from
+                                              # fetch() even though it's genuinely present in the response
+                                              # — every downloaded file (receipts, reports, exports) would
+                                              # fall back to its generic placeholder name, not the real one.
 )
 
 app.include_router(auth.router)

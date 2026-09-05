@@ -195,9 +195,14 @@ def collections_trend(db: Session = Depends(get_db), user: User = Depends(requir
         received = payment_q.filter(Payment.paid_at >= day_start_utc, Payment.paid_at < day_end_utc).with_entities(
             func.coalesce(func.sum(Payment.amount), 0)
         ).scalar()
-        required = due_q.filter(EMISchedule.due_date == d).with_entities(
-            func.coalesce(func.sum(EMISchedule.total_due), 0)
-        ).scalar()
+        if d == today:
+            required = due_q.filter(EMISchedule.due_date <= d, EMISchedule.is_paid == False).with_entities(  # noqa: E712
+                func.coalesce(func.sum(EMISchedule.total_due - EMISchedule.amount_paid), 0)
+            ).scalar()
+        else:
+            required = due_q.filter(EMISchedule.due_date == d).with_entities(
+                func.coalesce(func.sum(EMISchedule.total_due), 0)
+            ).scalar()
         trend.append({"date": d.isoformat(), "amount": float(received), "required": float(required)})
     return trend
 
@@ -365,9 +370,14 @@ def my_collections_trend(db: Session = Depends(get_db), user: User = Depends(req
         received = payment_q.filter(Payment.paid_at >= day_start_utc, Payment.paid_at < day_end_utc).with_entities(
             func.coalesce(func.sum(Payment.amount), 0)
         ).scalar()
-        required = due_q.filter(EMISchedule.due_date == d).with_entities(
-            func.coalesce(func.sum(EMISchedule.total_due), 0)
-        ).scalar()
+        if d == today:
+            required = due_q.filter(EMISchedule.due_date <= d, EMISchedule.is_paid == False).with_entities(  # noqa: E712
+                func.coalesce(func.sum(EMISchedule.total_due - EMISchedule.amount_paid), 0)
+            ).scalar()
+        else:
+            required = due_q.filter(EMISchedule.due_date == d).with_entities(
+                func.coalesce(func.sum(EMISchedule.total_due), 0)
+            ).scalar()
         trend.append({"date": d.isoformat(), "amount": float(received), "required": float(required)})
     return trend
 

@@ -163,6 +163,8 @@
     @media(min-width:761px){.activity-grid>div:first-child{padding-right:36px;border-right:1px solid var(--border)}}
     @media(max-width:760px){.activity-grid{grid-template-columns:1fr;gap:28px}}
     .activity-list-scroll{max-height:280px;overflow-y:auto}
+  .list-scroll{max-height:440px;overflow-y:auto;border:1px solid var(--border);border-radius:8px}
+  .list-scroll table{border:none}
     .activity-item{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--border);font-size:13px}
     .activity-item:last-child{border-bottom:none}
     .activity-main{font-weight:600}
@@ -273,8 +275,21 @@ async function api(path, opts={}){
   if(res.status === 401){ logout(); throw new Error('Session expired'); }
   let data;
   try{ data = await res.json(); }catch(e){ data = null; }
-  if(!res.ok) throw new Error((data && data.detail) || 'Request failed');
+  if(!res.ok) throw new Error(extractErrorMessage(data));
   return data;
+}
+function extractErrorMessage(data){
+  // FastAPI returns detail as a plain string for our own checks, but as an
+  // ARRAY of {loc, msg, ...} objects for built-in field validation (e.g. an
+  // invalid email format) — without this, that array stringifies to the
+  // meaningless "[object Object]" instead of the actual validation message.
+  const detail = data && data.detail;
+  if(!detail) return 'Request failed';
+  if(typeof detail === 'string') return detail;
+  if(Array.isArray(detail)){
+    return detail.map(d => d && d.msg ? d.msg : JSON.stringify(d)).join(' ');
+  }
+  return 'Request failed';
 }
 
 // ---------- Auth ----------
@@ -301,7 +316,7 @@ async function doLogin(){
   }
 }
 function logout(){
-  state = { token:null, role:null, name:null, tenant_id:null, branch_id:null, view:'dashboard' };
+  state = { token:null, role:null, name:null, tenant_id:null, branch_id:null, view:'dashboard', navHistory:[] };
   sessionStorage.removeItem('osf_session');
   document.getElementById('app').classList.remove('active');
   document.getElementById('login-screen').style.display = 'flex';
@@ -316,6 +331,7 @@ const NAV = {
     {id:'customers', label:'🧑‍🤝‍🧑 Customers'},
     {id:'loan-products', label:'📄 Loan Products'},
     {id:'loans', label:'💰 Loans'},
+    {id:'collections', label:'💵 Collections'},
     {id:'reports', label:'📈 Reports'},
     {id:'payment-settings', label:'🔑 Payment Settings'},
   ],
@@ -333,7 +349,9 @@ function enterApp(){
   document.getElementById('role-pill').textContent = state.role.replace('superadmin','Super Admin').replace('employee','Employee');
   document.getElementById('user-name').textContent = state.name || '';
   renderNav();
-  navigate('dashboard');
+  const validViews = (NAV[state.role] || []).map(n => n.id);
+  const restoredView = validViews.includes(state.view) ? state.view : 'dashboard';
+  navigate(restoredView, true); // isBack=true so restoring doesn't push a bogus history entry
 }
 function renderNav(){
   const nav = NAV[state.role] || [];
@@ -350,6 +368,7 @@ function navigate(view, isBack){
     state.navHistory.push(state.view);
   }
   state.view = view;
+  if(sessionStorage.getItem('osf_session')) sessionStorage.setItem('osf_session', JSON.stringify(state));
   toggleSidebar(false);
   renderNav();
   const titles = {dashboard:'Overview', branches:'Branches',
@@ -585,8 +604,9 @@ function branchRow(b){
   </tr>`;
 }
 async function refreshBranchesTable(){
-  const branches = await api('/branches/');
-  document.getElementById('branches-tbody').innerHTML = branches.map(b=>branchRow(b)).join('') || '<tr><td colspan="6" class="empty">No branches yet</td></tr>';
+  await renderBranches(); // full re-render, not just the table — the stat cards at the top
+                          // (Total/Active/Inactive) need to recompute too, or they go stale
+                          // until a manual page reload even though the change already saved.
 }
 let editingBranchId = null;
 function openEditBranch(b){
@@ -599,10 +619,14 @@ function openEditBranch(b){
   document.getElementById('edit-branch-modal').classList.add('show');
 }
 async function submitEditBranch(){
-  const errEl = document.getElementById('eb-err');
+  const errEl = document.getElementById('eb-err'); errEl.textContent = '';
+  const name = document.getElementById('eb-name').value.trim();
+  const code = document.getElementById('eb-code').value.trim();
+  if(!name){ errEl.textContent = 'Branch name cannot be empty.'; return; }
+  if(!code){ errEl.textContent = 'Branch code cannot be empty.'; return; }
   try{
     await api(`/branches/${editingBranchId}`, { method:'PATCH', json:{
-      name: document.getElementById('eb-name').value, code: document.getElementById('eb-code').value,
+      name: name, code: code,
       city: document.getElementById('eb-city').value, state: document.getElementById('eb-state').value,
     }});
     document.getElementById('edit-branch-modal').classList.remove('show');
@@ -688,8 +712,10 @@ async function renderEmployees(){
         <div class="field"><label>Filter by branch</label><select id="emp-filter-branch" onchange="filterEmployeesTable()"><option value="">All branches</option>${branchOpts}</select></div>
         <div class="field"><label>Filter by designation</label><select id="emp-filter-desig" onchange="filterEmployeesTable()"><option value="">All designations</option>${[...new Set(employees.map(e=>e.designation).filter(Boolean))].sort().map(d=>`<option value="${esc(d)}">${esc(d)}</option>`).join('')}</select></div>
       </div>
+      <div class="list-scroll">
       <table><thead><tr><th>Name</th><th>Email</th><th>Branch</th><th>Designation</th><th>Photo ID</th><th style="width:1%;white-space:nowrap">Status</th><th style="width:1%;white-space:nowrap">Actions</th></tr></thead>
       <tbody id="employees-tbody">${employees.map(e=>employeeRow(e, branchName)).join('') || '<tr><td colspan="7" class="empty">No employees yet</td></tr>'}</tbody></table>
+      </div>
     </div>
     <div class="modal-overlay" id="edit-employee-modal">
       <div class="modal-card" style="max-width:480px;max-height:85vh;overflow-y:auto">
@@ -772,6 +798,8 @@ function openEditEmployee(e){
 }
 async function submitEditEmployee(){
   const errEl = document.getElementById('ee-err'); errEl.textContent = '';
+  const fullName = document.getElementById('ee-name').value.trim();
+  if(!fullName){ errEl.textContent = 'Full name cannot be empty.'; return; }
   const phone = document.getElementById('ee-phone').value.trim();
   if(phone && !isValidPhone(phone)){ errEl.textContent = 'Contact number must be exactly 10 digits.'; return; }
   const photoIdType = document.getElementById('ee-photo-id-type').value;
@@ -779,7 +807,7 @@ async function submitEditEmployee(){
   if(photoIdType === 'aadhaar' && photoIdNumber && !isValidAadhaar(photoIdNumber)){ errEl.textContent = 'Aadhaar number must be exactly 12 digits.'; return; }
   try{
     await api(`/branches/employees/${editingEmployeeId}`, { method:'PATCH', json:{
-      full_name: document.getElementById('ee-name').value,
+      full_name: fullName,
       phone: phone,
       designation: getDesignationValue('ee'),
       branch_id: document.getElementById('ee-branch').value,
@@ -997,10 +1025,12 @@ function openEditProduct(p){
   document.getElementById('edit-product-modal').classList.add('show');
 }
 async function submitEditProduct(){
-  const errEl = document.getElementById('ep-err');
+  const errEl = document.getElementById('ep-err'); errEl.textContent = '';
+  const name = document.getElementById('ep-name').value.trim();
+  if(!name){ errEl.textContent = 'Loan product name cannot be empty.'; return; }
   const interestType = document.getElementById('ep-type').value;
   const payload = {
-    name: document.getElementById('ep-name').value,
+    name: name,
     interest_type: interestType,
     interest_rate_annual: Number(document.getElementById('ep-rate').value),
   };
@@ -1095,6 +1125,7 @@ async function renderLoans(){
   content().innerHTML = `
     ${applyPanel}
     <div class="panel"><h3>All loans</h3>
+      <div class="list-scroll">
       <table><thead><tr><th>Loan #</th><th>Customer / Group</th><th>Type</th><th>Branch</th><th>Employee</th><th>Principal</th><th>Disbursed</th><th>Applied</th><th>Status</th>${canManage?'<th style="width:1%;white-space:nowrap">Documents</th><th style="width:1%;white-space:nowrap">Action</th>':''}</tr></thead>
       <tbody>${loans.map(l=>`<tr style="${l.has_defaulter ? 'background:#FBE4E1' : ''}">
         <td>${esc(l.loan_number)}</td>
@@ -1112,6 +1143,7 @@ async function renderLoans(){
           : l.status==='approved'?`<button class="btn amber" style="padding:6px 10px;font-size:12px" onclick="openDisburseModal('${l.id}','${l.customer_id}')">Disburse</button>`:'—'}</td>`:''}
         </tr>`).join('') || `<tr><td colspan="${canManage?11:9}" class="empty">No loans yet</td></tr>`}
       </tbody></table>
+      </div>
     </div>
     <div class="modal-overlay" id="disburse-loan-modal">
       <div class="modal-card">
@@ -1531,9 +1563,11 @@ async function renderCustomers(){
       <div id="c-kyc-upload"></div>
     </div>
     <div class="panel"><h3>Customers</h3>
+      <div class="list-scroll">
       <table><thead><tr><th>Code</th><th>Name</th><th>Phone</th><th>KYC</th><th>Bank</th><th>Documents</th></tr></thead>
       <tbody id="customers-tbody">${customers.map(c=>`<tr><td>${esc(c.customer_code)}</td><td>${esc(c.full_name)}</td><td>${esc(c.phone)}</td><td>${c.kyc_verified?'✅':'Pending'}</td><td>${c.bank_account_number?'✅':'—'}</td>
         <td><button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="viewCustomerDocs('${c.id}','${esc(c.full_name)}')">View / Upload</button></td></tr>`).join('') || '<tr><td colspan="6" class="empty">No customers yet</td></tr>'}</tbody></table>
+      </div>
     </div>
     <div class="panel"><h3>Groups (for group/SHG loans)</h3>
       <p style="font-size:12.5px;color:#666;margin:0 0 14px">Create a group from existing customers — needed before applying for a group loan product.</p>

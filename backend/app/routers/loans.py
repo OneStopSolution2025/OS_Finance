@@ -223,6 +223,9 @@ class LoanProductUpdate(BaseModel):
 
 @router.patch("/loan-products/{product_id}")
 def update_loan_product(product_id: str, payload: LoanProductUpdate, db: Session = Depends(get_db), user: User = Depends(require_superadmin)):
+    updates = payload.dict(exclude_unset=True)
+    if "name" in updates and not (updates["name"] or "").strip():
+        raise HTTPException(status_code=400, detail="Loan product name cannot be empty.")
     product = db.query(LoanProduct).filter(LoanProduct.id == product_id, LoanProduct.tenant_id == user.tenant_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Loan product not found")
