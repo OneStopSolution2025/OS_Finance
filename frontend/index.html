@@ -1772,23 +1772,25 @@ async function renderCollections(){
       </div>
       <div id="individual-collection-fields">
         <select id="p-emi" onchange="updateCollectionAmount()" class="hidden"></select>
-        <div class="form-grid">
-          <div class="field"><label>Filter due list</label>
-            <select id="due-list-filter" onchange="renderDueListTable(this.value)">
-              <option value="unpaid">Unpaid only</option>
-              <option value="paid">Paid only</option>
-              <option value="all">All installments</option>
-            </select>
-          </div>
-          <div class="field"><label>Amount (₹)</label><input id="p-amount" type="number" readonly style="background:#F6F5F2;cursor:not-allowed"><div style="font-size:11px;color:#888;margin-top:4px">Auto-filled from the selected installment's remaining due — must match exactly, so it isn't editable.</div></div>
+        <div class="field" style="max-width:280px"><label>Filter due list</label>
+          <select id="due-list-filter" onchange="renderDueListTable(this.value)">
+            <option value="unpaid">Unpaid only</option>
+            <option value="paid">Paid only</option>
+            <option value="all">All installments</option>
+          </select>
         </div>
         <div id="due-list-body" style="margin-bottom:14px"></div>
-        <div class="row-actions">
-          <button class="btn amber" onclick="collectCash()">Record cash payment</button>
-          <button class="btn" onclick="collectRazorpay()">Collect via Razorpay</button>
+        <div id="collect-confirm-panel" class="hidden" style="background:#F6F5F2;border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:14px">
+          <div id="collect-confirm-label" style="font-weight:600;margin-bottom:10px;color:var(--charcoal)"></div>
+          <div class="field" style="max-width:220px;margin-bottom:12px"><label>Amount (₹)</label><input id="p-amount" type="number" readonly style="background:#fff;cursor:not-allowed"><div style="font-size:11px;color:#888;margin-top:4px">Auto-filled from the selected installment's remaining due — must match exactly, so it isn't editable.</div></div>
+          <div class="row-actions">
+            <button class="btn amber" onclick="collectCash()">Record cash payment</button>
+            <button class="btn" onclick="collectRazorpay()">Collect via Razorpay</button>
+            <button class="btn ghost" onclick="hideCollectConfirmPanel()">Cancel</button>
+          </div>
+          <div class="err" id="p-err"></div>
+          <div id="p-receipt"></div>
         </div>
-        <div class="err" id="p-err"></div>
-        <div id="p-receipt"></div>
       </div>
       <div id="group-collection-fields" class="hidden">
         <div class="form-grid">
@@ -1890,6 +1892,7 @@ async function collectGroupMemberPayment(groupMemberId, expected, penalty){
 async function loadSchedule(){
   const loanId = document.getElementById('p-loan').value;
   if(!loanId) return;
+  hideCollectConfirmPanel(); // don't leave a stale confirmation open when switching loans
   const sched = await api(`/loans/${loanId}/schedule`);
   window._currentIndividualSchedule = sched;
   // p-emi stays the real source of truth for collectCash()/collectRazorpay() — unchanged
@@ -1920,7 +1923,18 @@ function renderDueListTable(filter){
 function selectInstallmentForCollection(emiId){
   document.getElementById('p-emi').value = emiId;
   updateCollectionAmount();
-  document.getElementById('p-amount').scrollIntoView({behavior:'smooth', block:'center'});
+  const sched = window._currentIndividualSchedule || [];
+  const installment = sched.find(s => s.id === emiId);
+  const label = installment ? `Collecting Installment #${installment.installment_no} — due ${installment.due_date}` : 'Collecting installment';
+  document.getElementById('collect-confirm-label').textContent = label;
+  document.getElementById('p-err').textContent = '';
+  document.getElementById('p-receipt').innerHTML = '';
+  const panel = document.getElementById('collect-confirm-panel');
+  panel.classList.remove('hidden');
+  panel.scrollIntoView({behavior:'smooth', block:'center'});
+}
+function hideCollectConfirmPanel(){
+  document.getElementById('collect-confirm-panel').classList.add('hidden');
 }
 function updateCollectionAmount(){
   const sel = document.getElementById('p-emi');
@@ -1935,10 +1949,10 @@ async function collectCash(){
       loan_id: document.getElementById('p-loan').value, emi_id: document.getElementById('p-emi').value,
       amount: Number(document.getElementById('p-amount').value),
     }});
-    document.getElementById('p-receipt').innerHTML = `<p style="margin-top:12px;font-size:13.5px">✅ Recorded — ${res.receipt_number}. <button class="link-btn" onclick="downloadReceipt('${res.payment_id}','${res.receipt_number}')">Print / download receipt</button></p>`;
+    showToast(`Payment recorded — ${res.receipt_number}. Find it anytime under Collection history below.`);
     await loadSchedule(); // refresh the due list so the just-paid installment shows Paid immediately,
-                          // and the next unpaid one is selected — without this, the old due amount
-                          // stays on screen and clicking Collect again fails against an already-paid installment.
+                          // and closes the confirm panel — without this, the old due amount stays on
+                          // screen and clicking Collect again fails against an already-paid installment.
   }catch(e){ errEl.textContent = e.message; }
 }
 async function collectRazorpay(){
@@ -1957,7 +1971,7 @@ async function collectRazorpay(){
           razorpay_order_id: response.razorpay_order_id, razorpay_payment_id: response.razorpay_payment_id,
           razorpay_signature: response.razorpay_signature, loan_id: loanId, emi_id: emiId, amount,
         }});
-        document.getElementById('p-receipt').innerHTML = `<p style="margin-top:12px;font-size:13.5px">✅ Paid online — ${res.receipt_number}. <button class="link-btn" onclick="downloadReceipt('${res.payment_id}','${res.receipt_number}')">Print / download receipt</button></p>`;
+        showToast(`Paid online — ${res.receipt_number}. Find it anytime under Collection history below.`);
         await loadSchedule();
       },
     });
