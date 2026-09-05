@@ -1814,17 +1814,6 @@ async function renderCollections(){
           </select>
         </div>
         <div id="due-list-body" style="margin-bottom:14px"></div>
-        <div id="collect-confirm-panel" class="hidden" style="background:#F6F5F2;border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:14px">
-          <div id="collect-confirm-label" style="font-weight:600;margin-bottom:10px;color:var(--charcoal)"></div>
-          <div class="field" style="max-width:220px;margin-bottom:12px"><label>Amount (₹)</label><input id="p-amount" type="number" readonly style="background:#fff;cursor:not-allowed"><div style="font-size:11px;color:#888;margin-top:4px">Auto-filled from the selected installment's remaining due — must match exactly, so it isn't editable.</div></div>
-          <div class="row-actions">
-            <button class="btn amber" onclick="collectCash()">Record cash payment</button>
-            <button class="btn" onclick="collectRazorpay()">Collect via Razorpay</button>
-            <button class="btn ghost" onclick="hideCollectConfirmPanel()">Cancel</button>
-          </div>
-          <div class="err" id="p-err"></div>
-          <div id="p-receipt"></div>
-        </div>
       </div>
       <div id="group-collection-fields" class="hidden">
         <div class="form-grid">
@@ -1926,7 +1915,7 @@ async function collectGroupMemberPayment(groupMemberId, expected, penalty){
 async function loadSchedule(){
   const loanId = document.getElementById('p-loan').value;
   if(!loanId) return;
-  hideCollectConfirmPanel(); // don't leave a stale confirmation open when switching loans
+  window._selectedCollectionEmiId = null; // don't leave a stale confirmation open when switching loans or refreshing
   const sched = await api(`/loans/${loanId}/schedule`);
   window._currentIndividualSchedule = sched;
   // p-emi stays the real source of truth for collectCash()/collectRazorpay() — unchanged
@@ -1943,37 +1932,55 @@ async function loadSchedule(){
 function renderDueListTable(filter){
   const sched = window._currentIndividualSchedule || [];
   const filtered = sched.filter(s => filter==='all' || (filter==='paid'?s.is_paid:!s.is_paid));
+  const selectedId = window._selectedCollectionEmiId;
   document.getElementById('due-list-body').innerHTML = `
     <table><thead><tr><th>Installment</th><th>Due Date</th><th>Amount</th><th>Status</th><th style="width:1%;white-space:nowrap">Action</th></tr></thead>
-    <tbody>${filtered.map(s=>`<tr style="${!s.is_paid ? 'background:#FBE4E1' : ''}">
-      <td>#${s.installment_no}</td>
-      <td>${s.due_date}</td>
-      <td>₹${(s.total_due - (s.amount_paid||0)).toFixed(2)}</td>
-      <td>${s.is_paid ? '<span class="badge active">Paid</span>' : '<span class="badge pending_approval">Unpaid</span>'}</td>
-      <td>${s.is_paid ? '—' : `<button class="btn amber" style="padding:6px 10px;font-size:12px" onclick="selectInstallmentForCollection('${s.id}')">Collect</button>`}</td>
-    </tr>`).join('') || '<tr><td colspan="5" class="empty">No installments match this filter</td></tr>'}</tbody></table>
+    <tbody>${filtered.map(s=>{
+      const row = `<tr style="${!s.is_paid ? 'background:#FBE4E1' : ''}">
+        <td>#${s.installment_no}</td>
+        <td>${s.due_date}</td>
+        <td>₹${(s.total_due - (s.amount_paid||0)).toFixed(2)}</td>
+        <td>${s.is_paid ? '<span class="badge active">Paid</span>' : '<span class="badge pending_approval">Unpaid</span>'}</td>
+        <td>${s.is_paid ? '—' : `<button class="btn amber" style="padding:6px 10px;font-size:12px" onclick="selectInstallmentForCollection('${s.id}')">Collect</button>`}</td>
+      </tr>`;
+      // The confirmation panel pops open directly under the row that was
+      // clicked, as an extra full-width row right below it — not in a
+      // separate section after the whole table, which was easy to miss.
+      const expanded = s.id === selectedId ? `<tr id="collect-confirm-row"><td colspan="5" style="padding:0">
+        <div style="background:#F6F5F2;border-top:2px solid var(--amber);padding:16px;margin:0">
+          <div style="font-weight:600;margin-bottom:10px;color:var(--charcoal)">Collecting Installment #${s.installment_no} — due ${s.due_date}</div>
+          <div class="field" style="max-width:220px;margin-bottom:12px"><label>Amount (₹)</label><input id="p-amount" type="number" readonly value="${(s.total_due - (s.amount_paid||0)).toFixed(2)}" style="background:#fff;cursor:not-allowed"><div style="font-size:11px;color:#888;margin-top:4px">Auto-filled from the selected installment's remaining due — must match exactly, so it isn't editable.</div></div>
+          <div class="row-actions">
+            <button class="btn amber" onclick="collectCash()">Record cash payment</button>
+            <button class="btn" onclick="collectRazorpay()">Collect via Razorpay</button>
+            <button class="btn ghost" onclick="hideCollectConfirmPanel()">Cancel</button>
+          </div>
+          <div class="err" id="p-err"></div>
+          <div id="p-receipt"></div>
+        </div>
+      </td></tr>` : '';
+      return row + expanded;
+    }).join('') || '<tr><td colspan="5" class="empty">No installments match this filter</td></tr>'}</tbody></table>
   `;
 }
 function selectInstallmentForCollection(emiId){
   document.getElementById('p-emi').value = emiId;
-  updateCollectionAmount();
-  const sched = window._currentIndividualSchedule || [];
-  const installment = sched.find(s => s.id === emiId);
-  const label = installment ? `Collecting Installment #${installment.installment_no} — due ${installment.due_date}` : 'Collecting installment';
-  document.getElementById('collect-confirm-label').textContent = label;
-  document.getElementById('p-err').textContent = '';
-  document.getElementById('p-receipt').innerHTML = '';
-  const panel = document.getElementById('collect-confirm-panel');
-  panel.classList.remove('hidden');
-  panel.scrollIntoView({behavior:'smooth', block:'center'});
+  window._selectedCollectionEmiId = emiId;
+  const currentFilter = document.getElementById('due-list-filter').value;
+  renderDueListTable(currentFilter);
+  const row = document.getElementById('collect-confirm-row');
+  if(row) row.scrollIntoView({behavior:'smooth', block:'center'});
 }
 function hideCollectConfirmPanel(){
-  document.getElementById('collect-confirm-panel').classList.add('hidden');
+  window._selectedCollectionEmiId = null;
+  const filterEl = document.getElementById('due-list-filter');
+  if(filterEl) renderDueListTable(filterEl.value);
 }
 function updateCollectionAmount(){
   const sel = document.getElementById('p-emi');
   const amountEl = document.getElementById('p-amount');
-  if(!sel || !sel.options.length || !sel.value){ if(amountEl) amountEl.value = ''; return; }
+  if(!amountEl) return; // the amount field only exists while a due-list row is expanded
+  if(!sel || !sel.options.length || !sel.value){ amountEl.value = ''; return; }
   amountEl.value = sel.options[sel.selectedIndex].dataset.due || '';
 }
 async function collectCash(){
