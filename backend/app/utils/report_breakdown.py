@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.models.finance import Payment, Loan, Customer, LoanGroup, LoanGroupMember, EMISchedule, GroupContribution
 from app.models.tenancy import User, UserRole, Branch
+from app.utils.tz import ist_today
 
 
 def _scoped_payments(db: Session, user: User):
@@ -162,7 +163,7 @@ def build_outstanding(db: Session, user: User, group_by: str) -> list[dict]:
     PER NON-PAYING MEMBER, not one row for the group as a whole, so a
     defaulting member inside an otherwise-current group is never hidden.
     """
-    today = date.today()
+    today = ist_today()
     loans = _scoped_loans(db, user)
     loan_ids = [l.id for l in loans]
     if not loan_ids:

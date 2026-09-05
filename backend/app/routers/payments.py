@@ -15,6 +15,7 @@ from app.models.tenancy import User, Tenant, UserRole
 from app.models.finance import Payment, EMISchedule, Loan, Customer, PaymentMethod, LoanGroup, LoanGroupMember, GroupContribution, LoanProduct
 from app.utils.receipts import generate_receipt_pdf
 from app.utils.whatsapp import send_payment_receipt_notification
+from app.utils.tz import ist_today
 from app.utils.audit_log import log_money_event
 from app.models.audit import MoneyEventType
 
@@ -196,8 +197,8 @@ def record_group_contribution_payment(payload: GroupContributionPayment, db: Ses
     # Penalty applies ONLY to this specific member, only if they're paying after the due
     # date — never to the rest of the group, and never charged before it's actually overdue.
     product = db.query(LoanProduct).filter(LoanProduct.id == loan.loan_product_id).first()
-    if date.today() > emi.due_date and contribution.penalty_amount == 0:
-        days_late = (date.today() - emi.due_date).days
+    if ist_today() > emi.due_date and contribution.penalty_amount == 0:
+        days_late = (ist_today() - emi.due_date).days
         contribution.penalty_amount = calculate_penalty(product, contribution.expected_amount, days_late)
 
     required_total = Decimal(str(contribution.expected_amount)) + Decimal(str(contribution.penalty_amount or 0))

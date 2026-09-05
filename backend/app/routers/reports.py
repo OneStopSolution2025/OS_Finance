@@ -12,6 +12,7 @@ from app.utils.report_pdf import generate_branch_report_pdf, generate_breakdown_
 from app.utils.report_breakdown import build_breakdown, build_outstanding
 from app.utils.report_xlsx import generate_breakdown_xlsx
 from app.utils.leads_export import generate_leads_xlsx, generate_leads_pdf
+from app.utils.tz import ist_today, ist_day_bounds_utc
 
 router = APIRouter(prefix="/reports", tags=["accounts & reports"])
 
@@ -57,7 +58,7 @@ def upcoming_repayments(days: int = 7, db: Session = Depends(get_db), user: User
     and branch attached to each one, so a reminder can actually be acted on:
     who to follow up with, and which staff member owns that relationship.
     """
-    today = date.today()
+    today = ist_today()
     end = today + timedelta(days=days)
     upcoming_emis = (
         db.query(EMISchedule).join(Loan, EMISchedule.loan_id == Loan.id)
@@ -86,7 +87,7 @@ def upcoming_repayments(days: int = 7, db: Session = Depends(get_db), user: User
 @router.get("/my-upcoming-repayments")
 def my_upcoming_repayments(days: int = 7, db: Session = Depends(get_db), user: User = Depends(require_any)):
     """This person's own upcoming repayments only — loans they applied, within their branch."""
-    today = date.today()
+    today = ist_today()
     end = today + timedelta(days=days)
     upcoming_emis = (
         db.query(EMISchedule).join(Loan, EMISchedule.loan_id == Loan.id)
@@ -127,7 +128,7 @@ def branch_summary(db: Session = Depends(get_db), user: User = Depends(require_a
     overdue_q = db.query(EMISchedule).join(Loan).filter(
         Loan.tenant_id == user.tenant_id,
         EMISchedule.is_paid == False,
-        EMISchedule.due_date < date.today(),
+        EMISchedule.due_date < ist_today(),
     )
     if user.role == UserRole.employee:
         overdue_q = overdue_q.filter(Loan.branch_id == user.branch_id)
@@ -153,14 +154,14 @@ def branch_summary(db: Session = Depends(get_db), user: User = Depends(require_a
 def portfolio_at_risk(db: Session = Depends(get_db), user: User = Depends(require_any)):
     """PAR buckets: overdue installments grouped by days-past-due."""
     overdue = db.query(EMISchedule).join(Loan).filter(
-        Loan.tenant_id == user.tenant_id, EMISchedule.is_paid == False, EMISchedule.due_date < date.today()
+        Loan.tenant_id == user.tenant_id, EMISchedule.is_paid == False, EMISchedule.due_date < ist_today()
     )
     if user.role == UserRole.employee:
         overdue = overdue.filter(Loan.branch_id == user.branch_id)
 
     buckets = {"1-30": 0, "31-60": 0, "61-90": 0, "90+": 0}
     for emi in overdue.all():
-        dpd = (date.today() - emi.due_date).days
+        dpd = (ist_today() - emi.due_date).days
         amt = float(emi.total_due - (emi.amount_paid or 0))
         if dpd <= 30:
             buckets["1-30"] += amt
@@ -186,11 +187,12 @@ def collections_trend(db: Session = Depends(get_db), user: User = Depends(requir
         payment_q = payment_q.filter(Payment.branch_id == user.branch_id)
         due_q = due_q.filter(Loan.branch_id == user.branch_id)
 
-    today = date.today()
+    today = ist_today()
     days = [today - timedelta(days=i) for i in range(6, -1, -1)]
     trend = []
     for d in days:
-        received = payment_q.filter(func.date(Payment.paid_at) == d).with_entities(
+        day_start_utc, day_end_utc = ist_day_bounds_utc(d)
+        received = payment_q.filter(Payment.paid_at >= day_start_utc, Payment.paid_at < day_end_utc).with_entities(
             func.coalesce(func.sum(Payment.amount), 0)
         ).scalar()
         required = due_q.filter(EMISchedule.due_date == d).with_entities(
@@ -355,11 +357,12 @@ def my_collections_trend(db: Session = Depends(get_db), user: User = Depends(req
     until it's actually paid."""
     payment_q = db.query(Payment).filter(Payment.collected_by == user.id)
     due_q = db.query(EMISchedule).join(Loan, EMISchedule.loan_id == Loan.id).filter(Loan.applied_by == user.id)
-    today = date.today()
+    today = ist_today()
     days = [today - timedelta(days=i) for i in range(6, -1, -1)]
     trend = []
     for d in days:
-        received = payment_q.filter(func.date(Payment.paid_at) == d).with_entities(
+        day_start_utc, day_end_utc = ist_day_bounds_utc(d)
+        received = payment_q.filter(Payment.paid_at >= day_start_utc, Payment.paid_at < day_end_utc).with_entities(
             func.coalesce(func.sum(Payment.amount), 0)
         ).scalar()
         required = due_q.filter(EMISchedule.due_date == d).with_entities(

@@ -11,6 +11,7 @@ from app.models.tenancy import User, UserRole, Tenant, Branch
 from app.models.finance import Customer, LoanProduct, Loan, EMISchedule, LoanStatus, InterestType, LoanGroup, LoanGroupMember, GroupContribution, Payment, PaymentMethod
 from app.utils.whatsapp import send_loan_status_notification
 from app.utils.payouts import send_payout, is_configured as payout_configured
+from app.utils.tz import ist_today
 from app.utils.audit_log import log_money_event
 from app.models.audit import MoneyEventType
 
@@ -318,7 +319,7 @@ def build_emi_schedule(loan: Loan, product: LoanProduct, db: Session, first_due_
     freq_days = {"weekly": 7, "biweekly": 14, "monthly": 30}.get(product.repayment_frequency, 30)
     installments = months if product.repayment_frequency == "monthly" else int(months * 30 / freq_days)
     basis = resolve_calculation_basis(product)
-    start = (first_due_date - timedelta(days=freq_days)) if first_due_date else date.today()
+    start = (first_due_date - timedelta(days=freq_days)) if first_due_date else ist_today()
 
     if basis == InterestType.flat:
         total_interest = principal * annual_rate * Decimal(months) / Decimal(12)
@@ -587,7 +588,7 @@ def list_loans(db: Session = Depends(get_db), user: User = Depends(require_any))
         from datetime import date
         overdue_emis = (
             db.query(EMISchedule)
-            .filter(EMISchedule.loan_id.in_(active_group_loan_ids), EMISchedule.is_paid == False, EMISchedule.due_date < date.today())  # noqa: E712
+            .filter(EMISchedule.loan_id.in_(active_group_loan_ids), EMISchedule.is_paid == False, EMISchedule.due_date < ist_today())  # noqa: E712
             .all()
         )
         overdue_emi_ids = [e.id for e in overdue_emis]

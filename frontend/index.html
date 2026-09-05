@@ -213,6 +213,7 @@
     <div class="topbar">
       <div style="display:flex;align-items:center;gap:10px">
         <button class="menu-toggle" onclick="toggleSidebar(true)">☰</button>
+        <button id="back-btn" class="hidden" onclick="goBack()" style="background:none;border:none;cursor:pointer;font-size:20px;color:var(--charcoal);padding:4px 6px;display:flex;align-items:center" aria-label="Back" title="Back">←</button>
         <h2 id="page-title">Dashboard</h2>
       </div>
       <div style="display:flex;align-items:center;gap:12px">
@@ -227,7 +228,7 @@
 
 <script>
 const API = window.OSF_API_BASE || localStorage.getItem('osf_api_base') || 'http://localhost:8000';
-let state = { token:null, role:null, name:null, tenant_id:null, branch_id:null, view:'dashboard' };
+let state = { token:null, role:null, name:null, tenant_id:null, branch_id:null, view:'dashboard', navHistory:[] };
 
 // ---------- Show/hide password ----------
 // ---------- Input validation helpers ----------
@@ -344,7 +345,10 @@ function toggleSidebar(open){
   document.getElementById('sidebar').classList.toggle('open', open);
   document.getElementById('overlay').classList.toggle('show', open);
 }
-function navigate(view){
+function navigate(view, isBack){
+  if(!isBack && state.view && state.view !== view){
+    state.navHistory.push(state.view);
+  }
   state.view = view;
   toggleSidebar(false);
   renderNav();
@@ -352,6 +356,8 @@ function navigate(view){
     employees:'Employees', 'loan-products':'Loan Products', loans:'Loans', reports:'Reports & Accounts',
     customers:'Customers', collections:'Collections', 'payment-settings':'Payment Settings'};
   document.getElementById('page-title').textContent = titles[view] || view;
+  const backBtn = document.getElementById('back-btn');
+  if(backBtn) backBtn.classList.toggle('hidden', state.navHistory.length === 0);
   const renderers = {
     dashboard: renderDashboard, branches: renderBranches,
     employees: renderEmployees, 'loan-products': renderLoanProducts, loans: renderLoans,
@@ -359,6 +365,10 @@ function navigate(view){
     'payment-settings': renderPaymentSettings,
   };
   (renderers[view] || renderDashboard)();
+}
+function goBack(){
+  const previous = state.navHistory.pop();
+  if(previous) navigate(previous, true);
 }
 
 const content = () => document.getElementById('content');
@@ -1926,6 +1936,9 @@ async function collectCash(){
       amount: Number(document.getElementById('p-amount').value),
     }});
     document.getElementById('p-receipt').innerHTML = `<p style="margin-top:12px;font-size:13.5px">✅ Recorded — ${res.receipt_number}. <button class="link-btn" onclick="downloadReceipt('${res.payment_id}','${res.receipt_number}')">Print / download receipt</button></p>`;
+    await loadSchedule(); // refresh the due list so the just-paid installment shows Paid immediately,
+                          // and the next unpaid one is selected — without this, the old due amount
+                          // stays on screen and clicking Collect again fails against an already-paid installment.
   }catch(e){ errEl.textContent = e.message; }
 }
 async function collectRazorpay(){
@@ -1938,13 +1951,14 @@ async function collectRazorpay(){
     if(typeof Razorpay === 'undefined'){ errEl.textContent = 'Razorpay checkout script not loaded.'; return; }
     const rzp = new Razorpay({
       key: order.key_id, amount: order.amount, currency: order.currency, order_id: order.order_id,
-      name: 'OS Finances', description: 'Loan repayment',
+      name: 'Udhayam MFI', description: 'Loan repayment',
       handler: async function(response){
         const res = await api('/payments/razorpay/verify', { method:'POST', json:{
           razorpay_order_id: response.razorpay_order_id, razorpay_payment_id: response.razorpay_payment_id,
           razorpay_signature: response.razorpay_signature, loan_id: loanId, emi_id: emiId, amount,
         }});
         document.getElementById('p-receipt').innerHTML = `<p style="margin-top:12px;font-size:13.5px">✅ Paid online — ${res.receipt_number}. <button class="link-btn" onclick="downloadReceipt('${res.payment_id}','${res.receipt_number}')">Print / download receipt</button></p>`;
+        await loadSchedule();
       },
     });
     rzp.open();
