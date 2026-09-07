@@ -1,0 +1,233 @@
+import enum
+import uuid
+from datetime import datetime
+from sqlalchemy import Column, String, Boolean, DateTime, Date, ForeignKey, Enum, Integer, Numeric, Text
+from sqlalchemy.dialects.postgresql import UUID
+from app.core.database import Base
+
+
+def gen_uuid():
+    return str(uuid.uuid4())
+
+
+class InterestType(str, enum.Enum):
+    flat = "flat"
+    reducing = "reducing"
+    other = "other"  # custom display label — see LoanProduct.custom_interest_label / calculation_basis
+
+
+class LoanStatus(str, enum.Enum):
+    pending_approval = "pending_approval"
+    approved = "approved"
+    rejected = "rejected"
+    disbursed = "disbursed"
+    active = "active"
+    closed = "closed"
+    written_off = "written_off"
+    npa = "npa"
+
+
+class PaymentMethod(str, enum.Enum):
+    cash = "cash"
+    razorpay = "razorpay"
+    bank_transfer = "bank_transfer"
+    upi = "upi"
+
+
+class DocumentType(str, enum.Enum):
+    aadhaar = "aadhaar"
+    pan = "pan"
+    photo = "photo"
+    voter_id = "voter_id"
+    signed_application = "signed_application"
+    address_proof = "address_proof"
+    guarantor_id = "guarantor_id"
+    income_proof = "income_proof"
+    loan_agreement = "loan_agreement"
+    bank_passbook = "bank_passbook"
+    other = "other"
+
+
+class Customer(Base):
+    __tablename__ = "customers"
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    tenant_id = Column(UUID(as_uuid=False), ForeignKey("tenants.id"), nullable=False)
+    branch_id = Column(UUID(as_uuid=False), ForeignKey("branches.id"), nullable=False)
+    customer_code = Column(String, nullable=False)   # auto-generated, e.g. BR01-CUS-0001
+    full_name = Column(String, nullable=False)
+    phone = Column(String, nullable=False)
+    email = Column(String, nullable=True)
+    dob = Column(Date, nullable=True)
+    gender = Column(String, nullable=True)
+    address = Column(Text, nullable=True)
+    aadhaar_number = Column(String, nullable=True)   # store masked/encrypted in production
+    pan_number = Column(String, nullable=True)
+    kyc_verified = Column(Boolean, default=False)
+    phone_verified = Column(Boolean, default=False)
+    guarantor_name = Column(String, nullable=True)
+    guarantor_phone = Column(String, nullable=True)
+    photo_document_id = Column(UUID(as_uuid=False), nullable=True)
+    bank_account_holder_name = Column(String, nullable=True)
+    bank_account_number = Column(String, nullable=True)
+    bank_ifsc = Column(String, nullable=True)
+    bank_name = Column(String, nullable=True)
+    created_by = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    is_active = Column(Boolean, default=True)
+
+
+class LoanProduct(Base):
+    __tablename__ = "loan_products"
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    tenant_id = Column(UUID(as_uuid=False), ForeignKey("tenants.id"), nullable=False)
+    name = Column(String, nullable=False)             # e.g. "Weekly Group Loan"
+    interest_type = Column(Enum(InterestType), default=InterestType.flat)
+    interest_rate_annual = Column(Numeric(6, 3), nullable=False)   # e.g. 24.000 (%)
+    min_amount = Column(Numeric(12, 2), nullable=False)
+    max_amount = Column(Numeric(12, 2), nullable=False)
+    tenure_months = Column(Integer, nullable=False)
+    repayment_frequency = Column(String, default="monthly")  # weekly | biweekly | monthly
+    processing_fee_pct = Column(Numeric(5, 2), default=0)
+    is_active = Column(Boolean, default=True)
+    # When interest_type == 'other', these two drive the product: custom_interest_label
+    # is what's shown to staff/customers, calculation_basis (always 'flat' or 'reducing')
+    # is what the EMI math actually uses — a display name never changes the real formula.
+    custom_interest_label = Column(String, nullable=True)
+    calculation_basis = Column(String, nullable=True)  # 'flat' | 'reducing', required when interest_type='other'
+
+    # Group lending (Joint Liability Group / women's SHG style products)
+    is_group_loan = Column(Boolean, default=False)
+    group_member_count = Column(Integer, nullable=True)  # expected number of members for this product
+    penalty_type = Column(String, nullable=True)   # 'flat' | 'percentage', null means no penalty configured
+    penalty_amount = Column(Numeric(10, 2), nullable=True)  # flat rupee amount, or % of the missed share
+
+
+class LoanGroup(Base):
+    """
+    A joint liability group — e.g. a women's self-help group taking a loan
+    together. The group itself is what the Loan is disbursed to; members are
+    individually responsible for their own share of each installment.
+    """
+    __tablename__ = "loan_groups"
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    tenant_id = Column(UUID(as_uuid=False), ForeignKey("tenants.id"), nullable=False)
+    branch_id = Column(UUID(as_uuid=False), ForeignKey("branches.id"), nullable=False)
+    name = Column(String, nullable=False)
+    created_by = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class LoanGroupMember(Base):
+    __tablename__ = "loan_group_members"
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    group_id = Column(UUID(as_uuid=False), ForeignKey("loan_groups.id"), nullable=False)
+    customer_id = Column(UUID(as_uuid=False), ForeignKey("customers.id"), nullable=False)
+    joined_at = Column(DateTime, default=datetime.utcnow)
+
+
+class GroupContribution(Base):
+    """
+    One group member's expected share of one specific installment. Created
+    automatically for every member, for every installment, the moment a group
+    loan is disbursed — this is what lets a group installment be marked
+    "paid" only once every single member's share is actually paid, and lets a
+    specific non-paying member (and only that member) be flagged and charged
+    a penalty, without touching anyone else's contribution.
+    """
+    __tablename__ = "group_contributions"
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    tenant_id = Column(UUID(as_uuid=False), ForeignKey("tenants.id"), nullable=False)
+    emi_schedule_id = Column(UUID(as_uuid=False), ForeignKey("emi_schedule.id"), nullable=False)
+    group_member_id = Column(UUID(as_uuid=False), ForeignKey("loan_group_members.id"), nullable=False)
+    expected_amount = Column(Numeric(12, 2), nullable=False)
+    penalty_amount = Column(Numeric(10, 2), default=0)
+    amount_paid = Column(Numeric(12, 2), default=0)
+    is_paid = Column(Boolean, default=False)
+    paid_at = Column(DateTime, nullable=True)
+
+
+class Loan(Base):
+    __tablename__ = "loans"
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    tenant_id = Column(UUID(as_uuid=False), ForeignKey("tenants.id"), nullable=False)
+    branch_id = Column(UUID(as_uuid=False), ForeignKey("branches.id"), nullable=False)
+    customer_id = Column(UUID(as_uuid=False), ForeignKey("customers.id"), nullable=True)  # null for group loans
+    group_id = Column(UUID(as_uuid=False), ForeignKey("loan_groups.id"), nullable=True)   # set instead of customer_id for a group loan
+    loan_product_id = Column(UUID(as_uuid=False), ForeignKey("loan_products.id"), nullable=False)
+    loan_number = Column(String, nullable=False)      # e.g. BR01-LN-2026-0001
+    principal_amount = Column(Numeric(12, 2), nullable=False)
+    interest_rate_annual = Column(Numeric(6, 3), nullable=False)
+    tenure_months = Column(Integer, nullable=False)
+    disbursed_amount = Column(Numeric(12, 2), nullable=True)
+    total_payable = Column(Numeric(12, 2), nullable=True)
+    status = Column(Enum(LoanStatus), default=LoanStatus.pending_approval)
+    approved_by = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=True)
+    disbursed_by = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=True)
+    disbursed_at = Column(DateTime, nullable=True)
+    applied_at = Column(DateTime, default=datetime.utcnow)
+    closed_at = Column(DateTime, nullable=True)
+    rejected_by = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=True)
+    rejected_at = Column(DateTime, nullable=True)
+    rejection_reason = Column(String, nullable=True)
+    applied_by = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=True)  # employee who submitted the application
+    disbursal_method = Column(String, nullable=True)  # 'cash' | 'bank_transfer'
+    disbursal_reference = Column(String, nullable=True)  # bank transaction ref / UTR, if bank_transfer
+
+
+class EMISchedule(Base):
+    __tablename__ = "emi_schedule"
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    loan_id = Column(UUID(as_uuid=False), ForeignKey("loans.id"), nullable=False)
+    installment_no = Column(Integer, nullable=False)
+    due_date = Column(Date, nullable=False)
+    principal_due = Column(Numeric(12, 2), nullable=False)
+    interest_due = Column(Numeric(12, 2), nullable=False)
+    total_due = Column(Numeric(12, 2), nullable=False)
+    amount_paid = Column(Numeric(12, 2), default=0)
+    is_paid = Column(Boolean, default=False)
+    paid_at = Column(DateTime, nullable=True)
+
+
+class Payment(Base):
+    __tablename__ = "payments"
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    tenant_id = Column(UUID(as_uuid=False), ForeignKey("tenants.id"), nullable=False)
+    branch_id = Column(UUID(as_uuid=False), ForeignKey("branches.id"), nullable=False)
+    loan_id = Column(UUID(as_uuid=False), ForeignKey("loans.id"), nullable=False)
+    emi_id = Column(UUID(as_uuid=False), ForeignKey("emi_schedule.id"), nullable=True)
+    amount = Column(Numeric(12, 2), nullable=False)
+    method = Column(Enum(PaymentMethod), nullable=False)
+    razorpay_payment_id = Column(String, nullable=True)
+    razorpay_order_id = Column(String, nullable=True)
+    collected_by = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=True)
+    receipt_number = Column(String, nullable=True)
+    receipt_pdf_path = Column(String, nullable=True)
+    paid_at = Column(DateTime, default=datetime.utcnow)
+    notes = Column(String, nullable=True)
+    group_contribution_id = Column(UUID(as_uuid=False), ForeignKey("group_contributions.id"), nullable=True)
+
+
+class Document(Base):
+    __tablename__ = "documents"
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    tenant_id = Column(UUID(as_uuid=False), ForeignKey("tenants.id"), nullable=False)
+    customer_id = Column(UUID(as_uuid=False), ForeignKey("customers.id"), nullable=True)
+    loan_id = Column(UUID(as_uuid=False), ForeignKey("loans.id"), nullable=True)
+    employee_id = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=True)
+    doc_type = Column(Enum(DocumentType), nullable=False)
+    file_name = Column(String, nullable=False)
+    storage_path = Column(String, nullable=False)
+    uploaded_by = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=True)
+    uploaded_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Attendance(Base):
+    __tablename__ = "attendance"
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    tenant_id = Column(UUID(as_uuid=False), ForeignKey("tenants.id"), nullable=False)
+    branch_id = Column(UUID(as_uuid=False), ForeignKey("branches.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=False)
+    date = Column(Date, nullable=False)
+    check_in = Column(DateTime, nullable=True)
+    check_out = Column(DateTime, nullable=True)
+    status = Column(String, default="present")  # present | absent | half_day | leave
