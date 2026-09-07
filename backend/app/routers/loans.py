@@ -287,7 +287,70 @@ def download_installment_sheet(
     return FileResponse(file_path, media_type=media_type, filename=filename)
 
 
+@router.get("/loans/{loan_id}/installment-sheet")
+def download_loan_installment_sheet(loan_id: str, format: str = "pdf", db: Session = Depends(get_db), user: User = Depends(require_any)):
+    """
+    The real installment sheet for one specific loan, available once
+    SuperAdmin has approved it — the employee who applied for it (or anyone
+    else in the tenant, matching the same access as viewing the schedule
+    itself) can pull this with the actual loan number, customer/group name,
+    and branch on it. If the loan hasn't been disbursed yet, this is a
+    clearly-labeled projection; once disbursed, it's built from the real
+    schedule with real due dates and paid/unpaid status.
+    """
+    from app.utils.installment_sheet import generate_loan_installment_sheet_pdf, generate_loan_installment_sheet_xlsx
 
+    loan = db.query(Loan).filter(Loan.id == loan_id, Loan.tenant_id == user.tenant_id).first()
+    if not loan:
+        raise HTTPException(status_code=404, detail="Loan not found")
+    if loan.status in (LoanStatus.pending_approval, LoanStatus.rejected):
+        raise HTTPException(status_code=400, detail="This loan hasn't been approved yet — an installment sheet isn't available until it is.")
+
+    branch = db.query(Branch).filter(Branch.id == loan.branch_id).first()
+    branch_name = branch.name if branch else "Unknown"
+
+    if loan.group_id:
+        group = db.query(LoanGroup).filter(LoanGroup.id == loan.group_id).first()
+        payer_name = group.name if group else "Unknown group"
+        payer_type = "Group"
+    else:
+        customer = db.query(Customer).filter(Customer.id == loan.customer_id).first()
+        payer_name = customer.full_name if customer else "Unknown customer"
+        payer_type = "Individual"
+
+    real_schedule = db.query(EMISchedule).filter(EMISchedule.loan_id == loan_id).order_by(EMISchedule.installment_no).all()
+    if real_schedule:
+        is_projected = False
+        rows = [{
+            "installment_no": e.installment_no, "due_date": e.due_date.isoformat(),
+            "principal_due": float(e.principal_due), "interest_due": float(e.interest_due),
+            "total_due": float(e.total_due), "is_paid": e.is_paid,
+        } for e in real_schedule]
+    else:
+        # Approved but not yet disbursed — no real schedule exists yet, so
+        # project one from the loan's own locked-in terms as a preview.
+        product = db.query(LoanProduct).filter(LoanProduct.id == loan.loan_product_id).first()
+        is_projected = True
+        raw_rows = calculate_emi_schedule(loan.principal_amount, loan.interest_rate_annual, loan.tenure_months, product)
+        rows = [{
+            "installment_no": r["installment_no"], "due_date": r["due_date"].isoformat(),
+            "principal_due": float(r["principal_due"]), "interest_due": float(r["interest_due"]), "total_due": float(r["total_due"]),
+        } for r in raw_rows]
+
+    if format == "xlsx":
+        file_path = generate_loan_installment_sheet_xlsx(loan.loan_number, payer_name, payer_type, branch_name, is_projected, rows)
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        ext = "xlsx"
+    else:
+        file_path = generate_loan_installment_sheet_pdf(loan.loan_number, payer_name, payer_type, branch_name, is_projected, rows)
+        media_type = "application/pdf"
+        ext = "pdf"
+
+    filename = f"{loan.loan_number}_installment_sheet.{ext}"
+    return FileResponse(file_path, media_type=media_type, filename=filename)
+
+
+@router.patch("/loan-products/{product_id}/activate")
 def activate_loan_product(product_id: str, db: Session = Depends(get_db), user: User = Depends(require_superadmin)):
     product = db.query(LoanProduct).filter(LoanProduct.id == product_id, LoanProduct.tenant_id == user.tenant_id).first()
     if not product:

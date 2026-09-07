@@ -20,7 +20,11 @@ router = APIRouter(prefix="/reports", tags=["accounts & reports"])
 def _customer_status_counts(db: Session, tenant_id: str, branch_id: str = None, applied_by: str = None) -> dict:
     """
     Distinct customers grouped by loan outcome — active, completed (closed),
-    and rejected. Counts a customer under a status if EITHER their own
+    and rejected. Each customer is counted in exactly ONE bucket, by
+    priority: active beats completed beats rejected — a customer with one
+    closed loan and one new active loan is "active," not both, so the three
+    numbers never double-count the same person and stay internally
+    consistent. Counts a customer under a status if EITHER their own
     individual loan has that status, OR they're a member of a group whose
     loan has that status — group lending is core to this platform, so
     counting only direct individual-loan customers would badly undercount
@@ -39,19 +43,23 @@ def _customer_status_counts(db: Session, tenant_id: str, branch_id: str = None, 
             q = q.filter(Loan.applied_by == applied_by)
         return q
 
-    def customers_with_status(status):
+    def customers_for_status(status):
         loans_with_status = scoped(db.query(Loan)).filter(Loan.status == status).all()
         customer_ids = {l.customer_id for l in loans_with_status if l.customer_id}
         group_ids = {l.group_id for l in loans_with_status if l.group_id}
         if group_ids:
             members = db.query(LoanGroupMember).filter(LoanGroupMember.group_id.in_(group_ids)).all()
             customer_ids |= {m.customer_id for m in members}
-        return len(customer_ids)
+        return customer_ids
+
+    active_customers = customers_for_status(LoanStatus.active)
+    completed_customers = customers_for_status(LoanStatus.closed) - active_customers
+    rejected_customers = customers_for_status(LoanStatus.rejected) - active_customers - completed_customers
 
     return {
-        "customers_active": customers_with_status(LoanStatus.active),
-        "customers_completed": customers_with_status(LoanStatus.closed),
-        "customers_rejected": customers_with_status(LoanStatus.rejected),
+        "customers_active": len(active_customers),
+        "customers_completed": len(completed_customers),
+        "customers_rejected": len(rejected_customers),
     }
 
 

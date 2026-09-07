@@ -97,6 +97,10 @@
   /* ---- Cards / grids ---- */
   .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:24px}
   .stat-card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:18px;position:relative;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+  .stat-breakdown{display:flex;justify-content:space-between;gap:8px;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
+  .stat-breakdown div{text-align:center;flex:1}
+  .stat-breakdown .num{display:block;font-size:16px;font-weight:700;line-height:1.3}
+  .stat-breakdown .lbl{display:block;font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.3px;margin-top:1px}
   .stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--amber),var(--lime))}
   .stat-card.clickable{cursor:pointer;transition:transform .12s,box-shadow .12s}
   .stat-card.clickable:hover{transform:translateY(-2px);box-shadow:0 4px 14px rgba(0,0,0,.08);border-color:var(--amber)}
@@ -504,7 +508,15 @@ async function renderDashboard(){
           <div class="stat-card"><div class="label">Closed Loans</div><div class="value">${mine.closed_loans}</div></div>
           <div class="stat-card"><div class="label">Rejected</div><div class="value" style="color:${mine.rejected_loans>0?'#C0392B':'var(--charcoal)'}">${mine.rejected_loans}</div></div>
           <div class="stat-card clickable" onclick="navigate('loans')"><div class="label">Individual / Group Loans</div><div class="value" style="font-size:22px">${mine.individual_loans} <span style="color:#888;font-size:16px">indiv.</span> · ${mine.group_loans} <span style="color:#888;font-size:16px">group</span></div></div>
-          <div class="stat-card clickable" onclick="navigate('customers')"><div class="label">Customers You Sourced</div><div class="value" style="font-size:16px;line-height:1.6"><span style="color:#5A6B00">${mine.customers_active} active</span> · <span style="color:#888">${mine.customers_completed} completed</span> · <span style="color:${mine.customers_rejected>0?'#C0392B':'#888'}">${mine.customers_rejected} rejected</span></div></div>
+          <div class="stat-card clickable" onclick="navigate('customers')">
+            <div class="label">Customers You Sourced</div>
+            <div class="value">${mine.customers_active + mine.customers_completed + mine.customers_rejected}</div>
+            <div class="stat-breakdown">
+              <div><span class="num" style="color:#5A6B00">${mine.customers_active}</span><span class="lbl">Active</span></div>
+              <div><span class="num" style="color:#555">${mine.customers_completed}</span><span class="lbl">Completed</span></div>
+              <div><span class="num" style="color:${mine.customers_rejected>0?'#C0392B':'#555'}">${mine.customers_rejected}</span><span class="lbl">Rejected</span></div>
+            </div>
+          </div>
         </div>
         <div class="trend-card">
           <h3 style="font-size:15px">Your collections — last 7 days</h3>
@@ -539,7 +551,15 @@ async function renderDashboard(){
           <div class="stat-card clickable" onclick="navigate('loans')"><div class="label">Active Loans</div><div class="value">${r.active_loans}</div><div style="font-size:11.5px;color:#888;margin-top:4px">${r.closed_loans} closed</div></div>
           <div class="stat-card clickable" onclick="navigate('reports')"><div class="label">Overdue Installments</div><div class="value" style="color:${r.overdue_installments>0?'#C0392B':'var(--trust)'}">${r.overdue_installments}</div><div style="font-size:11.5px;color:#888;margin-top:4px">₹${r.overdue_amount.toLocaleString()} outstanding</div></div>
           <div class="stat-card clickable" onclick="navigate('loans')"><div class="label">Individual / Group Loans</div><div class="value" style="font-size:22px">${r.individual_loans} <span style="color:#888;font-size:16px">indiv.</span> · ${r.group_loans} <span style="color:#888;font-size:16px">group</span></div></div>
-          <div class="stat-card clickable" onclick="navigate('customers')"><div class="label">Total Customers</div><div class="value" style="font-size:16px;line-height:1.6"><span style="color:#5A6B00">${r.customers_active} active</span> · <span style="color:#888">${r.customers_completed} completed</span> · <span style="color:${r.customers_rejected>0?'#C0392B':'#888'}">${r.customers_rejected} rejected</span></div></div>
+          <div class="stat-card clickable" onclick="navigate('customers')">
+            <div class="label">Total Customers</div>
+            <div class="value">${r.customers_active + r.customers_completed + r.customers_rejected}</div>
+            <div class="stat-breakdown">
+              <div><span class="num" style="color:#5A6B00">${r.customers_active}</span><span class="lbl">Active</span></div>
+              <div><span class="num" style="color:#555">${r.customers_completed}</span><span class="lbl">Completed</span></div>
+              <div><span class="num" style="color:${r.customers_rejected>0?'#C0392B':'#555'}">${r.customers_rejected}</span><span class="lbl">Rejected</span></div>
+            </div>
+          </div>
         </div>
         <div class="trend-card">
           <h3 style="font-size:15px">Collections — last 7 days</h3>
@@ -1154,7 +1174,7 @@ async function renderLoans(){
         <td>₹${l.principal_amount.toLocaleString()}</td>
         <td>${l.disbursed_amount ? `₹${l.disbursed_amount.toLocaleString()}${l.disbursal_method ? `<div style="font-size:11px;color:#888">${esc(l.disbursal_method.replace('_',' '))}</div>` : ''}` : '—'}</td>
         <td style="white-space:nowrap;font-size:12.5px">${new Date(l.applied_at).toLocaleDateString()}</td>
-        <td><span class="badge ${l.status}">${l.status.replace('_',' ')}</span>${l.status==='rejected' && l.rejection_reason ? `<div style="font-size:11px;color:#888;margin-top:4px">${esc(l.rejection_reason)}</div>` : ''}</td>
+        <td><span class="badge ${l.status}">${l.status.replace('_',' ')}</span>${l.status==='rejected' && l.rejection_reason ? `<div style="font-size:11px;color:#888;margin-top:4px">${esc(l.rejection_reason)}</div>` : ''}${!['pending_approval','rejected'].includes(l.status) ? `<div style="margin-top:4px"><button class="link-btn" style="font-size:11px" onclick="downloadLoanInstallmentSheet('${l.id}','${esc(l.loan_number)}','pdf')">⬇ Sheet (PDF)</button> · <button class="link-btn" style="font-size:11px" onclick="downloadLoanInstallmentSheet('${l.id}','${esc(l.loan_number)}','xlsx')">Excel</button></div>` : ''}</td>
         ${canManage ? `<td>${l.is_group_loan ? '<span style="color:#888;font-size:12px">Group — see Collections tab</span>' : `<button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="viewCustomerDocs('${l.customer_id}','${esc(l.customer_name)}')">Review KYC</button>`}</td>
         <td style="white-space:nowrap">${l.status==='pending_approval'?`<button class="btn" style="padding:6px 10px;font-size:12px" onclick="approveLoan('${l.id}')">Approve</button>
           <button class="btn ghost" style="padding:6px 10px;font-size:12px;color:#C0392B" onclick="rejectLoan('${l.id}')">Reject</button>`
@@ -1483,6 +1503,11 @@ async function downloadInstallmentSheet(format){
       `${installmentSheetProduct.name}_installment_sheet.${format}`
     );
   }catch(e){ errEl.textContent = e.message; }
+}
+async function downloadLoanInstallmentSheet(loanId, loanNumber, format){
+  try{
+    await downloadAuthenticatedFile(`/loans/${loanId}/installment-sheet?format=${format}`, `${loanNumber}_installment_sheet.${format}`);
+  }catch(e){ showToast(e.message, 'error'); }
 }
 // Shared authenticated-file-download helper — a plain <a href> can't carry the
 // Bearer token, so every protected file download (receipts, KYC docs, reports)
