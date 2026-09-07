@@ -570,8 +570,17 @@ def disburse_loan(loan_id: str, payload: LoanDisburse = LoanDisburse(), db: Sess
 
 
 @router.get("/loans")
-def list_loans(db: Session = Depends(get_db), user: User = Depends(require_any)):
-    loans = scope_branch(db.query(Loan), Loan, user).order_by(Loan.applied_at.desc()).all()
+def list_loans(mine_only: bool = False, db: Session = Depends(get_db), user: User = Depends(require_any)):
+    """
+    mine_only=true narrows an employee's view to loans they personally applied
+    for — used by the Loans page specifically. Left False (the default) for
+    Collections, since an employee covering for a colleague still needs to see
+    and collect against the whole branch's loans, not just their own.
+    """
+    loans = scope_branch(db.query(Loan), Loan, user)
+    if mine_only and user.role == UserRole.employee:
+        loans = loans.filter(Loan.applied_by == user.id)
+    loans = loans.order_by(Loan.applied_at.desc()).all()
     customer_ids = {l.customer_id for l in loans if l.customer_id}
     customers = {c.id: c for c in db.query(Customer).filter(Customer.id.in_(customer_ids)).all()} if customer_ids else {}
     group_ids = {l.group_id for l in loans if l.group_id}

@@ -17,6 +17,44 @@ from app.utils.tz import ist_today, ist_day_bounds_utc
 router = APIRouter(prefix="/reports", tags=["accounts & reports"])
 
 
+def _customer_status_counts(db: Session, tenant_id: str, branch_id: str = None, applied_by: str = None) -> dict:
+    """
+    Distinct customers grouped by loan outcome — active, completed (closed),
+    and rejected. Counts a customer under a status if EITHER their own
+    individual loan has that status, OR they're a member of a group whose
+    loan has that status — group lending is core to this platform, so
+    counting only direct individual-loan customers would badly undercount
+    the real customer base.
+
+    branch_id narrows to one branch; applied_by narrows to loans one specific
+    employee sourced — used for the employee's own dashboard, where even the
+    "completed" and "active" counts should reflect their own book, not the
+    whole branch's.
+    """
+    def scoped(q):
+        q = q.filter(Loan.tenant_id == tenant_id)
+        if branch_id:
+            q = q.filter(Loan.branch_id == branch_id)
+        if applied_by:
+            q = q.filter(Loan.applied_by == applied_by)
+        return q
+
+    def customers_with_status(status):
+        loans_with_status = scoped(db.query(Loan)).filter(Loan.status == status).all()
+        customer_ids = {l.customer_id for l in loans_with_status if l.customer_id}
+        group_ids = {l.group_id for l in loans_with_status if l.group_id}
+        if group_ids:
+            members = db.query(LoanGroupMember).filter(LoanGroupMember.group_id.in_(group_ids)).all()
+            customer_ids |= {m.customer_id for m in members}
+        return len(customer_ids)
+
+    return {
+        "customers_active": customers_with_status(LoanStatus.active),
+        "customers_completed": customers_with_status(LoanStatus.closed),
+        "customers_rejected": customers_with_status(LoanStatus.rejected),
+    }
+
+
 def _resolve_installment_payer(db: Session, loan: Loan, emi: EMISchedule):
     """
     For an individual loan: the customer's name, and how much of this
@@ -109,65 +147,6 @@ def my_upcoming_repayments(days: int = 7, db: Session = Depends(get_db), user: U
     return rows
 
 
-@router.get("/overdue-detail")
-def overdue_detail(db: Session = Depends(get_db), user: User = Depends(require_superadmin)):
-    """
-    SuperAdmin-only. Every currently overdue, unpaid installment across the
-    whole tenant — with exactly who owes it, which employee sourced that
-    customer, and which branch — so the Overdue Installments stat card can
-    show something actionable instead of just a number.
-    """
-    today = ist_today()
-    overdue_emis = (
-        db.query(EMISchedule).join(Loan, EMISchedule.loan_id == Loan.id)
-        .filter(Loan.tenant_id == user.tenant_id, EMISchedule.is_paid == False, EMISchedule.due_date < today)  # noqa: E712
-        .order_by(EMISchedule.due_date).all()
-    )
-    rows = []
-    for emi in overdue_emis:
-        loan = db.query(Loan).filter(Loan.id == emi.loan_id).first()
-        if not loan:
-            continue
-        branch = db.query(Branch).filter(Branch.id == loan.branch_id).first()
-        employee = db.query(User).filter(User.id == loan.applied_by).first()
-        for entry in _resolve_installment_payer(db, loan, emi):
-            rows.append({
-                "due_date": emi.due_date.isoformat(),
-                "days_overdue": (today - emi.due_date).days,
-                "loan_number": loan.loan_number,
-                "branch_name": branch.name if branch else "Unknown",
-                "employee_name": employee.full_name if employee else "Unknown",
-                **entry,
-            })
-    rows.sort(key=lambda r: -r["days_overdue"])
-    return rows
-
-
-@router.get("/my-overdue-detail")
-def my_overdue_detail(db: Session = Depends(get_db), user: User = Depends(require_any)):
-    """This person's own overdue installments only — loans they personally sourced/applied."""
-    today = ist_today()
-    overdue_emis = (
-        db.query(EMISchedule).join(Loan, EMISchedule.loan_id == Loan.id)
-        .filter(Loan.applied_by == user.id, EMISchedule.is_paid == False, EMISchedule.due_date < today)  # noqa: E712
-        .order_by(EMISchedule.due_date).all()
-    )
-    rows = []
-    for emi in overdue_emis:
-        loan = db.query(Loan).filter(Loan.id == emi.loan_id).first()
-        if not loan:
-            continue
-        for entry in _resolve_installment_payer(db, loan, emi):
-            rows.append({
-                "due_date": emi.due_date.isoformat(),
-                "days_overdue": (today - emi.due_date).days,
-                "loan_number": loan.loan_number,
-                **entry,
-            })
-    rows.sort(key=lambda r: -r["days_overdue"])
-    return rows
-
-
 @router.get("/branch-summary")
 def branch_summary(db: Session = Depends(get_db), user: User = Depends(require_any)):
     """Disbursement vs collection, active loans, overdue count — scoped by role."""
@@ -194,6 +173,10 @@ def branch_summary(db: Session = Depends(get_db), user: User = Depends(require_a
     overdue_count = overdue_q.count()
     overdue_amount = overdue_q.with_entities(func.coalesce(func.sum(EMISchedule.total_due - EMISchedule.amount_paid), 0)).scalar()
 
+    customer_counts = _customer_status_counts(
+        db, user.tenant_id, branch_id=user.branch_id if user.role == UserRole.employee else None
+    )
+
     return {
         "total_disbursed": float(total_disbursed),
         "total_collected": float(total_collected),
@@ -203,6 +186,7 @@ def branch_summary(db: Session = Depends(get_db), user: User = Depends(require_a
         "group_loans": group_loans,
         "overdue_installments": overdue_count,
         "overdue_amount": float(overdue_amount),
+        **customer_counts,
         "collection_efficiency_pct": round(
             (float(total_collected) / float(total_disbursed) * 100) if total_disbursed else 0, 2
         ),
@@ -401,15 +385,7 @@ def my_activity(db: Session = Depends(get_db), user: User = Depends(require_any)
     total_collected = my_payments.with_entities(func.coalesce(func.sum(Payment.amount), 0)).scalar()
     payment_count = my_payments.count()
 
-    today = ist_today()
-    my_loan_ids = [l.id for l in my_loans.all()]
-    overdue_q = db.query(EMISchedule).filter(
-        EMISchedule.loan_id.in_(my_loan_ids), EMISchedule.is_paid == False, EMISchedule.due_date < today  # noqa: E712
-    ) if my_loan_ids else None
-    overdue_installments = overdue_q.count() if overdue_q is not None else 0
-    overdue_amount = overdue_q.with_entities(
-        func.coalesce(func.sum(EMISchedule.total_due - EMISchedule.amount_paid), 0)
-    ).scalar() if overdue_q is not None else 0
+    customer_counts = _customer_status_counts(db, user.tenant_id, applied_by=user.id)
 
     return {
         "active_loans": active_loans,
@@ -418,8 +394,7 @@ def my_activity(db: Session = Depends(get_db), user: User = Depends(require_any)
         "rejected_loans": rejected_loans,
         "individual_loans": individual_loans,
         "group_loans": group_loans,
-        "overdue_installments": overdue_installments,
-        "overdue_amount": float(overdue_amount),
+        **customer_counts,
         "total_collected": float(total_collected),
         "payment_count": payment_count,
     }
