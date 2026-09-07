@@ -54,6 +54,7 @@ class Customer(Base):
     tenant_id = Column(UUID(as_uuid=False), ForeignKey("tenants.id"), nullable=False)
     branch_id = Column(UUID(as_uuid=False), ForeignKey("branches.id"), nullable=False)
     customer_code = Column(String, nullable=False)   # auto-generated, e.g. BR01-CUS-0001
+    created_by = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=True)  # which employee onboarded them — used to scope an employee's view to their own customers, not the whole branch's
     full_name = Column(String, nullable=False)
     phone = Column(String, nullable=False)
     email = Column(String, nullable=True)

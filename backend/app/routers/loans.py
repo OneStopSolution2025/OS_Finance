@@ -4,6 +4,7 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 from pydantic import BaseModel
 
 from app.core.database import get_db
@@ -68,7 +69,17 @@ def create_customer(payload: CustomerCreate, db: Session = Depends(get_db), user
 
 @router.get("/customers")
 def list_customers(db: Session = Depends(get_db), user: User = Depends(require_any)):
-    return scope_branch(db.query(Customer), Customer, user).all()
+    """
+    SuperAdmin sees the whole tenant. An employee sees only customers THEY
+    personally onboarded — not their whole branch's customers, so two
+    employees at the same branch don't see each other's people. Customers
+    created before this field existed (created_by is NULL) still show up for
+    everyone at that branch, so nothing already onboarded suddenly vanishes.
+    """
+    q = scope_branch(db.query(Customer), Customer, user)
+    if user.role == UserRole.employee:
+        q = q.filter(or_(Customer.created_by == user.id, Customer.created_by.is_(None)))
+    return q.all()
 
 
 # ---------- Loan Groups (Joint Liability Groups) ----------
@@ -104,7 +115,10 @@ def create_group(payload: GroupCreate, db: Session = Depends(get_db), user: User
 
 @router.get("/groups")
 def list_groups(db: Session = Depends(get_db), user: User = Depends(require_any)):
-    groups = scope_branch(db.query(LoanGroup), LoanGroup, user).all()
+    q = scope_branch(db.query(LoanGroup), LoanGroup, user)
+    if user.role == UserRole.employee:
+        q = q.filter(or_(LoanGroup.created_by == user.id, LoanGroup.created_by.is_(None)))
+    groups = q.all()
     branch_ids = {g.branch_id for g in groups}
     branches = {b.id: b for b in db.query(Branch).filter(Branch.id.in_(branch_ids)).all()} if branch_ids else {}
     creator_ids = {g.created_by for g in groups if g.created_by}
@@ -734,13 +748,18 @@ def disburse_loan(loan_id: str, payload: LoanDisburse = LoanDisburse(), db: Sess
 @router.get("/loans")
 def list_loans(mine_only: bool = False, db: Session = Depends(get_db), user: User = Depends(require_any)):
     """
-    mine_only=true narrows an employee's view to loans they personally applied
-    for — used by the Loans page specifically. Left False (the default) for
-    Collections, since an employee covering for a colleague still needs to see
-    and collect against the whole branch's loans, not just their own.
+    An employee only ever sees loans THEY personally applied for — this
+    applies everywhere the app calls this endpoint (the Loans page AND
+    Collections), not just when mine_only is explicitly passed. It used to
+    default to sharing the whole branch's loans on Collections specifically,
+    reasoning an employee might need to cover for an absent colleague — but
+    that meant every employee at a branch could see each other's customers
+    and collections, which isn't what this business wants. SuperAdmin is
+    unaffected either way. The mine_only parameter is kept but now redundant
+    for employees — left in place so no caller breaks.
     """
     loans = scope_branch(db.query(Loan), Loan, user)
-    if mine_only and user.role == UserRole.employee:
+    if user.role == UserRole.employee:
         loans = loans.filter(Loan.applied_by == user.id)
     loans = loans.order_by(Loan.applied_at.desc()).all()
     customer_ids = {l.customer_id for l in loans if l.customer_id}

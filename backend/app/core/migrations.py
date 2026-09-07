@@ -47,6 +47,7 @@ def run_safe_migrations(engine: Engine):
             ("bank_account_number", "VARCHAR"),
             ("bank_ifsc", "VARCHAR"),
             ("bank_name", "VARCHAR"),
+            ("created_by", "UUID"),
         ],
         "loan_products": [
             ("custom_interest_label", "VARCHAR"),
@@ -107,6 +108,7 @@ def fix_mistyped_columns(engine: Engine):
         "loans": ["applied_by", "rejected_by", "group_id"],
         "documents": ["employee_id"],
         "payments": ["group_contribution_id"],
+        "customers": ["created_by"],
     }
 
     with engine.begin() as conn:
