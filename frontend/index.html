@@ -195,6 +195,21 @@
 
 <div id="toast-container"></div>
 
+<div class="modal-overlay" id="installment-sheet-modal">
+  <div class="modal-card" style="max-width:420px;position:relative">
+    <button onclick="document.getElementById('installment-sheet-modal').classList.remove('show')" style="position:absolute;top:14px;right:14px;background:none;border:none;font-size:20px;line-height:1;cursor:pointer;color:#888;padding:4px" aria-label="Close">&times;</button>
+    <h3 id="installment-sheet-title" style="padding-right:28px">Installment Sheet</h3>
+    <p style="font-size:12.5px;color:#666;margin:0 0 14px">Preview the repayment schedule at a sample amount — useful to show a prospective customer before they've actually applied. This doesn't create a real loan.</p>
+    <div class="field"><label>Sample principal amount (₹)</label><input id="sheet-amount" type="number"></div>
+    <div id="sheet-amount-hint" style="font-size:11.5px;color:#888;margin-top:-8px;margin-bottom:14px"></div>
+    <div class="row-actions">
+      <button class="btn amber" onclick="downloadInstallmentSheet('pdf')">⬇ Download PDF</button>
+      <button class="btn" onclick="downloadInstallmentSheet('xlsx')">⬇ Download Excel</button>
+    </div>
+    <div class="err" id="sheet-err"></div>
+  </div>
+</div>
+
 <!-- APP SHELL -->
 <div class="app" id="app">
   <div class="overlay" id="overlay" onclick="toggleSidebar(false)"></div>
@@ -1007,6 +1022,7 @@ function productRow(p){
         ? `<button class="btn ghost" style="padding:6px 8px;font-size:12px" onclick="deactivateProduct('${p.id}')">Deactivate</button>`
         : `<button class="btn amber" style="padding:6px 8px;font-size:12px" onclick="activateProduct('${p.id}')">Activate</button>`}
       <button class="btn ghost" style="padding:6px 8px;font-size:12px;color:#C0392B" onclick="deleteProduct('${p.id}')">Delete</button>
+      ${p.is_group_loan ? '' : `<button class="btn ghost" style="padding:6px 8px;font-size:12px" onclick='openInstallmentSheetModal(${JSON.stringify(p)})'>⬇ Installment Sheet</button>`}
     </td>
   </tr>`;
 }
@@ -1446,6 +1462,26 @@ async function downloadBreakdown(){
   const errEl = document.getElementById('breakdown-download-err'); errEl.textContent = '';
   try{
     await downloadAuthenticatedFile(`/reports/export?group_by=${groupBy}&format=${format}`, `breakdown-${groupBy}.${format}`);
+  }catch(e){ errEl.textContent = e.message; }
+}
+let installmentSheetProduct = null;
+function openInstallmentSheetModal(product){
+  installmentSheetProduct = product;
+  document.getElementById('installment-sheet-title').textContent = `Installment Sheet — ${product.name}`;
+  document.getElementById('sheet-amount').value = product.max_amount;
+  document.getElementById('sheet-amount-hint').textContent = `Allowed range: ₹${product.min_amount.toLocaleString()} – ₹${product.max_amount.toLocaleString()}`;
+  document.getElementById('sheet-err').textContent = '';
+  document.getElementById('installment-sheet-modal').classList.add('show');
+}
+async function downloadInstallmentSheet(format){
+  const errEl = document.getElementById('sheet-err'); errEl.textContent = '';
+  const amount = Number(document.getElementById('sheet-amount').value);
+  if(!installmentSheetProduct || !amount){ errEl.textContent = 'Enter a sample amount.'; return; }
+  try{
+    await downloadAuthenticatedFile(
+      `/loan-products/${installmentSheetProduct.id}/installment-sheet?amount=${amount}&format=${format}`,
+      `${installmentSheetProduct.name}_installment_sheet.${format}`
+    );
   }catch(e){ errEl.textContent = e.message; }
 }
 // Shared authenticated-file-download helper — a plain <a href> can't carry the

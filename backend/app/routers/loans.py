@@ -2,6 +2,7 @@ from datetime import date, timedelta
 import re
 from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
@@ -246,7 +247,47 @@ def update_loan_product(product_id: str, payload: LoanProductUpdate, db: Session
     return {"status": "updated"}
 
 
-@router.patch("/loan-products/{product_id}/activate")
+@router.get("/loan-products/{product_id}/installment-sheet")
+def download_installment_sheet(
+    product_id: str, amount: float, format: str = "pdf",
+    db: Session = Depends(get_db), user: User = Depends(require_superadmin),
+):
+    """
+    A projected installment schedule for this product at a chosen sample
+    amount — no real loan is created, this is purely for showing a
+    prospective customer what their repayments would look like. Only
+    SuperAdmin can pull this, matching the rest of the reports/exports.
+    """
+    from app.utils.installment_sheet import generate_installment_sheet_pdf, generate_installment_sheet_xlsx
+
+    product = db.query(LoanProduct).filter(LoanProduct.id == product_id, LoanProduct.tenant_id == user.tenant_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Loan product not found")
+    if not (product.min_amount <= Decimal(str(amount)) <= product.max_amount):
+        raise HTTPException(status_code=400, detail=f"Amount must be between {product.min_amount} and {product.max_amount} for this product.")
+    if product.is_group_loan:
+        raise HTTPException(status_code=400, detail="Installment sheets are for individual products — a group loan's per-member share depends on the group size chosen at application time.")
+
+    raw_rows = calculate_emi_schedule(amount, product.interest_rate_annual, product.tenure_months, product)
+    rows = [{
+        "installment_no": r["installment_no"], "due_date": r["due_date"].isoformat(),
+        "principal_due": float(r["principal_due"]), "interest_due": float(r["interest_due"]), "total_due": float(r["total_due"]),
+    } for r in raw_rows]
+
+    if format == "xlsx":
+        file_path = generate_installment_sheet_xlsx(product.name, amount, product, rows)
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        ext = "xlsx"
+    else:
+        file_path = generate_installment_sheet_pdf(product.name, amount, product, rows)
+        media_type = "application/pdf"
+        ext = "pdf"
+
+    filename = f"{product.name.replace(' ', '_')}_installment_sheet.{ext}"
+    return FileResponse(file_path, media_type=media_type, filename=filename)
+
+
+
 def activate_loan_product(product_id: str, db: Session = Depends(get_db), user: User = Depends(require_superadmin)):
     product = db.query(LoanProduct).filter(LoanProduct.id == product_id, LoanProduct.tenant_id == user.tenant_id).first()
     if not product:
@@ -308,22 +349,21 @@ def resolve_calculation_basis(product: LoanProduct) -> InterestType:
     return InterestType.flat  # default basis if somehow unset
 
 
-def build_emi_schedule(loan: Loan, product: LoanProduct, db: Session, first_due_date: date | None = None):
+def calculate_emi_schedule(principal, annual_rate_pct, months: int, product: LoanProduct, first_due_date: date | None = None) -> list[dict]:
     """
-    Generates a flat or reducing-balance EMI schedule. By default the first
-    installment falls one repayment cycle after today (unchanged, existing
-    behavior). If first_due_date is given, that becomes the first installment's
-    due date instead, with every later installment still spaced the product's
-    normal cycle length apart — same formula, just anchored to a chosen date.
+    Pure calculation, no database writes — the same flat/reducing-balance math
+    used at real disbursal, factored out so it can also power a projected
+    installment sheet for a loan product (at a chosen sample amount) before
+    any actual loan exists. Returns a list of plain dicts, one per installment.
     """
-    principal = Decimal(str(loan.principal_amount))
-    annual_rate = Decimal(str(loan.interest_rate_annual)) / Decimal(100)
-    months = loan.tenure_months
+    principal = Decimal(str(principal))
+    annual_rate = Decimal(str(annual_rate_pct)) / Decimal(100)
     freq_days = {"weekly": 7, "biweekly": 14, "monthly": 30}.get(product.repayment_frequency, 30)
     installments = months if product.repayment_frequency == "monthly" else int(months * 30 / freq_days)
     basis = resolve_calculation_basis(product)
     start = (first_due_date - timedelta(days=freq_days)) if first_due_date else ist_today()
 
+    rows = []
     if basis == InterestType.flat:
         total_interest = principal * annual_rate * Decimal(months) / Decimal(12)
         total_payable = principal + total_interest
@@ -334,29 +374,38 @@ def build_emi_schedule(loan: Loan, product: LoanProduct, db: Session, first_due_
         due = start
         for i in range(1, installments + 1):
             due = due + timedelta(days=freq_days)
-            db.add(EMISchedule(
-                loan_id=loan.id, installment_no=i, due_date=due,
-                principal_due=principal_per, interest_due=interest_per, total_due=per_installment,
-            ))
-        loan.total_payable = total_payable
+            rows.append({"installment_no": i, "due_date": due, "principal_due": principal_per, "interest_due": interest_per, "total_due": per_installment})
     else:
-        # Reducing balance: recompute interest on outstanding principal each period
         monthly_rate = annual_rate / Decimal(12) if product.repayment_frequency == "monthly" else annual_rate / Decimal(365) * freq_days
         outstanding = principal
         principal_per = (principal / installments).quantize(Decimal("0.01"))
-        total_payable = Decimal("0")
         due = start
         for i in range(1, installments + 1):
             due = due + timedelta(days=freq_days)
             interest_due = (outstanding * monthly_rate).quantize(Decimal("0.01"))
             total_due = principal_per + interest_due
-            total_payable += total_due
-            db.add(EMISchedule(
-                loan_id=loan.id, installment_no=i, due_date=due,
-                principal_due=principal_per, interest_due=interest_due, total_due=total_due,
-            ))
+            rows.append({"installment_no": i, "due_date": due, "principal_due": principal_per, "interest_due": interest_due, "total_due": total_due})
             outstanding -= principal_per
-        loan.total_payable = total_payable
+    return rows
+
+
+def build_emi_schedule(loan: Loan, product: LoanProduct, db: Session, first_due_date: date | None = None):
+    """
+    Generates a flat or reducing-balance EMI schedule. By default the first
+    installment falls one repayment cycle after today (unchanged, existing
+    behavior). If first_due_date is given, that becomes the first installment's
+    due date instead, with every later installment still spaced the product's
+    normal cycle length apart — same formula, just anchored to a chosen date.
+    """
+    rows = calculate_emi_schedule(loan.principal_amount, loan.interest_rate_annual, loan.tenure_months, product, first_due_date)
+    total_payable = Decimal("0")
+    for row in rows:
+        db.add(EMISchedule(
+            loan_id=loan.id, installment_no=row["installment_no"], due_date=row["due_date"],
+            principal_due=row["principal_due"], interest_due=row["interest_due"], total_due=row["total_due"],
+        ))
+        total_payable += row["total_due"]
+    loan.total_payable = total_payable
 
 
 @router.post("/loans/apply")
