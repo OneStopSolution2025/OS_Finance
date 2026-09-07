@@ -523,6 +523,19 @@ def export_customer_leads(
             db.query(Loan).filter(Loan.customer_id == cust.id)
             .order_by(Loan.applied_at.desc()).first()
         )
+        # A customer whose only loan relationship is being a group member has
+        # no row here at all — without this, every group member shows "no
+        # loan" regardless of how active their actual group loan is, which
+        # badly undercounts a customer base built on group lending.
+        if not latest_loan:
+            membership = db.query(LoanGroupMember).filter(LoanGroupMember.customer_id == cust.id).first()
+            if membership:
+                group_loan = (
+                    db.query(Loan).filter(Loan.group_id == membership.group_id)
+                    .order_by(Loan.applied_at.desc()).first()
+                )
+                if group_loan:
+                    latest_loan = group_loan
         this_loan_status = latest_loan.status.value if latest_loan else None
 
         if loan_status == "none" and latest_loan is not None:
