@@ -319,30 +319,67 @@ def download_loan_installment_sheet(loan_id: str, format: str = "pdf", db: Sessi
         payer_type = "Individual"
 
     real_schedule = db.query(EMISchedule).filter(EMISchedule.loan_id == loan_id).order_by(EMISchedule.installment_no).all()
+    members = db.query(LoanGroupMember).filter(LoanGroupMember.group_id == loan.group_id).all() if loan.group_id else []
+    member_customer_ids = {m.id: m.customer_id for m in members}
+    member_customers = {c.id: c for c in db.query(Customer).filter(Customer.id.in_(member_customer_ids.values())).all()} if members else {}
+
     if real_schedule:
         is_projected = False
-        rows = [{
-            "installment_no": e.installment_no, "due_date": e.due_date.isoformat(),
-            "principal_due": float(e.principal_due), "interest_due": float(e.interest_due),
-            "total_due": float(e.total_due), "is_paid": e.is_paid,
-        } for e in real_schedule]
+        if loan.group_id:
+            # Real, per-member shares — exactly what each member actually
+            # owes and whether they've actually paid it, not a group total
+            # that hides who's responsible for what.
+            rows = []
+            for e in real_schedule:
+                contributions = db.query(GroupContribution).filter(GroupContribution.emi_schedule_id == e.id).all()
+                for c in contributions:
+                    member = next((m for m in members if m.id == c.group_member_id), None)
+                    customer = member_customers.get(member.customer_id) if member else None
+                    rows.append({
+                        "installment_no": e.installment_no, "due_date": e.due_date.isoformat(),
+                        "member_name": customer.full_name if customer else "Unknown member",
+                        "principal_due": float(c.expected_amount), "interest_due": 0.0,
+                        "total_due": float(c.expected_amount) + float(c.penalty_amount or 0),
+                        "is_paid": c.is_paid,
+                    })
+        else:
+            rows = [{
+                "installment_no": e.installment_no, "due_date": e.due_date.isoformat(),
+                "principal_due": float(e.principal_due), "interest_due": float(e.interest_due),
+                "total_due": float(e.total_due), "is_paid": e.is_paid,
+            } for e in real_schedule]
     else:
         # Approved but not yet disbursed — no real schedule exists yet, so
         # project one from the loan's own locked-in terms as a preview.
         product = db.query(LoanProduct).filter(LoanProduct.id == loan.loan_product_id).first()
         is_projected = True
         raw_rows = calculate_emi_schedule(loan.principal_amount, loan.interest_rate_annual, loan.tenure_months, product)
-        rows = [{
-            "installment_no": r["installment_no"], "due_date": r["due_date"].isoformat(),
-            "principal_due": float(r["principal_due"]), "interest_due": float(r["interest_due"]), "total_due": float(r["total_due"]),
-        } for r in raw_rows]
+        if loan.group_id and members:
+            # Same even-split math the real disbursal will use, so this
+            # preview shows each member the same amount they'll actually be
+            # asked to pay once the loan is genuinely disbursed.
+            rows = []
+            for r in raw_rows:
+                shares = split_evenly(r["total_due"], len(members))
+                for member, share in zip(members, shares):
+                    customer = member_customers.get(member.customer_id)
+                    rows.append({
+                        "installment_no": r["installment_no"], "due_date": r["due_date"].isoformat(),
+                        "member_name": customer.full_name if customer else "Unknown member",
+                        "principal_due": float(share), "interest_due": 0.0, "total_due": float(share),
+                    })
+        else:
+            rows = [{
+                "installment_no": r["installment_no"], "due_date": r["due_date"].isoformat(),
+                "principal_due": float(r["principal_due"]), "interest_due": float(r["interest_due"]), "total_due": float(r["total_due"]),
+            } for r in raw_rows]
 
     if format == "xlsx":
-        file_path = generate_loan_installment_sheet_xlsx(loan.loan_number, payer_name, payer_type, branch_name, is_projected, rows)
+        file_path = generate_loan_installment_sheet_xlsx(loan.loan_number, payer_name, payer_type, branch_name, is_projected, rows, is_group=bool(loan.group_id))
         media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         ext = "xlsx"
     else:
-        file_path = generate_loan_installment_sheet_pdf(loan.loan_number, payer_name, payer_type, branch_name, is_projected, rows)
+        file_path = generate_loan_installment_sheet_pdf(loan.loan_number, payer_name, payer_type, branch_name, is_projected, rows, is_group=bool(loan.group_id))
         media_type = "application/pdf"
         ext = "pdf"
 
@@ -410,6 +447,23 @@ def resolve_calculation_basis(product: LoanProduct) -> InterestType:
     if product.calculation_basis == "reducing":
         return InterestType.reducing
     return InterestType.flat  # default basis if somehow unset
+
+
+def split_evenly(total, count: int) -> list:
+    """
+    Splits an amount evenly across `count` shares, with the LAST share
+    absorbing whatever rounding remainder is left — so the shares always sum
+    back to exactly `total` to the paisa. This is the exact same math used
+    when a group loan is actually disbursed (see the GroupContribution
+    creation below); factored out so a projected installment sheet for an
+    approved-but-not-yet-disbursed group loan can show the same per-member
+    amounts a member will actually be asked to pay once it IS disbursed.
+    """
+    total = Decimal(str(total))
+    share = (total / count).quantize(Decimal("0.01"))
+    shares = [share] * (count - 1)
+    shares.append(total - sum(shares))
+    return shares
 
 
 def calculate_emi_schedule(principal, annual_rate_pct, months: int, product: LoanProduct, first_due_date: date | None = None) -> list[dict]:
@@ -646,12 +700,8 @@ def disburse_loan(loan_id: str, payload: LoanDisburse = LoanDisburse(), db: Sess
         members = db.query(LoanGroupMember).filter(LoanGroupMember.group_id == loan.group_id).all()
         installments = db.query(EMISchedule).filter(EMISchedule.loan_id == loan.id).all()
         for emi in installments:
-            share = (Decimal(str(emi.total_due)) / len(members)).quantize(Decimal("0.01"))
-            allocated = Decimal("0")
-            for i, member in enumerate(members):
-                # last member absorbs the rounding remainder so shares always sum exactly to total_due
-                this_share = (Decimal(str(emi.total_due)) - allocated) if i == len(members) - 1 else share
-                allocated += this_share
+            shares = split_evenly(emi.total_due, len(members))
+            for member, this_share in zip(members, shares):
                 db.add(GroupContribution(
                     tenant_id=user.tenant_id, emi_schedule_id=emi.id, group_member_id=member.id,
                     expected_amount=this_share,

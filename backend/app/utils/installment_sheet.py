@@ -170,13 +170,14 @@ def generate_installment_sheet_xlsx(product_name: str, sample_amount: float, pro
     return file_path
 
 
-def generate_loan_installment_sheet_pdf(loan_number: str, payer_name: str, payer_type: str, branch_name: str, is_projected: bool, rows: list[dict]) -> str:
+def generate_loan_installment_sheet_pdf(loan_number: str, payer_name: str, payer_type: str, branch_name: str, is_projected: bool, rows: list[dict], is_group: bool = False) -> str:
     """
     The real installment sheet for one specific loan — with the actual loan
-    number and customer/group on it, not a generic sample. If the loan
-    hasn't been disbursed yet, this is a projection (clearly labeled as
-    such); once disbursed, it's built from the real schedule with real due
-    dates.
+    number and customer/group on it, not a generic sample. For a group loan,
+    every row is one member's individual share of one installment, not just
+    a group total, so it's clear who owes what. If the loan hasn't been
+    disbursed yet, this is a projection (clearly labeled as such); once
+    disbursed, it's built from the real schedule with real due dates.
     """
     filename = f"loan-sheet-{loan_number}-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}.pdf"
     file_path = os.path.join(SHEETS_DIR, filename)
@@ -215,55 +216,66 @@ def generate_loan_installment_sheet_pdf(loan_number: str, payer_name: str, payer
     if is_projected:
         c.setFillColor(colors.HexColor("#8A6200"))
         c.setFont("Helvetica-Oblique", 8)
-        c.drawString(16 * mm, y, "This loan hasn't been disbursed yet — dates below are projected from today, not final.")
+        note = "This group hasn't been disbursed yet — dates and per-member shares below are projected, not final." if is_group else "This loan hasn't been disbursed yet — dates below are projected from today, not final."
+        c.drawString(16 * mm, y, note)
         y -= 8 * mm
 
-    c.setFont("Helvetica-Bold", 9)
-    c.setFillColor(GREY)
-    col_x = [16, 45, 85, 125, 160]
-    headers = ["#", "DUE DATE", "PRINCIPAL", "INTEREST", "TOTAL DUE"]
-    for x, h in zip(col_x, headers):
-        c.drawString(x * mm, y, h)
-    y -= 3 * mm
-    c.setStrokeColor(colors.HexColor("#DDDDDD"))
-    c.line(16 * mm, y, width - 16 * mm, y)
-    y -= 6 * mm
+    if is_group:
+        col_x = [14, 40, 75, 150]
+        headers = ["#", "DUE DATE", "MEMBER", "AMOUNT DUE"]
+    else:
+        col_x = [16, 45, 85, 125, 160]
+        headers = ["#", "DUE DATE", "PRINCIPAL", "INTEREST", "TOTAL DUE"]
 
-    c.setFont("Helvetica", 9)
+    def draw_table_header(y):
+        c.setFont("Helvetica-Bold", 8 if is_group else 9)
+        c.setFillColor(GREY)
+        for x, h in zip(col_x, headers):
+            c.drawString(x * mm, y, h)
+        y -= 3 * mm
+        c.setStrokeColor(colors.HexColor("#DDDDDD"))
+        c.line(14 * mm, y, width - 14 * mm, y)
+        return y - 6 * mm
+
+    y = draw_table_header(y)
+
+    c.setFont("Helvetica", 8 if is_group else 9)
     total_principal = total_interest = total_due = 0.0
     for row in rows:
         if y < 20 * mm:
             c.showPage()
             y = height - 20 * mm
-            c.setFont("Helvetica-Bold", 9)
-            c.setFillColor(GREY)
-            for x, h in zip(col_x, headers):
-                c.drawString(x * mm, y, h)
-            y -= 3 * mm
-            c.line(16 * mm, y, width - 16 * mm, y)
-            y -= 6 * mm
-            c.setFont("Helvetica", 9)
+            y = draw_table_header(y)
+            c.setFont("Helvetica", 8 if is_group else 9)
         c.setFillColor(colors.HexColor("#5A6B00") if row.get("is_paid") else INK)
-        c.drawString(col_x[0] * mm, y, str(row["installment_no"]))
-        c.drawString(col_x[1] * mm, y, row["due_date"])
-        c.drawString(col_x[2] * mm, y, f"Rs. {row['principal_due']:,.2f}")
-        c.drawString(col_x[3] * mm, y, f"Rs. {row['interest_due']:,.2f}")
-        c.drawString(col_x[4] * mm, y, f"Rs. {row['total_due']:,.2f}" + (" (Paid)" if row.get("is_paid") else ""))
+        if is_group:
+            c.drawString(col_x[0] * mm, y, str(row["installment_no"]))
+            c.drawString(col_x[1] * mm, y, row["due_date"])
+            c.drawString(col_x[2] * mm, y, str(row.get("member_name", ""))[:26])
+            c.drawString(col_x[3] * mm, y, f"Rs. {row['total_due']:,.2f}" + (" (Paid)" if row.get("is_paid") else ""))
+        else:
+            c.drawString(col_x[0] * mm, y, str(row["installment_no"]))
+            c.drawString(col_x[1] * mm, y, row["due_date"])
+            c.drawString(col_x[2] * mm, y, f"Rs. {row['principal_due']:,.2f}")
+            c.drawString(col_x[3] * mm, y, f"Rs. {row['interest_due']:,.2f}")
+            c.drawString(col_x[4] * mm, y, f"Rs. {row['total_due']:,.2f}" + (" (Paid)" if row.get("is_paid") else ""))
         total_principal += row["principal_due"]
         total_interest += row["interest_due"]
         total_due += row["total_due"]
-        y -= 6 * mm
+        y -= 5.5 * mm if is_group else 6 * mm
 
     y -= 2 * mm
     c.setStrokeColor(colors.HexColor("#DDDDDD"))
-    c.line(16 * mm, y, width - 16 * mm, y)
+    c.line(14 * mm, y, width - 14 * mm, y)
     y -= 7 * mm
     c.setFont("Helvetica-Bold", 9)
     c.setFillColor(NAVY)
     c.drawString(col_x[0] * mm, y, "TOTAL")
-    c.drawString(col_x[2] * mm, y, f"Rs. {total_principal:,.2f}")
-    c.drawString(col_x[3] * mm, y, f"Rs. {total_interest:,.2f}")
-    c.drawString(col_x[4] * mm, y, f"Rs. {total_due:,.2f}")
+    if is_group:
+        c.drawString(col_x[3] * mm, y, f"Rs. {total_due:,.2f}")
+    else:
+        c.drawString(col_x[2] * mm, y, f"Rs. {total_principal:,.2f}")
+        c.drawString(col_x[4] * mm, y, f"Rs. {total_due:,.2f}")
 
     c.setFillColor(GREY)
     c.setFont("Helvetica-Oblique", 7)
@@ -274,19 +286,22 @@ def generate_loan_installment_sheet_pdf(loan_number: str, payer_name: str, payer
     return file_path
 
 
-def generate_loan_installment_sheet_xlsx(loan_number: str, payer_name: str, payer_type: str, branch_name: str, is_projected: bool, rows: list[dict]) -> str:
+def generate_loan_installment_sheet_xlsx(loan_number: str, payer_name: str, payer_type: str, branch_name: str, is_projected: bool, rows: list[dict], is_group: bool = False) -> str:
     wb = Workbook()
     ws = wb.active
     ws.title = "Installment Sheet"[:31]
 
-    ws.merge_cells("A1:E1")
+    ws.merge_cells("A1:F1")
     ws["A1"] = f"Udhayam MFI — Installment Sheet — {loan_number}" + (" (Projected)" if is_projected else "")
     ws["A1"].font = Font(bold=True, size=14)
     ws["A2"] = f"{payer_name} ({payer_type}) — Branch: {branch_name}"
     ws["A2"].font = Font(italic=True, size=10, color="666666")
 
     header_row = 4
-    headers = ["#", "Due Date", "Principal (Rs.)", "Interest (Rs.)", "Total Due (Rs.)", "Status"]
+    if is_group:
+        headers = ["#", "Due Date", "Member", "Amount Due (Rs.)", "Status"]
+    else:
+        headers = ["#", "Due Date", "Principal (Rs.)", "Interest (Rs.)", "Total Due (Rs.)", "Status"]
     fill = PatternFill(start_color="183B66", end_color="183B66", fill_type="solid")
     for col, text in enumerate(headers, start=1):
         cell = ws.cell(row=header_row, column=col, value=text)
@@ -294,28 +309,33 @@ def generate_loan_installment_sheet_xlsx(loan_number: str, payer_name: str, paye
         cell.font = Font(color="64A844", bold=True)
         cell.alignment = Alignment(horizontal="center")
 
-    total_principal = total_interest = total_due = 0.0
+    total_col = 4 if is_group else 5
+    total_principal = total_due = 0.0
     for i, row in enumerate(rows, start=header_row + 1):
-        ws.cell(row=i, column=1, value=row["installment_no"])
-        ws.cell(row=i, column=2, value=row["due_date"])
-        ws.cell(row=i, column=3, value=row["principal_due"]).number_format = "#,##0.00"
-        ws.cell(row=i, column=4, value=row["interest_due"]).number_format = "#,##0.00"
-        ws.cell(row=i, column=5, value=row["total_due"]).number_format = "#,##0.00"
-        ws.cell(row=i, column=6, value="Paid" if row.get("is_paid") else "Unpaid")
+        col = 1
+        ws.cell(row=i, column=col, value=row["installment_no"]); col += 1
+        ws.cell(row=i, column=col, value=row["due_date"]); col += 1
+        if is_group:
+            ws.cell(row=i, column=col, value=row.get("member_name", "")); col += 1
+            ws.cell(row=i, column=col, value=row["total_due"]).number_format = "#,##0.00"; col += 1
+        else:
+            ws.cell(row=i, column=col, value=row["principal_due"]).number_format = "#,##0.00"; col += 1
+            ws.cell(row=i, column=col, value=row["interest_due"]).number_format = "#,##0.00"; col += 1
+            ws.cell(row=i, column=col, value=row["total_due"]).number_format = "#,##0.00"; col += 1
+        ws.cell(row=i, column=col, value="Paid" if row.get("is_paid") else "Unpaid")
         total_principal += row["principal_due"]
-        total_interest += row["interest_due"]
         total_due += row["total_due"]
 
     total_row = header_row + len(rows) + 1
     ws.cell(row=total_row, column=1, value="TOTAL").font = Font(bold=True)
-    ws.cell(row=total_row, column=3, value=round(total_principal, 2)).font = Font(bold=True)
-    ws.cell(row=total_row, column=3).number_format = "#,##0.00"
-    ws.cell(row=total_row, column=4, value=round(total_interest, 2)).font = Font(bold=True)
-    ws.cell(row=total_row, column=4).number_format = "#,##0.00"
-    ws.cell(row=total_row, column=5, value=round(total_due, 2)).font = Font(bold=True)
-    ws.cell(row=total_row, column=5).number_format = "#,##0.00"
+    if not is_group:
+        ws.cell(row=total_row, column=3, value=round(total_principal, 2)).font = Font(bold=True)
+        ws.cell(row=total_row, column=3).number_format = "#,##0.00"
+    ws.cell(row=total_row, column=total_col, value=round(total_due, 2)).font = Font(bold=True)
+    ws.cell(row=total_row, column=total_col).number_format = "#,##0.00"
 
-    for col, w in zip("ABCDEF", [8, 14, 16, 16, 16, 10]):
+    widths = [8, 14, 20, 16, 10] if is_group else [8, 14, 16, 16, 16, 10]
+    for col, w in zip("ABCDEFG", widths):
         ws.column_dimensions[col].width = w
 
     filename = f"loan-sheet-{loan_number}-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}.xlsx"
