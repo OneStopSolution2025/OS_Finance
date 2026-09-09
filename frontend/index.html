@@ -350,23 +350,39 @@ function logout(){
 }
 
 // ---------- Nav per role ----------
+const NAV_ICONS = {
+  dashboard: {bg:'#12B886', svg:'<path d="M6 20h2.5v-6H6v6Zm4.75 0h2.5V9h-2.5v11ZM15.5 20H18v-9h-2.5v9Z" fill="#fff"/>'},
+  branches: {bg:'#4A90D9', svg:'<path d="M12 4c-3.3 0-6 2.6-6 5.9C6 14.3 12 21 12 21s6-6.7 6-11.1C18 6.6 15.3 4 12 4Zm0 8a2.4 2.4 0 1 1 0-4.8 2.4 2.4 0 0 1 0 4.8Z" fill="#fff"/>'},
+  employees: {bg:'#8E7CE8', svg:'<circle cx="8.5" cy="9" r="2.6" fill="#fff"/><circle cx="15.5" cy="9" r="2.6" fill="#fff"/><path d="M3.5 19c0-3 2.5-5 5-5s5 2 5 5H3.5Zm7.6 0c.3-2.9 2.5-5 5-5 2.2 0 4.1 1.5 4.8 3.6.3.9-.4 1.4-1.2 1.4h-8.6Z" fill="#fff"/>'},
+  customers: {bg:'#16C0A0', svg:'<circle cx="9.5" cy="8.5" r="3.3" fill="#fff"/><path d="M3.5 19c0-3.3 2.7-6 6-6s6 2.7 6 6H3.5Z" fill="#fff"/><circle cx="18" cy="8.5" r="3" fill="#fff" fill-opacity=".55"/><path d="M17.9 6v3.4M16.2 7.7h3.4" stroke="#fff" stroke-width="1"/>'},
+  'loan-products': {bg:'#F2A93B', svg:'<path d="M6.5 4h7l4 4v12h-11V4Z" fill="#fff" fill-opacity=".92"/><path d="M13.5 4v4h4" fill="none" stroke="#F2A93B" stroke-width="1.2"/><path d="M8.5 11h6M8.5 14h6M8.5 17h3.5" stroke="#F2A93B" stroke-width="1.3" stroke-linecap="round"/>'},
+  loans: {bg:'#3D7DD8', svg:'<path d="M4 20c0-2.6 2.4-4.4 5-4.4h6c2.6 0 5 1.8 5 4.4v.3H4V20Z" fill="#fff"/><circle cx="9" cy="9" r="2.6" fill="#fff"/><circle cx="15" cy="9.6" r="3.6" fill="#fff" fill-opacity=".55"/><path d="M15 7.6v4M13.2 8.6h3.6M13.4 10.6h3.2" stroke="#3D7DD8" stroke-width="1" stroke-linecap="round"/>'},
+  collections: {bg:'#7B6FD8', svg:'<rect x="5" y="6.5" width="14" height="12" rx="2" fill="#fff" fill-opacity=".92"/><path d="M8.3 4.8v3M15.7 4.8v3" stroke="#7B6FD8" stroke-width="1.4" stroke-linecap="round"/><rect x="5" y="9.5" width="14" height="2" fill="#7B6FD8"/><circle cx="15.3" cy="15" r="3" fill="#7B6FD8"/><path d="M14.2 13.6h2M14.2 14.7h1.8M15.3 13.4v3.2" stroke="#fff" stroke-width=".7" stroke-linecap="round"/>'},
+  reports: {bg:'#2FBFB0', svg:'<rect x="5.5" y="4.5" width="13" height="15" rx="1.6" fill="#fff" fill-opacity=".92"/><path d="M8 15l2.6-3 2 1.8L16.5 9" stroke="#2FBFB0" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M14.3 9h2.2v2.2" stroke="#2FBFB0" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>'},
+  'payment-settings': {bg:'#6B87A6', svg:'<path d="M12 5.5l1 1.7 1.9-.5.5 1.9 1.9.4-.5 1.9 1.4 1.4-1.4 1.4.5 1.9-1.9.4-.5 1.9-1.9-.5-1 1.7-1-1.7-1.9.5-.5-1.9-1.9-.4.5-1.9-1.4-1.4 1.4-1.4-.5-1.9 1.9-.4.5-1.9 1.9.5Z" fill="#fff"/><circle cx="12" cy="12.3" r="2.3" fill="#6B87A6"/>'},
+};
+function navIconSvg(id){
+  const icon = NAV_ICONS[id];
+  if(!icon) return '';
+  return `<svg width="30" height="30" viewBox="0 0 24 24" style="border-radius:8px;flex-shrink:0" xmlns="http://www.w3.org/2000/svg"><rect width="24" height="24" rx="6" fill="${icon.bg}"/>${icon.svg}</svg>`;
+}
 const NAV = {
   superadmin: [
-    {id:'dashboard', label:'📊 Overview'},
-    {id:'branches', label:'🏬 Branches'},
-    {id:'employees', label:'👥 Employees'},
-    {id:'customers', label:'🧑‍🤝‍🧑 Customers'},
-    {id:'loan-products', label:'📄 Loan Products'},
-    {id:'loans', label:'💰 Loans'},
-    {id:'collections', label:'💵 Collections'},
-    {id:'reports', label:'📈 Reports'},
-    {id:'payment-settings', label:'🔑 Payment Settings'},
+    {id:'dashboard', label:'Overview'},
+    {id:'branches', label:'Branches'},
+    {id:'employees', label:'Employees'},
+    {id:'customers', label:'Customers'},
+    {id:'loan-products', label:'Loan Products'},
+    {id:'loans', label:'Loans'},
+    {id:'collections', label:'Collections'},
+    {id:'reports', label:'Reports'},
+    {id:'payment-settings', label:'Payment Settings'},
   ],
   employee: [
-    {id:'dashboard', label:'📊 Overview'},
-    {id:'customers', label:'🧑‍🤝‍🧑 Customers'},
-    {id:'loans', label:'💰 Loans'},
-    {id:'collections', label:'💵 Collections'},
+    {id:'dashboard', label:'Overview'},
+    {id:'customers', label:'Customers'},
+    {id:'loans', label:'Loans'},
+    {id:'collections', label:'Collections'},
   ],
 };
 
@@ -383,7 +399,7 @@ function enterApp(){
 function renderNav(){
   const nav = NAV[state.role] || [];
   document.getElementById('nav-items').innerHTML = nav.map(n =>
-    `<div class="nav-item ${state.view===n.id?'active':''}" onclick="navigate('${n.id}')">${n.label}</div>`
+    `<div class="nav-item ${state.view===n.id?'active':''}" onclick="navigate('${n.id}')">${navIconSvg(n.id)}<span>${esc(n.label)}</span></div>`
   ).join('');
 }
 function toggleSidebar(open){
