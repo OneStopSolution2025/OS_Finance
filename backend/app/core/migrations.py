@@ -56,6 +56,20 @@ def run_safe_migrations(engine: Engine):
             ("group_member_count", "INTEGER"),
             ("penalty_type", "VARCHAR"),
             ("penalty_amount", "NUMERIC(10,2)"),
+            ("custom_schedule_enabled", "BOOLEAN DEFAULT FALSE"),
+            ("custom_phase1_weeks", "INTEGER DEFAULT 10"),
+            ("custom_phase2_weeks", "INTEGER DEFAULT 6"),
+            ("custom_phase3_weeks", "INTEGER DEFAULT 4"),
+            ("custom_weekly_savings", "NUMERIC(12,2) DEFAULT 0"),
+            ("custom_phase1_principal", "NUMERIC(12,2) DEFAULT 0"),
+            ("custom_phase1_emi", "NUMERIC(12,2) DEFAULT 0"),
+            ("custom_phase1_savings", "NUMERIC(12,2) DEFAULT 0"),
+            ("custom_phase2_principal", "NUMERIC(12,2) DEFAULT 0"),
+            ("custom_phase2_emi", "NUMERIC(12,2) DEFAULT 0"),
+            ("custom_phase2_savings", "NUMERIC(12,2) DEFAULT 0"),
+            ("custom_phase3_principal", "NUMERIC(12,2) DEFAULT 0"),
+            ("custom_phase3_emi", "NUMERIC(12,2) DEFAULT 0"),
+            ("custom_phase3_savings", "NUMERIC(12,2) DEFAULT 0"),
         ],
         "loans": [
             ("rejected_by", "UUID"),
@@ -65,6 +79,21 @@ def run_safe_migrations(engine: Engine):
             ("disbursal_method", "VARCHAR"),
             ("disbursal_reference", "VARCHAR"),
             ("group_id", "UUID"),
+            ("processing_fee", "NUMERIC(12,2) DEFAULT 0"),
+            ("custom_start_date", "DATE"),
+            ("custom_phase1_principal", "NUMERIC(12,2)"),
+            ("custom_phase1_emi", "NUMERIC(12,2)"),
+            ("custom_phase1_savings", "NUMERIC(12,2)"),
+            ("custom_phase2_principal", "NUMERIC(12,2)"),
+            ("custom_phase2_emi", "NUMERIC(12,2)"),
+            ("custom_phase2_savings", "NUMERIC(12,2)"),
+            ("custom_phase3_principal", "NUMERIC(12,2)"),
+            ("custom_phase3_emi", "NUMERIC(12,2)"),
+            ("custom_phase3_savings", "NUMERIC(12,2)"),
+        ],
+        "emi_schedule": [
+            ("savings_due", "NUMERIC(12,2) DEFAULT 0"),
+            ("phase_no", "INTEGER"),
         ],
         "users": [
             ("address", "VARCHAR"),
@@ -76,6 +105,9 @@ def run_safe_migrations(engine: Engine):
         ],
         "payments": [
             ("group_contribution_id", "UUID"),
+        ],
+        "loan_groups": [
+            ("center_place", "VARCHAR"),
         ],
     }
 

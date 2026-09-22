@@ -102,6 +102,37 @@ class LoanProduct(Base):
     penalty_type = Column(String, nullable=True)   # 'flat' | 'percentage', null means no penalty configured
     penalty_amount = Column(Numeric(10, 2), nullable=True)  # flat rupee amount, or % of the missed share
 
+    # Custom phased weekly schedule — only meaningful when interest_type='other'.
+    # A loan runs three consecutive weekly phases (e.g. 10 weeks, then 6, then
+    # 4 — 20 weeks total). Unlike the standard flat/reducing engine, nothing
+    # here is calculated or split — no interest-rate math, no dividing a
+    # total across weeks. For each phase, Principal, EMI (the fixed weekly
+    # principal+interest figure) and Savings are entered by hand as the
+    # exact WEEKLY figure, charged unchanged every single week of that
+    # phase. The only arithmetic the app does is repeating these weekly
+    # figures across each phase's weeks and summing them into totals. These
+    # three fields on the product are just defaults — every real loan
+    # snapshots its own copy of them (see Loan below), editable at
+    # application time, since real loan amounts vary.
+    # custom_weekly_savings (below) predates the per-phase savings fields
+    # and is no longer used by custom-schedule loans — left in place,
+    # unused, rather than dropped, since dropping a column is never safe to
+    # assume is harmless.
+    custom_schedule_enabled = Column(Boolean, default=False)
+    custom_phase1_weeks = Column(Integer, nullable=True, default=10)
+    custom_phase2_weeks = Column(Integer, nullable=True, default=6)
+    custom_phase3_weeks = Column(Integer, nullable=True, default=4)
+    custom_weekly_savings = Column(Numeric(12, 2), nullable=True, default=0)  # superseded — see note above
+    custom_phase1_principal = Column(Numeric(12, 2), nullable=True, default=0)
+    custom_phase1_emi = Column(Numeric(12, 2), nullable=True, default=0)
+    custom_phase1_savings = Column(Numeric(12, 2), nullable=True, default=0)
+    custom_phase2_principal = Column(Numeric(12, 2), nullable=True, default=0)
+    custom_phase2_emi = Column(Numeric(12, 2), nullable=True, default=0)
+    custom_phase2_savings = Column(Numeric(12, 2), nullable=True, default=0)
+    custom_phase3_principal = Column(Numeric(12, 2), nullable=True, default=0)
+    custom_phase3_emi = Column(Numeric(12, 2), nullable=True, default=0)
+    custom_phase3_savings = Column(Numeric(12, 2), nullable=True, default=0)
+
 
 class LoanGroup(Base):
     """
@@ -114,6 +145,7 @@ class LoanGroup(Base):
     tenant_id = Column(UUID(as_uuid=False), ForeignKey("tenants.id"), nullable=False)
     branch_id = Column(UUID(as_uuid=False), ForeignKey("branches.id"), nullable=False)
     name = Column(String, nullable=False)
+    center_place = Column(String, nullable=True)
     created_by = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -173,6 +205,27 @@ class Loan(Base):
     applied_by = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=True)  # employee who submitted the application
     disbursal_method = Column(String, nullable=True)  # 'cash' | 'bank_transfer'
     disbursal_reference = Column(String, nullable=True)  # bank transaction ref / UTR, if bank_transfer
+    processing_fee = Column(Numeric(12, 2), nullable=True, default=0)  # entered by SuperAdmin at approval; subtracted
+                                                                        # only from the cash handed to the customer at
+                                                                        # disbursal — the repayment schedule is untouched
+    custom_start_date = Column(Date, nullable=True)  # chosen at application time for a custom phased-schedule loan;
+                                                       # used as the first installment's due date at disbursal
+
+    # Snapshot of this loan's own manually-entered phase figures — copied from
+    # the product's defaults at application time (or overridden then by
+    # whoever applied), so a later change to the product's defaults never
+    # retroactively changes an existing loan's schedule. Only meaningful when
+    # the loan's product has custom_schedule_enabled=True; null on every
+    # ordinary loan.
+    custom_phase1_principal = Column(Numeric(12, 2), nullable=True)
+    custom_phase1_emi = Column(Numeric(12, 2), nullable=True)
+    custom_phase1_savings = Column(Numeric(12, 2), nullable=True)
+    custom_phase2_principal = Column(Numeric(12, 2), nullable=True)
+    custom_phase2_emi = Column(Numeric(12, 2), nullable=True)
+    custom_phase2_savings = Column(Numeric(12, 2), nullable=True)
+    custom_phase3_principal = Column(Numeric(12, 2), nullable=True)
+    custom_phase3_emi = Column(Numeric(12, 2), nullable=True)
+    custom_phase3_savings = Column(Numeric(12, 2), nullable=True)
 
 
 class EMISchedule(Base):
@@ -187,6 +240,9 @@ class EMISchedule(Base):
     amount_paid = Column(Numeric(12, 2), default=0)
     is_paid = Column(Boolean, default=False)
     paid_at = Column(DateTime, nullable=True)
+    savings_due = Column(Numeric(12, 2), nullable=True, default=0)  # custom-phased-schedule weekly savings component —
+                                                                     # 0 for every ordinary loan, unaffected either way
+    phase_no = Column(Integer, nullable=True)  # 1/2/3 for a custom phased-schedule loan; null otherwise
 
 
 class Payment(Base):

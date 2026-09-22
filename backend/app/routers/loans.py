@@ -88,6 +88,7 @@ class GroupCreate(BaseModel):
     branch_id: str
     name: str
     customer_ids: list[str]
+    center_place: str | None = None
 
 
 @router.post("/groups")
@@ -103,14 +104,18 @@ def create_group(payload: GroupCreate, db: Session = Depends(get_db), user: User
     if len(customers) != len(payload.customer_ids):
         raise HTTPException(status_code=404, detail="One or more selected customers were not found.")
 
-    group = LoanGroup(tenant_id=user.tenant_id, branch_id=payload.branch_id, name=payload.name.strip(), created_by=user.id)
+    group = LoanGroup(
+        tenant_id=user.tenant_id, branch_id=payload.branch_id, name=payload.name.strip(),
+        center_place=(payload.center_place.strip() if payload.center_place else None),
+        created_by=user.id,
+    )
     db.add(group)
     db.flush()
     for cid in payload.customer_ids:
         db.add(LoanGroupMember(group_id=group.id, customer_id=cid))
     db.commit()
     db.refresh(group)
-    return {"id": group.id, "name": group.name, "member_count": len(payload.customer_ids)}
+    return {"id": group.id, "name": group.name, "center_place": group.center_place, "member_count": len(payload.customer_ids)}
 
 
 @router.get("/groups")
@@ -142,7 +147,7 @@ def list_groups(db: Session = Depends(get_db), user: User = Depends(require_any)
         loan = loans_by_group.get(g.id)
 
         result.append({
-            "id": g.id, "name": g.name, "branch_id": g.branch_id,
+            "id": g.id, "name": g.name, "branch_id": g.branch_id, "center_place": g.center_place,
             "branch_name": branch.name if branch else "Unknown",
             "created_by_name": creator.full_name if creator else "Unknown",
             "created_at": g.created_at.isoformat() if g.created_at else None,
@@ -185,6 +190,25 @@ class LoanProductCreate(BaseModel):
     group_member_count: int | None = None     # required when is_group_loan=True
     penalty_type: str | None = None           # 'flat' | 'percentage'
     penalty_amount: float | None = None       # rupee amount, or % depending on penalty_type
+    custom_schedule_enabled: bool = False
+    custom_phase1_weeks: int | None = 10
+    custom_phase2_weeks: int | None = 6
+    custom_phase3_weeks: int | None = 4
+    custom_weekly_savings: float | None = 0  # superseded by the per-phase savings fields below — kept for compatibility, unused
+    # Default per-phase WEEKLY figures for a custom phased schedule — entered by hand,
+    # not calculated or split from any total, and not derived from interest_rate_annual.
+    # Every real loan snapshots its own copy of these (editable at application time), so
+    # these are only the starting defaults shown on the loan product and on a brand-new
+    # application for this product.
+    custom_phase1_principal: float | None = 0
+    custom_phase1_emi: float | None = 0
+    custom_phase1_savings: float | None = 0
+    custom_phase2_principal: float | None = 0
+    custom_phase2_emi: float | None = 0
+    custom_phase2_savings: float | None = 0
+    custom_phase3_principal: float | None = 0
+    custom_phase3_emi: float | None = 0
+    custom_phase3_savings: float | None = 0
 
     def validate_other(self):
         if self.interest_type == InterestType.other:
@@ -192,6 +216,18 @@ class LoanProductCreate(BaseModel):
                 raise HTTPException(status_code=400, detail="Give the custom interest type a label when selecting 'Other'.")
             if self.calculation_basis not in ("flat", "reducing"):
                 raise HTTPException(status_code=400, detail="Choose whether 'Other' calculates like Flat or Reducing balance.")
+            if self.custom_schedule_enabled:
+                if not all([self.custom_phase1_weeks, self.custom_phase2_weeks, self.custom_phase3_weeks]):
+                    raise HTTPException(status_code=400, detail="All three phase week-counts are required for a custom phased schedule — none can be left blank or zero.")
+                for label, value in [
+                    ("Phase 1 principal", self.custom_phase1_principal), ("Phase 1 EMI", self.custom_phase1_emi), ("Phase 1 savings", self.custom_phase1_savings),
+                    ("Phase 2 principal", self.custom_phase2_principal), ("Phase 2 EMI", self.custom_phase2_emi), ("Phase 2 savings", self.custom_phase2_savings),
+                    ("Phase 3 principal", self.custom_phase3_principal), ("Phase 3 EMI", self.custom_phase3_emi), ("Phase 3 savings", self.custom_phase3_savings),
+                ]:
+                    if value is not None and value < 0:
+                        raise HTTPException(status_code=400, detail=f"{label} can't be negative.")
+        elif self.custom_schedule_enabled:
+            raise HTTPException(status_code=400, detail="The custom phased schedule is only available when Interest Type is 'Other (custom)'.")
 
     def validate_group(self):
         if self.is_group_loan and (not self.group_member_count or self.group_member_count < 2):
@@ -234,6 +270,20 @@ class LoanProductUpdate(BaseModel):
     processing_fee_pct: float | None = None
     custom_interest_label: str | None = None
     calculation_basis: str | None = None
+    custom_schedule_enabled: bool | None = None
+    custom_phase1_weeks: int | None = None
+    custom_phase2_weeks: int | None = None
+    custom_phase3_weeks: int | None = None
+    custom_weekly_savings: float | None = None
+    custom_phase1_principal: float | None = None
+    custom_phase1_emi: float | None = None
+    custom_phase1_savings: float | None = None
+    custom_phase2_principal: float | None = None
+    custom_phase2_emi: float | None = None
+    custom_phase2_savings: float | None = None
+    custom_phase3_principal: float | None = None
+    custom_phase3_emi: float | None = None
+    custom_phase3_savings: float | None = None
 
 
 @router.patch("/loan-products/{product_id}")
@@ -263,7 +313,7 @@ def update_loan_product(product_id: str, payload: LoanProductUpdate, db: Session
 
 @router.get("/loan-products/{product_id}/installment-sheet")
 def download_installment_sheet(
-    product_id: str, amount: float, format: str = "pdf",
+    product_id: str, amount: float, format: str = "pdf", start_date: date | None = None,
     db: Session = Depends(get_db), user: User = Depends(require_superadmin),
 ):
     """
@@ -282,18 +332,32 @@ def download_installment_sheet(
     if product.is_group_loan:
         raise HTTPException(status_code=400, detail="Installment sheets are for individual products — a group loan's per-member share depends on the group size chosen at application time.")
 
-    raw_rows = calculate_emi_schedule(amount, product.interest_rate_annual, product.tenure_months, product)
-    rows = [{
-        "installment_no": r["installment_no"], "due_date": r["due_date"].isoformat(),
-        "principal_due": float(r["principal_due"]), "interest_due": float(r["interest_due"]), "total_due": float(r["total_due"]),
-    } for r in raw_rows]
+    show_savings = bool(product.custom_schedule_enabled)
+    if show_savings:
+        if not start_date:
+            raise HTTPException(status_code=400, detail="This product uses the custom phased schedule — choose a start date and click Generate.")
+        # A custom-schedule product has no rate-driven math to run against a sample
+        # amount — the schedule comes entirely from the product's own manually-entered
+        # per-phase defaults (Principal/EMI/Savings), same as the preview endpoint.
+        raw_rows = calculate_custom_phased_schedule(product_phase_config(product), start_date)
+        rows = [{
+            "installment_no": r["installment_no"], "due_date": r["due_date"].isoformat(),
+            "principal_due": float(r["principal_due"]), "interest_due": float(r["interest_due"]),
+            "savings_due": float(r["savings_due"]), "total_due": float(r["total_due"]),
+        } for r in raw_rows]
+    else:
+        raw_rows = calculate_emi_schedule(amount, product.interest_rate_annual, product.tenure_months, product)
+        rows = [{
+            "installment_no": r["installment_no"], "due_date": r["due_date"].isoformat(),
+            "principal_due": float(r["principal_due"]), "interest_due": float(r["interest_due"]), "total_due": float(r["total_due"]),
+        } for r in raw_rows]
 
     if format == "xlsx":
-        file_path = generate_installment_sheet_xlsx(product.name, amount, product, rows)
+        file_path = generate_installment_sheet_xlsx(product.name, amount, product, rows, show_savings=show_savings)
         media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         ext = "xlsx"
     else:
-        file_path = generate_installment_sheet_pdf(product.name, amount, product, rows)
+        file_path = generate_installment_sheet_pdf(product.name, amount, product, rows, show_savings=show_savings)
         media_type = "application/pdf"
         ext = "pdf"
 
@@ -302,7 +366,7 @@ def download_installment_sheet(
 
 
 @router.get("/loans/{loan_id}/installment-sheet")
-def download_loan_installment_sheet(loan_id: str, format: str = "pdf", db: Session = Depends(get_db), user: User = Depends(require_any)):
+def download_loan_installment_sheet(loan_id: str, format: str = "pdf", for_customer: bool = False, view: str = "list", member_id: str | None = None, db: Session = Depends(get_db), user: User = Depends(require_any)):
     """
     The real installment sheet for one specific loan, available once
     SuperAdmin has approved it — the employee who applied for it (or anyone
@@ -311,6 +375,20 @@ def download_loan_installment_sheet(loan_id: str, format: str = "pdf", db: Sessi
     and branch on it. If the loan hasn't been disbursed yet, this is a
     clearly-labeled projection; once disbursed, it's built from the real
     schedule with real due dates and paid/unpaid status.
+
+    for_customer=True produces the copy meant to be handed to the customer —
+    it omits the Savings column and the processing-fee line, both of which
+    stay visible to staff (employee/SuperAdmin) on the default copy.
+
+    view selects the document layout for a group loan, matching the
+    client's own paper templates — it defaults to "list" (the original,
+    unchanged per-member flat list this endpoint has always produced), and
+    can instead be "center" (one aggregate roster + schedule sheet for the
+    whole group, using the loan's own EMI/Principal/Interest/Saving figures
+    directly rather than a per-member split) or "member" (an individual
+    "M.L.L." ledger page for one member, named by member_id — the
+    LoanGroupMember id from GET /groups/{id}/members — with a running
+    balance column). "center"/"member" only apply to group loans.
     """
     from app.utils.installment_sheet import generate_loan_installment_sheet_pdf, generate_loan_installment_sheet_xlsx
 
@@ -319,6 +397,9 @@ def download_loan_installment_sheet(loan_id: str, format: str = "pdf", db: Sessi
         raise HTTPException(status_code=404, detail="Loan not found")
     if loan.status in (LoanStatus.pending_approval, LoanStatus.rejected):
         raise HTTPException(status_code=400, detail="This loan hasn't been approved yet — an installment sheet isn't available until it is.")
+
+    product = db.query(LoanProduct).filter(LoanProduct.id == loan.loan_product_id).first()
+    has_custom_schedule = bool(product and product.custom_schedule_enabled)
 
     branch = db.query(Branch).filter(Branch.id == loan.branch_id).first()
     branch_name = branch.name if branch else "Unknown"
@@ -336,6 +417,121 @@ def download_loan_installment_sheet(loan_id: str, format: str = "pdf", db: Sessi
     members = db.query(LoanGroupMember).filter(LoanGroupMember.group_id == loan.group_id).all() if loan.group_id else []
     member_customer_ids = {m.id: m.customer_id for m in members}
     member_customers = {c.id: c for c in db.query(Customer).filter(Customer.id.in_(member_customer_ids.values())).all()} if members else {}
+
+    if view in ("center", "member"):
+        if not loan.group_id:
+            raise HTTPException(status_code=400, detail="The center and member views are only available for group loans.")
+
+        is_projected = not bool(real_schedule)
+        if is_projected:
+            if has_custom_schedule:
+                if not loan.custom_start_date:
+                    raise HTTPException(status_code=400, detail="This loan uses a custom phased schedule but has no start date set — this shouldn't happen for a loan applied after this feature shipped.")
+                raw_rows = calculate_custom_phased_schedule(loan_phase_config(loan, product), loan.custom_start_date)
+            else:
+                raw_rows = calculate_emi_schedule(loan.principal_amount, loan.interest_rate_annual, loan.tenure_months, product)
+
+        branch_address = ", ".join(filter(None, [branch.address if branch else None, branch.city if branch else None, branch.state if branch else None])) or None
+        group = db.query(LoanGroup).filter(LoanGroup.id == loan.group_id).first()
+        center_name = group.name if group else "Unknown group"
+
+        if view == "center":
+            from app.utils.installment_sheet import generate_group_center_sheet_pdf, generate_group_center_sheet_xlsx
+
+            center_place = group.center_place if group else None
+            member_roster = []
+            for m in members:
+                c = member_customers.get(m.customer_id)
+                member_roster.append({"name": c.full_name if c else "Unknown member", "phone": c.phone if c else None})
+
+            if real_schedule:
+                agg_rows = [{
+                    "installment_no": e.installment_no, "due_date": e.due_date.isoformat(),
+                    "principal_due": float(e.principal_due), "interest_due": float(e.interest_due),
+                    "savings_due": float(e.savings_due or 0), "total_due": float(e.total_due), "is_paid": e.is_paid,
+                } for e in real_schedule]
+            else:
+                agg_rows = [{
+                    "installment_no": r["installment_no"], "due_date": r["due_date"].isoformat(),
+                    "principal_due": float(r["principal_due"]), "interest_due": float(r["interest_due"]),
+                    "savings_due": float(r.get("savings_due", 0)), "total_due": float(r["total_due"]),
+                } for r in raw_rows]
+
+            if format == "xlsx":
+                file_path = generate_group_center_sheet_xlsx(loan.loan_number, center_name, center_place, branch_name, is_projected, float(loan.principal_amount), member_roster, agg_rows, branch_address=branch_address)
+                media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                ext = "xlsx"
+            else:
+                file_path = generate_group_center_sheet_pdf(loan.loan_number, center_name, center_place, branch_name, is_projected, float(loan.principal_amount), member_roster, agg_rows, branch_address=branch_address)
+                media_type = "application/pdf"
+                ext = "pdf"
+            filename = f"{loan.loan_number}_center_sheet.{ext}"
+            return FileResponse(file_path, media_type=media_type, filename=filename)
+
+        # view == "member"
+        if not member_id:
+            raise HTTPException(status_code=400, detail="Choose which member's sheet to download (member_id).")
+        member = next((m for m in members if m.id == member_id), None)
+        if not member:
+            raise HTTPException(status_code=404, detail="Group member not found on this loan's group.")
+        member_index = members.index(member)
+        customer = member_customers.get(member.customer_id)
+        member_name = customer.full_name if customer else "Unknown member"
+        member_phone = customer.phone if customer else None
+
+        from app.utils.installment_sheet import generate_member_mll_sheet_pdf, generate_member_mll_sheet_xlsx
+
+        member_loan_amount = split_evenly(loan.principal_amount, len(members))[member_index]
+        loan_dis_date = loan.disbursed_at.date().isoformat() if loan.disbursed_at else (loan.custom_start_date.isoformat() if loan.custom_start_date else None)
+
+        balance = Decimal(str(member_loan_amount))
+        member_rows = []
+        if real_schedule:
+            for e in real_schedule:
+                p_share = split_evenly(e.principal_due, len(members))[member_index]
+                i_share = split_evenly(e.interest_due, len(members))[member_index]
+                balance -= p_share
+                if balance < 0:
+                    balance = Decimal("0")
+                member_rows.append({
+                    "installment_no": e.installment_no, "due_date": e.due_date.isoformat(),
+                    "principal_due": float(p_share), "interest_due": float(i_share),
+                    "balance": float(balance), "is_paid": e.is_paid,
+                })
+        else:
+            for r in raw_rows:
+                p_share = split_evenly(r["principal_due"], len(members))[member_index]
+                i_share = split_evenly(r["interest_due"], len(members))[member_index]
+                balance -= p_share
+                if balance < 0:
+                    balance = Decimal("0")
+                member_rows.append({
+                    "installment_no": r["installment_no"], "due_date": r["due_date"].isoformat(),
+                    "principal_due": float(p_share), "interest_due": float(i_share),
+                    "balance": float(balance),
+                })
+
+        # M.L.L. No — this member's sequential position in the group, with the
+        # Indian financial year (April-March) of the loan's disbursal (or, if
+        # not yet disbursed, its chosen start date).
+        from datetime import datetime as _dt
+        mll_date = loan.disbursed_at.date() if loan.disbursed_at else loan.custom_start_date
+        if mll_date:
+            fy_start = mll_date.year if mll_date.month >= 4 else mll_date.year - 1
+        else:
+            fy_start = _dt.utcnow().year
+        mll_no = f"{member_index + 1:02d}/{fy_start}-{fy_start + 1}"
+
+        if format == "xlsx":
+            file_path = generate_member_mll_sheet_xlsx(mll_no, center_name, member_name, float(member_loan_amount), loan_dis_date, member_phone, branch_name, is_projected, member_rows, branch_address=branch_address)
+            media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            ext = "xlsx"
+        else:
+            file_path = generate_member_mll_sheet_pdf(mll_no, center_name, member_name, float(member_loan_amount), loan_dis_date, member_phone, branch_name, is_projected, member_rows, branch_address=branch_address)
+            media_type = "application/pdf"
+            ext = "pdf"
+        filename = f"{loan.loan_number}_{member_name.replace(' ', '_')}_mll_sheet.{ext}"
+        return FileResponse(file_path, media_type=media_type, filename=filename)
 
     if real_schedule:
         is_projected = False
@@ -360,14 +556,19 @@ def download_loan_installment_sheet(loan_id: str, format: str = "pdf", db: Sessi
             rows = [{
                 "installment_no": e.installment_no, "due_date": e.due_date.isoformat(),
                 "principal_due": float(e.principal_due), "interest_due": float(e.interest_due),
+                "savings_due": float(e.savings_due or 0),
                 "total_due": float(e.total_due), "is_paid": e.is_paid,
             } for e in real_schedule]
     else:
         # Approved but not yet disbursed — no real schedule exists yet, so
         # project one from the loan's own locked-in terms as a preview.
-        product = db.query(LoanProduct).filter(LoanProduct.id == loan.loan_product_id).first()
         is_projected = True
-        raw_rows = calculate_emi_schedule(loan.principal_amount, loan.interest_rate_annual, loan.tenure_months, product)
+        if has_custom_schedule:
+            if not loan.custom_start_date:
+                raise HTTPException(status_code=400, detail="This loan uses a custom phased schedule but has no start date set — this shouldn't happen for a loan applied after this feature shipped.")
+            raw_rows = calculate_custom_phased_schedule(loan_phase_config(loan, product), loan.custom_start_date)
+        else:
+            raw_rows = calculate_emi_schedule(loan.principal_amount, loan.interest_rate_annual, loan.tenure_months, product)
         if loan.group_id and members:
             # Same even-split math the real disbursal will use, so this
             # preview shows each member the same amount they'll actually be
@@ -385,15 +586,20 @@ def download_loan_installment_sheet(loan_id: str, format: str = "pdf", db: Sessi
         else:
             rows = [{
                 "installment_no": r["installment_no"], "due_date": r["due_date"].isoformat(),
-                "principal_due": float(r["principal_due"]), "interest_due": float(r["interest_due"]), "total_due": float(r["total_due"]),
+                "principal_due": float(r["principal_due"]), "interest_due": float(r["interest_due"]),
+                "savings_due": float(r.get("savings_due", 0)),
+                "total_due": float(r["total_due"]),
             } for r in raw_rows]
 
+    show_savings = has_custom_schedule and not for_customer
+    fee_to_show = float(loan.processing_fee) if (loan.processing_fee and not for_customer) else None
+
     if format == "xlsx":
-        file_path = generate_loan_installment_sheet_xlsx(loan.loan_number, payer_name, payer_type, branch_name, is_projected, rows, is_group=bool(loan.group_id))
+        file_path = generate_loan_installment_sheet_xlsx(loan.loan_number, payer_name, payer_type, branch_name, is_projected, rows, is_group=bool(loan.group_id), show_savings=show_savings, processing_fee=fee_to_show)
         media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         ext = "xlsx"
     else:
-        file_path = generate_loan_installment_sheet_pdf(loan.loan_number, payer_name, payer_type, branch_name, is_projected, rows, is_group=bool(loan.group_id))
+        file_path = generate_loan_installment_sheet_pdf(loan.loan_number, payer_name, payer_type, branch_name, is_projected, rows, is_group=bool(loan.group_id), show_savings=show_savings, processing_fee=fee_to_show)
         media_type = "application/pdf"
         ext = "pdf"
 
@@ -447,6 +653,20 @@ class LoanApply(BaseModel):
     principal_amount: float
     customer_id: str | None = None  # for individual loans
     group_id: str | None = None     # for group loans — mutually exclusive with customer_id
+    custom_start_date: date | None = None  # only used when the chosen product has custom_schedule_enabled
+    # Per-phase WEEKLY overrides for a custom-schedule loan — any left out falls back
+    # to the product's own default for that phase. Each phase's weekly principal times
+    # its own week-count, summed across all three phases (overridden or default),
+    # must exactly equal principal_amount above.
+    custom_phase1_principal: float | None = None
+    custom_phase1_emi: float | None = None
+    custom_phase1_savings: float | None = None
+    custom_phase2_principal: float | None = None
+    custom_phase2_emi: float | None = None
+    custom_phase2_savings: float | None = None
+    custom_phase3_principal: float | None = None
+    custom_phase3_emi: float | None = None
+    custom_phase3_savings: float | None = None
 
 
 def resolve_calculation_basis(product: LoanProduct) -> InterestType:
@@ -539,6 +759,151 @@ def build_emi_schedule(loan: Loan, product: LoanProduct, db: Session, first_due_
     loan.total_payable = total_payable
 
 
+def calculate_custom_phased_schedule(phases: list[dict], start_date: date) -> list[dict]:
+    """
+    A separate, self-contained schedule engine for 'Custom' interest-type
+    products with custom_schedule_enabled — three consecutive weekly phases
+    (e.g. 10 weeks, then 6, then 4) rather than the standard flat/reducing
+    month-based math above, which this function never touches or calls.
+
+    Nothing here is derived or split — no interest-rate math, no dividing a
+    total across weeks. Each phase in `phases` is a dict with
+    weeks/principal/emi/savings, all entered by hand elsewhere (on the
+    product as defaults, snapshotted and possibly overridden per loan at
+    application time), and every one of the three money figures is already
+    the exact per-week amount:
+      - "principal": the fixed weekly principal figure, charged every
+        single week of that phase, exactly as entered — never split or
+        derived from a phase total.
+      - "emi": the fixed weekly principal+interest figure charged every
+        single week of that phase. That week's interest is simply this EMI
+        minus that same week's principal (both already weekly figures) —
+        never calculated from a rate.
+      - "savings": the fixed weekly savings figure for that phase, added on
+        top of EMI every week, never touching the principal/interest math.
+    The only arithmetic this function does is repeating each phase's fixed
+    weekly figures across its weeks and running installment numbers/dates —
+    everything else is exactly what was typed in. Totals (phase totals, the
+    loan's overall total) are just sums of these weekly figures, computed
+    where they're needed (see product_phase_config/loan_phase_config
+    callers) — never the other way around.
+    """
+    rows = []
+    installment_no = 0
+    due = start_date - timedelta(days=7)  # so the first installment lands exactly on start_date
+    for phase_idx, phase in enumerate(phases, start=1):
+        weeks = phase.get("weeks") or 0
+        if weeks <= 0:
+            continue
+        weekly_principal = Decimal(str(phase.get("principal") or 0))
+        emi = Decimal(str(phase.get("emi") or 0))
+        savings = Decimal(str(phase.get("savings") or 0))
+        weekly_interest = emi - weekly_principal
+        for _ in range(weeks):
+            installment_no += 1
+            due = due + timedelta(days=7)
+            rows.append({
+                "installment_no": installment_no, "due_date": due, "phase_no": phase_idx,
+                "principal_due": weekly_principal, "interest_due": weekly_interest,
+                "savings_due": savings, "total_due": emi + savings,
+            })
+    return rows
+
+
+def product_phase_config(product: LoanProduct) -> list[dict]:
+    """Default phase figures as configured on the loan product itself."""
+    return [
+        {"weeks": product.custom_phase1_weeks, "principal": product.custom_phase1_principal, "emi": product.custom_phase1_emi, "savings": product.custom_phase1_savings},
+        {"weeks": product.custom_phase2_weeks, "principal": product.custom_phase2_principal, "emi": product.custom_phase2_emi, "savings": product.custom_phase2_savings},
+        {"weeks": product.custom_phase3_weeks, "principal": product.custom_phase3_principal, "emi": product.custom_phase3_emi, "savings": product.custom_phase3_savings},
+    ]
+
+
+def loan_phase_config(loan: Loan, product: LoanProduct) -> list[dict]:
+    """
+    A specific loan's own snapshotted phase figures (principal/EMI/savings,
+    set at application time) combined with the product's phase week-counts
+    (weeks are never overridden per loan — only the money figures are).
+    """
+    return [
+        {"weeks": product.custom_phase1_weeks, "principal": loan.custom_phase1_principal, "emi": loan.custom_phase1_emi, "savings": loan.custom_phase1_savings},
+        {"weeks": product.custom_phase2_weeks, "principal": loan.custom_phase2_principal, "emi": loan.custom_phase2_emi, "savings": loan.custom_phase2_savings},
+        {"weeks": product.custom_phase3_weeks, "principal": loan.custom_phase3_principal, "emi": loan.custom_phase3_emi, "savings": loan.custom_phase3_savings},
+    ]
+
+
+def build_custom_phased_schedule(loan: Loan, product: LoanProduct, db: Session, start_date: date):
+    """
+    DB-writing counterpart to calculate_custom_phased_schedule — mirrors what
+    build_emi_schedule does for the standard engine, but for the phased one.
+    Uses the loan's own snapshotted phase figures, not the product's current
+    defaults, so an edit to the product later never changes an already
+    applied-for loan's schedule.
+    """
+    rows = calculate_custom_phased_schedule(loan_phase_config(loan, product), start_date)
+    total_payable = Decimal("0")
+    for row in rows:
+        db.add(EMISchedule(
+            loan_id=loan.id, installment_no=row["installment_no"], due_date=row["due_date"],
+            principal_due=row["principal_due"], interest_due=row["interest_due"],
+            savings_due=row["savings_due"], phase_no=row["phase_no"], total_due=row["total_due"],
+        ))
+        total_payable += row["total_due"]
+    loan.total_payable = total_payable
+
+
+@router.get("/loan-products/{product_id}/custom-schedule-preview")
+def preview_custom_schedule(
+    product_id: str, start_date: date,
+    phase1_principal: float | None = None, phase1_emi: float | None = None, phase1_savings: float | None = None,
+    phase2_principal: float | None = None, phase2_emi: float | None = None, phase2_savings: float | None = None,
+    phase3_principal: float | None = None, phase3_emi: float | None = None, phase3_savings: float | None = None,
+    db: Session = Depends(get_db), user: User = Depends(require_any),
+):
+    """
+    Powers the "Generate" button for a Custom-schedule product — both on the
+    Loan Products page (SuperAdmin, previewing the product's own defaults)
+    and on the loan application form (employee or SuperAdmin, previewing the
+    actual figures typed in for a real customer/group loan before
+    submitting). No database writes; purely a calculation preview. Any
+    phaseN_* value left out falls back to the product's own default for
+    that phase.
+    """
+    product = db.query(LoanProduct).filter(LoanProduct.id == product_id, LoanProduct.tenant_id == user.tenant_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Loan product not found")
+    if not product.custom_schedule_enabled:
+        raise HTTPException(status_code=400, detail="This product doesn't use the custom phased weekly schedule.")
+
+    def resolve(value, default):
+        return value if value is not None else float(default or 0)
+
+    phases = [
+        {"weeks": product.custom_phase1_weeks, "principal": resolve(phase1_principal, product.custom_phase1_principal), "emi": resolve(phase1_emi, product.custom_phase1_emi), "savings": resolve(phase1_savings, product.custom_phase1_savings)},
+        {"weeks": product.custom_phase2_weeks, "principal": resolve(phase2_principal, product.custom_phase2_principal), "emi": resolve(phase2_emi, product.custom_phase2_emi), "savings": resolve(phase2_savings, product.custom_phase2_savings)},
+        {"weeks": product.custom_phase3_weeks, "principal": resolve(phase3_principal, product.custom_phase3_principal), "emi": resolve(phase3_emi, product.custom_phase3_emi), "savings": resolve(phase3_savings, product.custom_phase3_savings)},
+    ]
+    rows = calculate_custom_phased_schedule(phases, start_date)
+    total_weeks = sum(p["weeks"] or 0 for p in phases)
+    # Each phase's "principal" is a weekly figure now, not a phase total — the overall
+    # loan principal this schedule adds up to is that weekly figure times the phase's
+    # own week-count, summed across all three phases.
+    total_principal = sum(Decimal(str(p["principal"])) * Decimal(p["weeks"] or 0) for p in phases)
+    return {
+        "total_weeks": total_weeks,
+        "phase_weeks": [p["weeks"] for p in phases],
+        "phase_principals": [p["principal"] for p in phases],
+        "phase_emis": [p["emi"] for p in phases],
+        "phase_savings": [p["savings"] for p in phases],
+        "total_principal": float(total_principal),
+        "rows": [{
+            "installment_no": r["installment_no"], "due_date": r["due_date"].isoformat(), "phase_no": r["phase_no"],
+            "principal_due": float(r["principal_due"]), "interest_due": float(r["interest_due"]),
+            "savings_due": float(r["savings_due"]), "total_due": float(r["total_due"]),
+        } for r in rows],
+    }
+
+
 @router.post("/loans/apply")
 def apply_loan(payload: LoanApply, db: Session = Depends(get_db), user: User = Depends(require_any)):
     # An employee can only ever apply against their own branch — without this,
@@ -583,12 +948,46 @@ def apply_loan(payload: LoanApply, db: Session = Depends(get_db), user: User = D
     branch_count = db.query(Loan).filter(Loan.branch_id == payload.branch_id).count()
     loan_number = f"LN-{branch_count + 1:06d}"
 
+    custom_phase_fields = {}
+    if product.custom_schedule_enabled:
+        if not payload.custom_start_date:
+            raise HTTPException(status_code=400, detail="This product uses a custom phased schedule — choose a start date for the loan tenure.")
+
+        def resolve(value, default):
+            return value if value is not None else float(default or 0)
+
+        p1 = resolve(payload.custom_phase1_principal, product.custom_phase1_principal)
+        p2 = resolve(payload.custom_phase2_principal, product.custom_phase2_principal)
+        p3 = resolve(payload.custom_phase3_principal, product.custom_phase3_principal)
+        # Each phase's principal here is a WEEKLY figure, charged unchanged every week of
+        # that phase — never split from a total. So what this loan actually adds up to
+        # (and must equal the loan amount) is each phase's weekly principal times its own
+        # week-count, summed across all three phases.
+        weeks1, weeks2, weeks3 = product.custom_phase1_weeks or 0, product.custom_phase2_weeks or 0, product.custom_phase3_weeks or 0
+        phase_principal_sum = (
+            Decimal(str(p1)) * Decimal(weeks1) + Decimal(str(p2)) * Decimal(weeks2) + Decimal(str(p3)) * Decimal(weeks3)
+        )
+        if abs(phase_principal_sum - Decimal(str(payload.principal_amount))) > Decimal("0.01"):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Phase 1 ({p1} × {weeks1} wks) + Phase 2 ({p2} × {weeks2} wks) + Phase 3 ({p3} × {weeks3} wks) "
+                    f"= {phase_principal_sum}, which must add up exactly to the loan amount ({payload.principal_amount})."
+                )
+            )
+        custom_phase_fields = {
+            "custom_phase1_principal": p1, "custom_phase1_emi": resolve(payload.custom_phase1_emi, product.custom_phase1_emi), "custom_phase1_savings": resolve(payload.custom_phase1_savings, product.custom_phase1_savings),
+            "custom_phase2_principal": p2, "custom_phase2_emi": resolve(payload.custom_phase2_emi, product.custom_phase2_emi), "custom_phase2_savings": resolve(payload.custom_phase2_savings, product.custom_phase2_savings),
+            "custom_phase3_principal": p3, "custom_phase3_emi": resolve(payload.custom_phase3_emi, product.custom_phase3_emi), "custom_phase3_savings": resolve(payload.custom_phase3_savings, product.custom_phase3_savings),
+        }
+
     loan = Loan(
         tenant_id=user.tenant_id, branch_id=payload.branch_id, customer_id=customer_id, group_id=group_id,
         loan_product_id=product.id, loan_number=loan_number,
         principal_amount=payload.principal_amount, interest_rate_annual=product.interest_rate_annual,
         tenure_months=product.tenure_months, status=LoanStatus.pending_approval,
-        applied_by=user.id,
+        applied_by=user.id, custom_start_date=payload.custom_start_date,
+        **custom_phase_fields,
     )
     db.add(loan)
     db.commit()
@@ -596,15 +995,25 @@ def apply_loan(payload: LoanApply, db: Session = Depends(get_db), user: User = D
     return loan
 
 
+class LoanApproveRequest(BaseModel):
+    processing_fee: float = 0  # deducted only from the cash disbursed to the customer at disbursal —
+                                # the repayment schedule still totals the full approved principal + interest
+
+
 @router.patch("/loans/{loan_id}/approve")
-def approve_loan(loan_id: str, db: Session = Depends(get_db), user: User = Depends(require_superadmin)):
+def approve_loan(loan_id: str, payload: LoanApproveRequest = LoanApproveRequest(), db: Session = Depends(get_db), user: User = Depends(require_superadmin)):
     loan = db.query(Loan).filter(Loan.id == loan_id, Loan.tenant_id == user.tenant_id).first()
     if not loan:
         raise HTTPException(status_code=404, detail="Loan not found")
     if loan.status != LoanStatus.pending_approval:
         raise HTTPException(status_code=400, detail="Only a loan pending approval can be approved.")
+    if payload.processing_fee and payload.processing_fee < 0:
+        raise HTTPException(status_code=400, detail="Processing fee can't be negative.")
+    if payload.processing_fee and Decimal(str(payload.processing_fee)) >= loan.principal_amount:
+        raise HTTPException(status_code=400, detail="Processing fee can't be equal to or more than the approved principal amount.")
     loan.status = LoanStatus.approved
     loan.approved_by = user.id
+    loan.processing_fee = payload.processing_fee or 0
     db.commit()
 
     try:
@@ -702,12 +1111,22 @@ def disburse_loan(loan_id: str, payload: LoanDisburse = LoanDisburse(), db: Sess
 
     from datetime import datetime
     loan.status = LoanStatus.active
-    loan.disbursed_amount = loan.principal_amount
+    # Processing fee (if any, set at approval) is deducted only from the cash
+    # actually handed to the customer here — the EMI schedule below is still
+    # built from the full loan.principal_amount, so what the customer owes
+    # and repays is completely unaffected by this.
+    loan.disbursed_amount = loan.principal_amount - (loan.processing_fee or 0)
     loan.disbursed_by = user.id
     loan.disbursed_at = datetime.utcnow()
     loan.disbursal_method = payload.disbursal_method
     loan.disbursal_reference = payload.disbursal_reference
-    build_emi_schedule(loan, product, db, first_due_date=payload.first_due_date)
+    if product.interest_type == InterestType.other and product.custom_schedule_enabled:
+        start = payload.first_due_date or loan.custom_start_date
+        if not start:
+            raise HTTPException(status_code=400, detail="This loan uses a custom phased schedule — a start date is required (it should have been set at application, but you can also set one here).")
+        build_custom_phased_schedule(loan, product, db, start_date=start)
+    else:
+        build_emi_schedule(loan, product, db, first_due_date=payload.first_due_date)
     db.flush()  # need EMISchedule.id values before creating GroupContribution rows
 
     if is_group:

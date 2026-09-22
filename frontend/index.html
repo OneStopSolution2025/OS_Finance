@@ -214,11 +214,25 @@
     <p style="font-size:12.5px;color:#666;margin:0 0 14px">Preview the repayment schedule at a sample amount — useful to show a prospective customer before they've actually applied. This doesn't create a real loan.</p>
     <div class="field"><label>Sample principal amount (₹)</label><input id="sheet-amount" type="number"></div>
     <div id="sheet-amount-hint" style="font-size:11.5px;color:#888;margin-top:-8px;margin-bottom:14px"></div>
+    <div class="hidden" id="sheet-custom-fields">
+      <div class="field"><label>Start date (first installment)</label><input id="sheet-start-date" type="date"></div>
+      <div class="row-actions" style="margin-bottom:10px"><button class="btn ghost" onclick="generateCustomSchedulePreview()">Generate</button></div>
+      <div id="sheet-preview-body" style="max-height:220px;overflow-y:auto;margin-bottom:12px"></div>
+    </div>
     <div class="row-actions">
       <button class="btn amber" onclick="downloadInstallmentSheet('pdf')">⬇ Download PDF</button>
       <button class="btn" onclick="downloadInstallmentSheet('xlsx')">⬇ Download Excel</button>
     </div>
     <div class="err" id="sheet-err"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="mll-picker-modal">
+  <div class="modal-card" style="max-width:420px;max-height:80vh;overflow-y:auto;position:relative">
+    <button onclick="document.getElementById('mll-picker-modal').classList.remove('show')" style="position:absolute;top:14px;right:14px;background:none;border:none;font-size:20px;line-height:1;cursor:pointer;color:#888;padding:4px" aria-label="Close">&times;</button>
+    <h3 id="mll-picker-title" style="padding-right:28px">M.L.L. Sheets</h3>
+    <p style="font-size:12.5px;color:#666;margin:0 0 10px">Download the individual Member Loan Ledger sheet for one member of this group.</p>
+    <div id="mll-picker-body"></div>
   </div>
 </div>
 
@@ -995,6 +1009,13 @@ async function renderLoanProducts(){
           </select>
           <div style="font-size:11px;color:#888;margin-top:4px">The custom label is just the display name — this dropdown decides the real EMI math.</div>
         </div>
+        <div class="field" style="grid-column:1/-1">
+          <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;width:fit-content"><input type="checkbox" id="lp-custom-schedule-enabled" onchange="toggleCustomScheduleFields('lp')" style="margin:0"><span>Use custom phased weekly schedule (3 mandatory phases, e.g. 10 + 6 + 4 weeks)</span></label>
+        </div>
+      </div>
+      <div class="hidden" id="lp-custom-schedule-fields" style="margin-top:12px">
+        <p style="font-size:11.5px;color:#888;margin:0 0 8px">All three phases are required. Principal, EMI and Savings are the exact WEEKLY amounts — each is charged unchanged every single week of that phase, nothing is split or calculated from a rate. These are just the product's defaults; whoever applies for a real loan can adjust them for that customer. Savings shows to staff on the installment sheet but is hidden on the customer copy.</p>
+        ${customScheduleGridHtml('lp')}
       </div>
       <div class="form-grid" style="margin-top:14px">
         <div class="field" style="grid-column:1/-1">
@@ -1035,6 +1056,10 @@ async function renderLoanProducts(){
           <label>Custom label</label><input id="ep-custom-label">
           <label>Calculates like</label>
           <select id="ep-calc-basis"><option value="flat">Flat</option><option value="reducing">Reducing balance</option></select>
+          <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;width:fit-content;margin-top:10px"><input type="checkbox" id="ep-custom-schedule-enabled" onchange="toggleCustomScheduleFields('ep')" style="margin:0"><span>Use custom phased weekly schedule</span></label>
+          <div class="hidden" id="ep-custom-schedule-fields" style="margin-top:8px">
+            ${customScheduleGridHtml('ep')}
+          </div>
         </div>
         <label>Annual interest %</label><input id="ep-rate" type="number">
         <div class="row-actions">
@@ -1050,6 +1075,30 @@ function toggleOtherInterestFields(prefix){
   const isOther = document.getElementById(`${prefix}-type`).value === 'other';
   const fieldsId = prefix === 'lp' ? 'lp-other-fields' : 'ep-other-fields';
   document.getElementById(fieldsId).classList.toggle('hidden', !isOther);
+  if(!isOther){
+    // Custom schedule only makes sense under Interest Type = Other — clear it
+    // out of sight (and out of the checkbox state) if the type changes away.
+    const cb = document.getElementById(`${prefix}-custom-schedule-enabled`);
+    if(cb){ cb.checked = false; toggleCustomScheduleFields(prefix); }
+  }
+}
+function toggleCustomScheduleFields(prefix){
+  const enabled = document.getElementById(`${prefix}-custom-schedule-enabled`).checked;
+  const fieldsId = prefix === 'lp' ? 'lp-custom-schedule-fields' : 'ep-custom-schedule-fields';
+  document.getElementById(fieldsId).classList.toggle('hidden', !enabled);
+}
+// Shared 3-phase grid (Weeks / Principal / EMI / Savings) used by the create-product form
+// (prefix 'lp'), the edit-product modal ('ep'), and the loan application form ('la') — same
+// field ids each time, just prefixed, so one renderer avoids three near-duplicate blocks.
+function customScheduleGridHtml(prefix){
+  return [1,2,3].map(n=>`
+    <div class="form-grid" style="margin-top:${n>1?'10px':'0'};padding-top:${n>1?'10px':'0'};border-top:${n>1?'1px solid #eee':'none'}">
+      <div class="field" style="grid-column:1/-1"><label style="font-weight:600">Phase ${n}</label></div>
+      <div class="field"><label>Weeks${prefix==='la'?' <span style="font-weight:400;color:#888">(set on the product)</span>':''}</label><input id="${prefix}-phase${n}-weeks" type="number" min="1" value="${n===1?10:n===2?6:4}" ${prefix==='la'?'readonly style="background:#f5f5f5;cursor:not-allowed"':''}></div>
+      <div class="field"><label>Principal — weekly (₹)</label><input id="${prefix}-phase${n}-principal" type="number" min="0" step="0.01" value="0" ${prefix==='la'?'oninput="updatePhasePrincipalTotal()"':''}></div>
+      <div class="field"><label>EMI — weekly (₹)</label><input id="${prefix}-phase${n}-emi" type="number" min="0" step="0.01" value="0"></div>
+      <div class="field"><label>Savings — weekly (₹)</label><input id="${prefix}-phase${n}-savings" type="number" min="0" step="0.01" value="0"></div>
+    </div>`).join('');
 }
 function toggleCustomDesignation(prefix){
   const sel = document.getElementById(`${prefix}-desig`);
@@ -1112,7 +1161,16 @@ function openEditProduct(p){
   document.getElementById('ep-rate').value = p.interest_rate_annual;
   document.getElementById('ep-custom-label').value = p.custom_interest_label || '';
   document.getElementById('ep-calc-basis').value = p.calculation_basis || 'flat';
+  document.getElementById('ep-custom-schedule-enabled').checked = !!p.custom_schedule_enabled;
+  [1,2,3].forEach(n=>{
+    const defaults = {1:10,2:6,3:4};
+    document.getElementById(`ep-phase${n}-weeks`).value = p[`custom_phase${n}_weeks`] || defaults[n];
+    document.getElementById(`ep-phase${n}-principal`).value = p[`custom_phase${n}_principal`] || 0;
+    document.getElementById(`ep-phase${n}-emi`).value = p[`custom_phase${n}_emi`] || 0;
+    document.getElementById(`ep-phase${n}-savings`).value = p[`custom_phase${n}_savings`] || 0;
+  });
   toggleOtherInterestFields('ep');
+  toggleCustomScheduleFields('ep');
   document.getElementById('ep-err').textContent = '';
   document.getElementById('edit-product-modal').classList.add('show');
 }
@@ -1129,6 +1187,17 @@ async function submitEditProduct(){
   if(interestType === 'other'){
     payload.custom_interest_label = document.getElementById('ep-custom-label').value;
     payload.calculation_basis = document.getElementById('ep-calc-basis').value;
+    payload.custom_schedule_enabled = document.getElementById('ep-custom-schedule-enabled').checked;
+    if(payload.custom_schedule_enabled){
+      [1,2,3].forEach(n=>{
+        payload[`custom_phase${n}_weeks`] = Number(document.getElementById(`ep-phase${n}-weeks`).value);
+        payload[`custom_phase${n}_principal`] = Number(document.getElementById(`ep-phase${n}-principal`).value) || 0;
+        payload[`custom_phase${n}_emi`] = Number(document.getElementById(`ep-phase${n}-emi`).value) || 0;
+        payload[`custom_phase${n}_savings`] = Number(document.getElementById(`ep-phase${n}-savings`).value) || 0;
+      });
+    }
+  } else {
+    payload.custom_schedule_enabled = false;
   }
   try{
     await api(`/loan-products/${editingProductId}`, { method:'PATCH', json: payload });
@@ -1158,6 +1227,15 @@ async function createLoanProduct(){
   if(interestType === 'other'){
     payload.custom_interest_label = document.getElementById('lp-custom-label').value;
     payload.calculation_basis = document.getElementById('lp-calc-basis').value;
+    payload.custom_schedule_enabled = document.getElementById('lp-custom-schedule-enabled').checked;
+    if(payload.custom_schedule_enabled){
+      [1,2,3].forEach(n=>{
+        payload[`custom_phase${n}_weeks`] = Number(document.getElementById(`lp-phase${n}-weeks`).value);
+        payload[`custom_phase${n}_principal`] = Number(document.getElementById(`lp-phase${n}-principal`).value) || 0;
+        payload[`custom_phase${n}_emi`] = Number(document.getElementById(`lp-phase${n}-emi`).value) || 0;
+        payload[`custom_phase${n}_savings`] = Number(document.getElementById(`lp-phase${n}-savings`).value) || 0;
+      });
+    }
   }
   const isGroup = document.getElementById('lp-is-group').checked;
   if(isGroup){
@@ -1187,6 +1265,9 @@ async function renderLoans(){
     canApply ? api('/groups') : Promise.resolve([]),
     (canApply && state.role === 'superadmin') ? api('/branches/') : Promise.resolve([]),
   ]);
+  applyProducts = products; // stashed at module scope so onApplyProductChange (called from a plain
+                             // onchange handler, outside this closure) can look up the chosen product's
+                             // own custom-schedule defaults to pre-fill the phase grid
 
   const applyPanel = canApply ? `
     <div class="panel">
@@ -1196,7 +1277,7 @@ async function renderLoans(){
         : `
         <div class="form-grid">
           ${state.role === 'superadmin' ? `<div class="field"><label>Branch</label><select id="la-branch">${branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('') || '<option value="">Create a branch first</option>'}</select></div>` : ''}
-          <div class="field"><label>Loan product</label><select id="la-product" onchange="onApplyProductChange()">${products.map(p=>`<option value="${p.id}" data-min="${p.min_amount}" data-max="${p.max_amount}" data-group="${p.is_group_loan}" data-membercount="${p.group_member_count||''}">${esc(p.name)} — ${p.interest_rate_annual}% p.a.${p.is_group_loan?' (Group)':''}</option>`).join('')}</select></div>
+          <div class="field"><label>Loan product</label><select id="la-product" onchange="onApplyProductChange()">${products.map(p=>`<option value="${p.id}" data-min="${p.min_amount}" data-max="${p.max_amount}" data-group="${p.is_group_loan}" data-membercount="${p.group_member_count||''}" data-customschedule="${!!p.custom_schedule_enabled}">${esc(p.name)} — ${p.interest_rate_annual}% p.a.${p.is_group_loan?' (Group)':''}</option>`).join('')}</select></div>
           <div class="field" id="la-customer-field"><label>Customer</label>
             <input id="la-customer-search" placeholder="Search by name or mobile…" style="margin-bottom:6px" oninput="filterSelectOptions('la-customer-search','la-customer')">
             <select id="la-customer" size="6" style="height:auto">${customers.map(c=>`<option value="${c.id}" data-search="${esc(c.full_name.toLowerCase())} ${esc(c.phone||'')}">${esc(c.full_name)} — ${esc(c.phone||'')} (${esc(c.customer_code)})</option>`).join('')}</select>
@@ -1205,7 +1286,17 @@ async function renderLoans(){
             <input id="la-group-search" placeholder="Search by group name…" style="margin-bottom:6px" oninput="filterSelectOptions('la-group-search','la-group')">
             <select id="la-group" size="6" style="height:auto">${groups.map(g=>`<option value="${g.id}" data-search="${esc(g.name.toLowerCase())}">${esc(g.name)} (${g.member_count} members)</option>`).join('') || '<option value="">No groups yet — create one on the Customers tab</option>'}</select>
           </div>
-          <div class="field"><label>Principal amount (₹)</label><input id="la-amount" type="number"><div id="la-hint" style="font-size:11px;color:#888;margin-top:4px"></div></div>
+          <div class="field"><label>Principal amount (₹)</label><input id="la-amount" type="number" oninput="updatePhasePrincipalTotal()"><div id="la-hint" style="font-size:11px;color:#888;margin-top:4px"></div></div>
+        </div>
+        <div class="hidden" id="la-custom-schedule-fields">
+          <p style="font-size:11.5px;color:#888;margin:8px 0">Pre-filled from the loan product's defaults — adjust the weekly Principal, EMI, and Savings for each phase to match this customer's actual loan. Weeks are fixed by the product. Weekly principal × weeks, summed across all 3 phases, must add up exactly to the Principal amount above.</p>
+          ${customScheduleGridHtml('la')}
+          <div class="form-grid" style="margin-top:10px">
+            <div class="field"><label>Start date (first installment)</label><input id="la-start-date" type="date"></div>
+            <div class="field" style="align-self:end"><button type="button" class="btn ghost" onclick="previewApplyCustomSchedule()">Generate schedule preview</button></div>
+          </div>
+          <div id="la-phase-total-hint" style="font-size:11.5px;margin:6px 0"></div>
+          <div id="la-schedule-preview"></div>
         </div>
         <div class="row-actions"><button class="btn amber" onclick="applyForLoan()">Submit application</button></div>
         <div class="err" id="la-err"></div>
@@ -1228,9 +1319,9 @@ async function renderLoans(){
         <td>₹${l.principal_amount.toLocaleString()}</td>
         <td>${l.disbursed_amount ? `₹${l.disbursed_amount.toLocaleString()}${l.disbursal_method ? `<div style="font-size:11px;color:#888">${esc(l.disbursal_method.replace('_',' '))}</div>` : ''}` : '—'}</td>
         <td style="white-space:nowrap;font-size:12.5px">${new Date(l.applied_at).toLocaleDateString()}</td>
-        <td><span class="badge ${l.status}">${l.status.replace('_',' ')}</span>${l.status==='rejected' && l.rejection_reason ? `<div style="font-size:11px;color:#888;margin-top:4px">${esc(l.rejection_reason)}</div>` : ''}${!['pending_approval','rejected'].includes(l.status) ? `<div style="margin-top:4px"><button class="link-btn" style="font-size:11px" onclick="downloadLoanInstallmentSheet('${l.id}','${esc(l.loan_number)}','pdf')">⬇ Sheet (PDF)</button> · <button class="link-btn" style="font-size:11px" onclick="downloadLoanInstallmentSheet('${l.id}','${esc(l.loan_number)}','xlsx')">Excel</button></div>` : ''}</td>
+        <td><span class="badge ${l.status}">${l.status.replace('_',' ')}</span>${l.status==='rejected' && l.rejection_reason ? `<div style="font-size:11px;color:#888;margin-top:4px">${esc(l.rejection_reason)}</div>` : ''}${!['pending_approval','rejected'].includes(l.status) ? `<div style="margin-top:4px"><button class="link-btn" style="font-size:11px" onclick="downloadLoanInstallmentSheet('${l.id}','${esc(l.loan_number)}','pdf')">⬇ Sheet (PDF)</button> · <button class="link-btn" style="font-size:11px" onclick="downloadLoanInstallmentSheet('${l.id}','${esc(l.loan_number)}','xlsx')">Excel</button></div><div style="margin-top:2px"><button class="link-btn" style="font-size:11px;color:#888" onclick="downloadLoanInstallmentSheet('${l.id}','${esc(l.loan_number)}','pdf',true)">⬇ Customer copy (PDF)</button> · <button class="link-btn" style="font-size:11px;color:#888" onclick="downloadLoanInstallmentSheet('${l.id}','${esc(l.loan_number)}','xlsx',true)">Excel</button></div>${l.is_group_loan ? `<div style="margin-top:2px"><button class="link-btn" style="font-size:11px" onclick="downloadGroupCenterSheet('${l.id}','${esc(l.loan_number)}','pdf')">⬇ Center sheet</button> · <button class="link-btn" style="font-size:11px" onclick="openMllSheetPicker('${l.id}','${esc(l.loan_number)}','${l.group_id}')">M.L.L. sheets…</button></div>` : ''}` : ''}</td>
         ${canManage ? `<td>${l.is_group_loan ? '<span style="color:#888;font-size:12px">Group — see Collections tab</span>' : `<button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="viewCustomerDocs('${l.customer_id}','${esc(l.customer_name)}')">Review KYC</button>`}</td>
-        <td style="white-space:nowrap">${l.status==='pending_approval'?`<button class="btn" style="padding:6px 10px;font-size:12px" onclick="approveLoan('${l.id}')">Approve</button>
+        <td style="white-space:nowrap">${l.status==='pending_approval'?`<button class="btn" style="padding:6px 10px;font-size:12px" onclick="openApproveModal('${l.id}')">Approve</button>
           <button class="btn ghost" style="padding:6px 10px;font-size:12px;color:#C0392B" onclick="rejectLoan('${l.id}')">Reject</button>`
           : l.status==='approved'?`<button class="btn amber" style="padding:6px 10px;font-size:12px" onclick="openDisburseModal('${l.id}','${l.customer_id}')">Disburse</button>`:'—'}</td>`:''}
         </tr>`).join('') || `<tr><td colspan="${canManage?11:9}" class="empty">No loans yet</td></tr>`}
@@ -1259,6 +1350,19 @@ async function renderLoans(){
           <button class="btn ghost" onclick="document.getElementById('disburse-loan-modal').classList.remove('show')">Cancel</button>
         </div>
         <div class="err" id="disburse-err"></div>
+      </div>
+    </div>
+    <div class="modal-overlay" id="approve-loan-modal">
+      <div class="modal-card">
+        <h3>Approve Loan Application</h3>
+        <label>Processing fee (₹) <span style="font-weight:400;color:#888">(optional)</span></label>
+        <input id="approve-processing-fee" type="number" min="0" value="0">
+        <p style="font-size:11.5px;color:#888;margin-top:4px">Deducted only from the cash handed to the customer at disbursal — the repayment schedule still totals the full approved amount.</p>
+        <div class="row-actions">
+          <button class="btn amber" onclick="submitApproveLoan()">Approve</button>
+          <button class="btn ghost" onclick="document.getElementById('approve-loan-modal').classList.remove('show')">Cancel</button>
+        </div>
+        <div class="err" id="approve-loan-err"></div>
       </div>
     </div>
     <div class="modal-overlay" id="reject-loan-modal">
@@ -1294,6 +1398,55 @@ function onApplyProductChange(){
   const hint = `Allowed range: ₹${Number(opt.dataset.min).toLocaleString()} – ₹${Number(opt.dataset.max).toLocaleString()}`
     + (isGroup && opt.dataset.membercount ? ` · Requires a group of exactly ${opt.dataset.membercount} members` : '');
   document.getElementById('la-hint').textContent = hint;
+  const usesCustomSchedule = opt.dataset.customschedule === 'true';
+  document.getElementById('la-custom-schedule-fields').classList.toggle('hidden', !usesCustomSchedule);
+  document.getElementById('la-schedule-preview').innerHTML = '';
+  if(usesCustomSchedule){
+    document.getElementById('la-start-date').value = new Date().toISOString().slice(0,10);
+    // Pre-fill the phase grid from this product's own saved defaults — the applicant
+    // (employee/SuperAdmin) then adjusts Principal/EMI/Savings for the real customer.
+    const product = applyProducts.find(p => p.id === opt.value);
+    if(product){
+      [1,2,3].forEach(n=>{
+        document.getElementById(`la-phase${n}-weeks`).value = product[`custom_phase${n}_weeks`] || 0;
+        document.getElementById(`la-phase${n}-principal`).value = product[`custom_phase${n}_principal`] || 0;
+        document.getElementById(`la-phase${n}-emi`).value = product[`custom_phase${n}_emi`] || 0;
+        document.getElementById(`la-phase${n}-savings`).value = product[`custom_phase${n}_savings`] || 0;
+      });
+    }
+    updatePhasePrincipalTotal();
+  }
+}
+// Live running total vs. the loan's Principal amount. Each phase's Principal field is a
+// WEEKLY figure (charged unchanged every week of that phase, never split from a total),
+// so what this loan actually adds up to is weekly principal × that phase's own week-count,
+// summed across all three phases — mirrors the backend's "must add up exactly" check so a
+// mismatch is visible before submit.
+function updatePhasePrincipalTotal(){
+  const hintEl = document.getElementById('la-phase-total-hint');
+  if(!hintEl) return;
+  const total = [1,2,3].reduce((sum,n)=>{
+    const weeksEl = document.getElementById(`la-phase${n}-weeks`);
+    const principalEl = document.getElementById(`la-phase${n}-principal`);
+    const weeks = weeksEl ? Number(weeksEl.value) || 0 : 0;
+    const weekly = principalEl ? Number(principalEl.value) || 0 : 0;
+    return sum + weekly * weeks;
+  }, 0);
+  const amount = Number(document.getElementById('la-amount').value) || 0;
+  const matches = Math.abs(total - amount) < 0.01;
+  hintEl.style.color = matches ? '#2e7d32' : '#C0392B';
+  hintEl.textContent = `Phase total (weekly principal × weeks): ₹${total.toLocaleString()} ${matches ? '✓ matches principal amount' : `— must equal the principal amount (₹${amount.toLocaleString()})`}`;
+}
+async function previewApplyCustomSchedule(){
+  const previewEl = document.getElementById('la-schedule-preview');
+  const productId = document.getElementById('la-product').value;
+  const startDate = document.getElementById('la-start-date').value;
+  if(!startDate){ previewEl.innerHTML = '<div class="err">Choose a start date first.</div>'; return; }
+  try{
+    const params = customScheduleQueryParams('la');
+    const data = await api(`/loan-products/${productId}/custom-schedule-preview?start_date=${startDate}${params ? '&'+params : ''}`);
+    previewEl.innerHTML = renderCustomSchedulePreviewTable(data);
+  }catch(e){ previewEl.innerHTML = `<div class="err">${esc(e.message)}</div>`; }
 }
 async function applyForLoan(){
   const errEl = document.getElementById('la-err'); errEl.textContent = '';
@@ -1304,6 +1457,24 @@ async function applyForLoan(){
   const productId = productSel.value;
   const amount = Number(document.getElementById('la-amount').value);
   const payload = { branch_id: branchId, loan_product_id: productId, principal_amount: amount };
+  if(productSel.options[productSel.selectedIndex].dataset.customschedule === 'true'){
+    const startDate = document.getElementById('la-start-date').value;
+    if(!startDate){ errEl.textContent = 'This product uses a custom phased schedule — choose a start date.'; return; }
+    payload.custom_start_date = startDate;
+    let phaseTotal = 0;
+    [1,2,3].forEach(n=>{
+      const weeks = Number(document.getElementById(`la-phase${n}-weeks`).value) || 0;  // product's weeks — not editable here
+      const weeklyPrincipal = Number(document.getElementById(`la-phase${n}-principal`).value) || 0;
+      payload[`custom_phase${n}_principal`] = weeklyPrincipal;
+      payload[`custom_phase${n}_emi`] = Number(document.getElementById(`la-phase${n}-emi`).value) || 0;
+      payload[`custom_phase${n}_savings`] = Number(document.getElementById(`la-phase${n}-savings`).value) || 0;
+      phaseTotal += weeklyPrincipal * weeks;
+    });
+    if(Math.abs(phaseTotal - amount) > 0.01){
+      errEl.textContent = `Weekly principal × weeks for all 3 phases (₹${phaseTotal.toLocaleString()}) must add up exactly to the principal amount (₹${amount.toLocaleString()}).`;
+      return;
+    }
+  }
   if(isGroup){
     const groupId = document.getElementById('la-group').value;
     if(!groupId || !productId || !amount){ errEl.textContent = 'Fill in every field.'; return; }
@@ -1320,7 +1491,23 @@ async function applyForLoan(){
     renderLoans();
   }catch(e){ errEl.textContent = e.message; }
 }
-async function approveLoan(id){ await api(`/loans/${id}/approve`, {method:'PATCH'}); renderLoans(); }
+let approvingLoanId = null;
+function openApproveModal(id){
+  approvingLoanId = id;
+  document.getElementById('approve-processing-fee').value = 0;
+  document.getElementById('approve-loan-err').textContent = '';
+  document.getElementById('approve-loan-modal').classList.add('show');
+}
+async function submitApproveLoan(){
+  const errEl = document.getElementById('approve-loan-err'); errEl.textContent = '';
+  const fee = Number(document.getElementById('approve-processing-fee').value) || 0;
+  try{
+    await api(`/loans/${approvingLoanId}/approve`, { method:'PATCH', json: { processing_fee: fee } });
+    document.getElementById('approve-loan-modal').classList.remove('show');
+    showToast('Loan approved');
+    renderLoans();
+  }catch(e){ errEl.textContent = e.message; }
+}
 let rejectingLoanId = null;
 function rejectLoan(id){
   rejectingLoanId = id;
@@ -1652,29 +1839,101 @@ async function downloadBreakdown(){
   }catch(e){ errEl.textContent = e.message; }
 }
 let installmentSheetProduct = null;
+let applyProducts = [];  // last-loaded product list on the loan application form — see renderLoans()
 function openInstallmentSheetModal(product){
   installmentSheetProduct = product;
   document.getElementById('installment-sheet-title').textContent = `Installment Sheet — ${product.name}`;
   document.getElementById('sheet-amount').value = product.max_amount;
   document.getElementById('sheet-amount-hint').textContent = `Allowed range: ₹${product.min_amount.toLocaleString()} – ₹${product.max_amount.toLocaleString()}`;
   document.getElementById('sheet-err').textContent = '';
+  document.getElementById('sheet-custom-fields').classList.toggle('hidden', !product.custom_schedule_enabled);
+  document.getElementById('sheet-preview-body').innerHTML = '';
+  if(product.custom_schedule_enabled){
+    document.getElementById('sheet-start-date').value = new Date().toISOString().slice(0,10);
+  }
   document.getElementById('installment-sheet-modal').classList.add('show');
+}
+// Renders the phased-schedule preview table shared by the Loan Products page
+// and the loan application form's Generate button — same shape of response
+// from /loan-products/{id}/custom-schedule-preview either way.
+function renderCustomSchedulePreviewTable(data){
+  const phaseLabel = n => `Phase ${n}`;
+  return `
+    <p style="font-size:11.5px;color:#888;margin:0 0 8px">${data.total_weeks} weeks total (${data.phase_weeks.join(' + ')}) · Total principal ₹${data.total_principal.toLocaleString()}</p>
+    <table style="font-size:12px"><thead><tr><th>#</th><th>Phase</th><th>Due</th><th>Principal</th><th>Interest</th><th>Savings</th><th>Total</th></tr></thead>
+    <tbody>${data.rows.map(r=>`<tr><td>${r.installment_no}</td><td>${phaseLabel(r.phase_no)}</td><td>${r.due_date}</td><td>₹${r.principal_due.toLocaleString()}</td><td>₹${r.interest_due.toLocaleString()}</td><td>₹${r.savings_due.toLocaleString()}</td><td>₹${r.total_due.toLocaleString()}</td></tr>`).join('')}</tbody></table>
+  `;
+}
+// Builds the phaseN_principal/emi/savings query params from a set of form-field ids
+// (prefix'd lp/ep/la) — shared by the product-page preview and the loan-application
+// preview, since both send the same 9 optional overrides to the same endpoint.
+function customScheduleQueryParams(prefix){
+  const parts = [];
+  [1,2,3].forEach(n=>{
+    const principalEl = document.getElementById(`${prefix}-phase${n}-principal`);
+    const emiEl = document.getElementById(`${prefix}-phase${n}-emi`);
+    const savingsEl = document.getElementById(`${prefix}-phase${n}-savings`);
+    if(principalEl && principalEl.value !== '') parts.push(`phase${n}_principal=${Number(principalEl.value)}`);
+    if(emiEl && emiEl.value !== '') parts.push(`phase${n}_emi=${Number(emiEl.value)}`);
+    if(savingsEl && savingsEl.value !== '') parts.push(`phase${n}_savings=${Number(savingsEl.value)}`);
+  });
+  return parts.join('&');
+}
+async function generateCustomSchedulePreview(){
+  const errEl = document.getElementById('sheet-err'); errEl.textContent = '';
+  const startDate = document.getElementById('sheet-start-date').value;
+  if(!installmentSheetProduct || !startDate){ errEl.textContent = 'Choose a start date.'; return; }
+  try{
+    // No phase overrides here — this preview is always the product's own saved defaults.
+    const data = await api(`/loan-products/${installmentSheetProduct.id}/custom-schedule-preview?start_date=${startDate}`);
+    document.getElementById('sheet-preview-body').innerHTML = renderCustomSchedulePreviewTable(data);
+  }catch(e){ errEl.textContent = e.message; }
 }
 async function downloadInstallmentSheet(format){
   const errEl = document.getElementById('sheet-err'); errEl.textContent = '';
   const amount = Number(document.getElementById('sheet-amount').value);
   if(!installmentSheetProduct || !amount){ errEl.textContent = 'Enter a sample amount.'; return; }
+  const startDate = installmentSheetProduct.custom_schedule_enabled ? document.getElementById('sheet-start-date').value : null;
+  if(installmentSheetProduct.custom_schedule_enabled && !startDate){ errEl.textContent = 'Choose a start date and click Generate first.'; return; }
   try{
+    const startParam = startDate ? `&start_date=${startDate}` : '';
     await downloadAuthenticatedFile(
-      `/loan-products/${installmentSheetProduct.id}/installment-sheet?amount=${amount}&format=${format}`,
+      `/loan-products/${installmentSheetProduct.id}/installment-sheet?amount=${amount}&format=${format}${startParam}`,
       `${installmentSheetProduct.name}_installment_sheet.${format}`
     );
   }catch(e){ errEl.textContent = e.message; }
 }
-async function downloadLoanInstallmentSheet(loanId, loanNumber, format){
+async function downloadLoanInstallmentSheet(loanId, loanNumber, format, forCustomer){
   try{
-    await downloadAuthenticatedFile(`/loans/${loanId}/installment-sheet?format=${format}`, `${loanNumber}_installment_sheet.${format}`);
+    await downloadAuthenticatedFile(`/loans/${loanId}/installment-sheet?format=${format}${forCustomer?'&for_customer=true':''}`, `${loanNumber}_installment_sheet${forCustomer?'_customer':''}.${format}`);
   }catch(e){ showToast(e.message, 'error'); }
+}
+async function downloadGroupCenterSheet(loanId, loanNumber, format){
+  try{
+    await downloadAuthenticatedFile(`/loans/${loanId}/installment-sheet?format=${format}&view=center`, `${loanNumber}_center_sheet.${format}`);
+  }catch(e){ showToast(e.message, 'error'); }
+}
+async function downloadMemberMllSheet(loanId, loanNumber, memberId, memberName, format){
+  try{
+    await downloadAuthenticatedFile(`/loans/${loanId}/installment-sheet?format=${format}&view=member&member_id=${memberId}`, `${loanNumber}_${memberName.replace(/\s+/g,'_')}_mll_sheet.${format}`);
+  }catch(e){ showToast(e.message, 'error'); }
+}
+async function openMllSheetPicker(loanId, loanNumber, groupId){
+  const modal = document.getElementById('mll-picker-modal');
+  document.getElementById('mll-picker-title').textContent = `M.L.L. Sheets — ${loanNumber}`;
+  document.getElementById('mll-picker-body').innerHTML = '<p class="empty">Loading members…</p>';
+  modal.classList.add('show');
+  try{
+    const members = await api(`/groups/${groupId}/members`);
+    document.getElementById('mll-picker-body').innerHTML = members.map(m => `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
+        <div><strong>${esc(m.customer_name)}</strong><div style="font-size:11.5px;color:#888">${esc(m.phone||'')}</div></div>
+        <div><button class="link-btn" style="font-size:12px" onclick="downloadMemberMllSheet('${loanId}','${loanNumber}','${m.group_member_id}','${esc(m.customer_name)}','pdf')">PDF</button> · <button class="link-btn" style="font-size:12px" onclick="downloadMemberMllSheet('${loanId}','${loanNumber}','${m.group_member_id}','${esc(m.customer_name)}','xlsx')">Excel</button></div>
+      </div>
+    `).join('') || '<p class="empty">No members found for this group.</p>';
+  }catch(e){
+    document.getElementById('mll-picker-body').innerHTML = `<p class="empty" style="color:#C0392B">${esc(e.message)}</p>`;
+  }
 }
 // Shared authenticated-file-download helper — a plain <a href> can't carry the
 // Bearer token, so every protected file download (receipts, KYC docs, reports)
@@ -1817,6 +2076,7 @@ async function renderCustomers(){
       <div class="form-grid">
         ${isSuperAdmin ? `<div class="field"><label>Branch</label><select id="g-branch">${branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('') || '<option value="">Create a branch first</option>'}</select></div>` : ''}
         <div class="field"><label>Group name</label><input id="g-name" placeholder="e.g. Amman Nagar SHG"></div>
+        <div class="field"><label>Center place <span style="font-weight:400;color:#888">(shown on the Center installment sheet)</span></label><input id="g-center-place" placeholder="e.g. Sokkalingapuram"></div>
       </div>
       <div class="field" style="margin-top:12px">
         <label>Members <span id="g-member-count" style="font-weight:400;color:#888">(0 selected)</span></label>
@@ -1873,9 +2133,11 @@ async function createGroup(){
   if(!branchId){ errEl.textContent = 'Select a branch first.'; return; }
   const selected = Array.from(document.querySelectorAll('.g-member-checkbox:checked')).map(cb => cb.value);
   if(selected.length < 2){ errEl.textContent = 'Select at least 2 members.'; return; }
+  const centerPlace = document.getElementById('g-center-place').value.trim();
   try{
-    await api('/groups', { method:'POST', json:{ branch_id: branchId, name, customer_ids: selected }});
+    await api('/groups', { method:'POST', json:{ branch_id: branchId, name, customer_ids: selected, center_place: centerPlace || null }});
     document.getElementById('g-name').value = '';
+    document.getElementById('g-center-place').value = '';
     document.querySelectorAll('.g-member-checkbox:checked').forEach(cb => cb.checked = false);
     updateGroupMemberCount();
     loadGroupsList();
@@ -1885,9 +2147,10 @@ async function loadGroupsList(){
   try{
     const groups = await api('/groups');
     document.getElementById('groups-list').innerHTML = `
-      <table><thead><tr><th>Group Name</th><th>Branch</th><th>Created By</th><th>Members</th><th>Loan #</th><th>Amount Disbursed</th><th>Loan Status</th></tr></thead>
+      <table><thead><tr><th>Group Name</th><th>Center Place</th><th>Branch</th><th>Created By</th><th>Members</th><th>Loan #</th><th>Amount Disbursed</th><th>Loan Status</th></tr></thead>
       <tbody>${groups.map(g=>`<tr>
         <td><strong>${g.name ? esc(g.name) : '<span style="color:#C0392B">(no name)</span>'}</strong></td>
+        <td>${g.center_place ? esc(g.center_place) : '<span style="color:#888">—</span>'}</td>
         <td>${esc(g.branch_name)}</td>
         <td>${esc(g.created_by_name)}</td>
         <td>
@@ -1897,7 +2160,7 @@ async function loadGroupsList(){
         <td>${g.loan_number ? esc(g.loan_number) : '<span style="color:#888">No loan yet</span>'}</td>
         <td>${g.disbursed_amount ? `₹${g.disbursed_amount.toLocaleString()}` : (g.principal_amount ? `₹${g.principal_amount.toLocaleString()} (pending)` : '—')}</td>
         <td>${g.loan_status ? `<span class="badge ${g.loan_status}">${g.loan_status.replace('_',' ')}</span>` : '—'}</td>
-      </tr>`).join('') || '<tr><td colspan="7" class="empty">No groups yet</td></tr>'}</tbody></table>
+      </tr>`).join('') || '<tr><td colspan="8" class="empty">No groups yet</td></tr>'}</tbody></table>
     `;
   }catch(e){}
 }
