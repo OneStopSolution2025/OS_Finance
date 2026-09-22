@@ -1,3 +1,4 @@
+import mimetypes
 import os
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
@@ -63,6 +64,24 @@ def download_document(document_id: str, db: Session = Depends(get_db), user: Use
     if not doc or not os.path.exists(doc.storage_path):
         raise HTTPException(status_code=404, detail="Document not found")
     return FileResponse(doc.storage_path, filename=doc.file_name)
+
+
+@router.get("/documents/{document_id}/view")
+def view_document(document_id: str, db: Session = Depends(get_db), user: User = Depends(require_any)):
+    """
+    Same file as /download, but served inline (not as an attachment) so the
+    browser opens it directly — used by the KYC document "View" button.
+    Download and Delete are untouched; this is purely additive.
+    """
+    doc = db.query(Document).filter(Document.id == document_id, Document.tenant_id == user.tenant_id).first()
+    if not doc or not os.path.exists(doc.storage_path):
+        raise HTTPException(status_code=404, detail="Document not found")
+    media_type = mimetypes.guess_type(doc.file_name)[0] or "application/octet-stream"
+    return FileResponse(
+        doc.storage_path,
+        media_type=media_type,
+        headers={"Content-Disposition": f'inline; filename="{doc.file_name}"'},
+    )
 
 
 @router.delete("/documents/{document_id}")

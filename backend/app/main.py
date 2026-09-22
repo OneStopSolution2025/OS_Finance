@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.database import Base, engine
 from app.core.migrations import run_safe_migrations
 from app.core.monitoring import init_sentry, init_betterstack
-from app.routers import auth, tenants, branches, loans, payments, documents, reports
+from app.routers import auth, tenants, branches, loans, payments, documents, reports, partners
 
 # Import models so they register on Base before create_all
 from app.models import tenancy, finance, audit  # noqa
@@ -43,6 +43,7 @@ app.include_router(loans.router)
 app.include_router(payments.router)
 app.include_router(documents.router)
 app.include_router(reports.router)
+app.include_router(partners.router)
 
 
 @app.on_event("startup")

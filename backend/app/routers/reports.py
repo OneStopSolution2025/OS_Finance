@@ -7,7 +7,7 @@ from sqlalchemy import func
 from app.core.database import get_db
 from app.core.security import require_any, require_superadmin
 from app.models.tenancy import User, UserRole, Tenant, Branch
-from app.models.finance import Loan, Payment, EMISchedule, LoanStatus, Customer, LoanProduct, LoanGroupMember, GroupContribution, LoanGroup
+from app.models.finance import Loan, Payment, EMISchedule, LoanStatus, Customer, LoanProduct, LoanGroupMember, GroupContribution, LoanGroup, Partner
 from app.utils.report_pdf import generate_branch_report_pdf, generate_breakdown_pdf
 from app.utils.report_breakdown import build_breakdown, build_outstanding
 from app.utils.report_xlsx import generate_breakdown_xlsx
@@ -244,6 +244,21 @@ def branch_summary(db: Session = Depends(get_db), user: User = Depends(require_a
         db, user.tenant_id, branch_id=user.branch_id if user.role == UserRole.employee else None
     )
 
+    # Partner capital investment — tenant-wide (not branch-scoped, since
+    # investors fund the whole business, not a single branch). Net of any
+    # withdrawals, so it reflects capital actually still in the business.
+    partner_q = db.query(Partner).filter(Partner.tenant_id == user.tenant_id, Partner.is_active == True)
+    total_invested = partner_q.with_entities(func.coalesce(func.sum(Partner.invested_amount), 0)).scalar()
+    total_withdrawn = partner_q.with_entities(func.coalesce(func.sum(Partner.withdrawal_amount), 0)).scalar()
+    total_capital_investment = float(total_invested) - float(total_withdrawn)
+    tenant_total_disbursed = float(
+        db.query(Loan)
+        .filter(Loan.tenant_id == user.tenant_id)
+        .with_entities(func.coalesce(func.sum(Loan.disbursed_amount), 0))
+        .scalar()
+    )
+    current_balance = total_capital_investment - tenant_total_disbursed
+
     return {
         "total_disbursed": float(total_disbursed),
         "total_collected": float(total_collected),
@@ -257,6 +272,8 @@ def branch_summary(db: Session = Depends(get_db), user: User = Depends(require_a
         "collection_efficiency_pct": round(
             (float(total_collected) / float(total_disbursed) * 100) if total_disbursed else 0, 2
         ),
+        "total_capital_investment": total_capital_investment,
+        "current_balance": current_balance,
     }
 
 

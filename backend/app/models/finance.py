@@ -232,3 +232,25 @@ class Attendance(Base):
     check_in = Column(DateTime, nullable=True)
     check_out = Column(DateTime, nullable=True)
     status = Column(String, default="present")  # present | absent | half_day | leave
+
+
+class Partner(Base):
+    """
+    An investor/partner who has put capital into the tenant's lending
+    business (SuperAdmin-managed). Tracked purely for the "capital
+    investment" / "current balance" figures on the overview dashboard —
+    does not touch loans, customers, or any existing workflow.
+    """
+    __tablename__ = "partners"
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    tenant_id = Column(UUID(as_uuid=False), ForeignKey("tenants.id"), nullable=False)
+    name = Column(String, nullable=False)
+    phone = Column(String, nullable=True)
+    invested_amount = Column(Numeric(12, 2), nullable=False, default=0)
+    invested_date = Column(Date, nullable=True)
+    withdrawal_amount = Column(Numeric(12, 2), nullable=True, default=0)
+    withdrawal_date = Column(Date, nullable=True)
+    notes = Column(String, nullable=True)
+    created_by = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    is_active = Column(Boolean, default=True)
