@@ -2096,6 +2096,13 @@ async function renderCustomers(){
       <div class="err" id="g-err"></div>
       <div id="groups-list" style="margin-top:16px"></div>
     </div>
+    <div class="modal-overlay" id="group-manage-modal">
+      <div class="modal-card" style="max-width:520px;max-height:85vh;overflow-y:auto;position:relative">
+        <button onclick="document.getElementById('group-manage-modal').classList.remove('show')" style="position:absolute;top:14px;right:14px;background:none;border:none;font-size:20px;line-height:1;cursor:pointer;color:#888;padding:4px" aria-label="Close">&times;</button>
+        <h3 id="group-manage-title" style="padding-right:28px">Manage group</h3>
+        <div id="group-manage-body"></div>
+      </div>
+    </div>
     <div class="modal-overlay" id="docs-modal">
       <div class="modal-card" style="max-width:480px;max-height:85vh;overflow-y:auto;position:relative">
         <button onclick="document.getElementById('docs-modal').classList.remove('show')" style="position:absolute;top:14px;right:14px;background:none;border:none;font-size:20px;line-height:1;cursor:pointer;color:#888;padding:4px" aria-label="Close">&times;</button>
@@ -2148,7 +2155,7 @@ async function loadGroupsList(){
   try{
     const groups = await api('/groups');
     document.getElementById('groups-list').innerHTML = `
-      <table><thead><tr><th>Group Name</th><th>Center Place</th><th>Branch</th><th>Created By</th><th>Members</th><th>Loan #</th><th>Amount Disbursed</th><th>Loan Status</th></tr></thead>
+      <table><thead><tr><th>Group Name</th><th>Center Place</th><th>Branch</th><th>Created By</th><th>Members</th><th>Loan #</th><th>Amount Disbursed</th><th>Loan Status</th><th style="width:1%;white-space:nowrap">Actions</th></tr></thead>
       <tbody>${groups.map(g=>`<tr>
         <td><strong>${g.name ? esc(g.name) : '<span style="color:#C0392B">(no name)</span>'}</strong></td>
         <td>${g.center_place ? esc(g.center_place) : '<span style="color:#888">—</span>'}</td>
@@ -2161,9 +2168,95 @@ async function loadGroupsList(){
         <td>${g.loan_number ? esc(g.loan_number) : '<span style="color:#888">No loan yet</span>'}</td>
         <td>${g.disbursed_amount ? `₹${g.disbursed_amount.toLocaleString()}` : (g.principal_amount ? `₹${g.principal_amount.toLocaleString()} (pending)` : '—')}</td>
         <td>${g.loan_status ? `<span class="badge ${g.loan_status}">${g.loan_status.replace('_',' ')}</span>` : '—'}</td>
-      </tr>`).join('') || '<tr><td colspan="8" class="empty">No groups yet</td></tr>'}</tbody></table>
+        <td style="white-space:nowrap">
+          <button class="link-btn" style="font-size:12px" onclick="openManageGroupModal('${g.id}')">Edit / Members</button>
+          ${g.loan_number ? '' : `<button class="link-btn" style="font-size:12px;color:#C0392B;margin-left:8px" onclick="deleteGroupConfirm('${g.id}','${esc(g.name)}')">Delete</button>`}
+        </td>
+      </tr>`).join('') || '<tr><td colspan="9" class="empty">No groups yet</td></tr>'}</tbody></table>
     `;
   }catch(e){}
+}
+async function openManageGroupModal(groupId){
+  document.getElementById('group-manage-modal').classList.add('show');
+  document.getElementById('group-manage-body').innerHTML = '<div class="empty">Loading…</div>';
+  try{
+    const [groups, members, customers] = await Promise.all([api('/groups'), api(`/groups/${groupId}/members`), api('/customers')]);
+    const group = groups.find(g => g.id === groupId);
+    if(!group){ document.getElementById('group-manage-body').innerHTML = '<div class="err">Group not found.</div>'; return; }
+    document.getElementById('group-manage-title').textContent = `Manage — ${group.name}`;
+    const existingIds = new Set(members.map(m => m.customer_id));
+    const available = customers.filter(c => !existingIds.has(c.id));
+    document.getElementById('group-manage-body').innerHTML = `
+      <div class="form-grid">
+        <div class="field"><label>Group name</label><input id="gm-name" value="${esc(group.name)}"></div>
+        <div class="field"><label>Center place</label><input id="gm-center-place" value="${esc(group.center_place||'')}"></div>
+      </div>
+      <div class="row-actions" style="margin-top:10px"><button class="btn amber" onclick="saveGroupDetails('${groupId}')">Save details</button></div>
+      <div class="err" id="gm-details-err"></div>
+      <div style="border-top:1px solid var(--border);margin-top:16px;padding-top:14px">
+        <p style="font-size:12.5px;color:#666;margin:0 0 10px"><strong>Members</strong> (${members.length})</p>
+        ${members.map(m => `
+          <div class="activity-item">
+            <div><div class="activity-main">${esc(m.customer_name)}</div><div class="activity-sub">${esc(m.phone||'')}</div></div>
+            <button class="link-btn" style="font-size:12px;color:#C0392B" onclick="removeMemberFromGroup('${groupId}','${m.group_member_id}','${esc(m.customer_name)}')">Remove</button>
+          </div>
+        `).join('') || '<p class="empty" style="padding:8px 0">No members.</p>'}
+      </div>
+      <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:14px">
+        <p style="font-size:12.5px;color:#666;margin:0 0 10px"><strong>Add a member</strong></p>
+        <div class="field">
+          <select id="gm-add-customer">
+            <option value="">${available.length ? 'Select a customer…' : 'No other customers available'}</option>
+            ${available.map(c => `<option value="${c.id}">${esc(c.full_name)} · ${esc(c.phone||'')}</option>`).join('')}
+          </select>
+        </div>
+        <div class="row-actions" style="margin-top:10px"><button class="btn ghost" onclick="addMemberToGroup('${groupId}')">Add member</button></div>
+        <div class="err" id="gm-add-err"></div>
+      </div>
+    `;
+  }catch(e){
+    document.getElementById('group-manage-body').innerHTML = `<div class="err">${esc(e.message)}</div>`;
+  }
+}
+async function saveGroupDetails(groupId){
+  const errEl = document.getElementById('gm-details-err'); errEl.textContent = '';
+  const name = document.getElementById('gm-name').value.trim();
+  const centerPlace = document.getElementById('gm-center-place').value.trim();
+  if(!name){ errEl.textContent = 'Group name is required.'; return; }
+  try{
+    await api(`/groups/${groupId}`, { method:'PATCH', json:{ name, center_place: centerPlace || null }});
+    showToast('Group updated');
+    openManageGroupModal(groupId);
+    loadGroupsList();
+  }catch(e){ errEl.textContent = e.message; }
+}
+async function addMemberToGroup(groupId){
+  const errEl = document.getElementById('gm-add-err'); errEl.textContent = '';
+  const customerId = document.getElementById('gm-add-customer').value;
+  if(!customerId){ errEl.textContent = 'Select a customer to add.'; return; }
+  try{
+    await api(`/groups/${groupId}/members`, { method:'POST', json:{ customer_id: customerId }});
+    showToast('Member added');
+    openManageGroupModal(groupId);
+    loadGroupsList();
+  }catch(e){ errEl.textContent = e.message; }
+}
+async function removeMemberFromGroup(groupId, memberId, memberName){
+  if(!confirm(`Remove ${memberName} from this group?`)) return;
+  try{
+    await api(`/groups/${groupId}/members/${memberId}`, { method:'DELETE' });
+    showToast('Member removed');
+    openManageGroupModal(groupId);
+    loadGroupsList();
+  }catch(e){ showToast(e.message, 'error'); }
+}
+async function deleteGroupConfirm(groupId, groupName){
+  if(!confirm(`Delete the group "${groupName}"? This can't be undone.`)) return;
+  try{
+    await api(`/groups/${groupId}`, { method:'DELETE' });
+    showToast('Group deleted');
+    loadGroupsList();
+  }catch(e){ showToast(e.message, 'error'); }
 }
 async function createCustomer(){
   const errEl = document.getElementById('c-err'); errEl.textContent = '';

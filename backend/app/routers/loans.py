@@ -173,6 +173,111 @@ def get_group_members(group_id: str, db: Session = Depends(get_db), user: User =
     return result
 
 
+class GroupUpdate(BaseModel):
+    name: str | None = None
+    center_place: str | None = None
+
+
+@router.patch("/groups/{group_id}")
+def update_group(group_id: str, payload: GroupUpdate, db: Session = Depends(get_db), user: User = Depends(require_any)):
+    """
+    Edits a group's own details (name, center place). Does not touch its
+    members or any loan history — see add_group_member/remove_group_member
+    below for membership changes, and delete_group for removing the group
+    itself.
+    """
+    group = db.query(LoanGroup).filter(LoanGroup.id == group_id, LoanGroup.tenant_id == user.tenant_id).first()
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    if payload.name is not None:
+        if not payload.name.strip():
+            raise HTTPException(status_code=400, detail="Group name is required.")
+        group.name = payload.name.strip()
+    if payload.center_place is not None:
+        group.center_place = payload.center_place.strip() or None
+    db.commit()
+    db.refresh(group)
+    return {"id": group.id, "name": group.name, "center_place": group.center_place}
+
+
+class GroupMemberAdd(BaseModel):
+    customer_id: str
+
+
+@router.post("/groups/{group_id}/members")
+def add_group_member(group_id: str, payload: GroupMemberAdd, db: Session = Depends(get_db), user: User = Depends(require_any)):
+    """
+    Adds one more member to an existing group. Safe at any time — it only
+    adds a row, so it never disturbs a loan already applied for, approved,
+    or disbursed against this group (those keep the member roster they were
+    taken with; a wider group only affects loans applied for afterwards).
+    """
+    group = db.query(LoanGroup).filter(LoanGroup.id == group_id, LoanGroup.tenant_id == user.tenant_id).first()
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    customer = db.query(Customer).filter(Customer.id == payload.customer_id, Customer.tenant_id == user.tenant_id).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    existing = db.query(LoanGroupMember).filter(
+        LoanGroupMember.group_id == group_id, LoanGroupMember.customer_id == payload.customer_id
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="This customer is already a member of the group.")
+    member = LoanGroupMember(group_id=group_id, customer_id=payload.customer_id)
+    db.add(member)
+    db.commit()
+    db.refresh(member)
+    return {"group_member_id": member.id, "customer_id": member.customer_id, "customer_name": customer.full_name, "phone": customer.phone}
+
+
+@router.delete("/groups/{group_id}/members/{member_id}")
+def remove_group_member(group_id: str, member_id: str, db: Session = Depends(get_db), user: User = Depends(require_any)):
+    """
+    Removes a member from a group. Blocked once that member has any
+    GroupContribution row against them (created the moment a group loan
+    involving them is disbursed — see disburse_loan below), since that
+    history references this member's id and must stay intact. Also keeps
+    the group at 2+ members, matching the minimum enforced at creation.
+    """
+    group = db.query(LoanGroup).filter(LoanGroup.id == group_id, LoanGroup.tenant_id == user.tenant_id).first()
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    member = db.query(LoanGroupMember).filter(LoanGroupMember.id == member_id, LoanGroupMember.group_id == group_id).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found in this group.")
+    has_contributions = db.query(GroupContribution).filter(GroupContribution.group_member_id == member_id).first()
+    if has_contributions:
+        raise HTTPException(
+            status_code=400,
+            detail="This member already has installment history on a disbursed group loan and can't be removed.",
+        )
+    remaining = db.query(LoanGroupMember).filter(LoanGroupMember.group_id == group_id).count()
+    if remaining <= 2:
+        raise HTTPException(status_code=400, detail="A group needs at least 2 members — add a replacement before removing this one.")
+    db.delete(member)
+    db.commit()
+    return {"status": "removed", "group_member_id": member_id}
+
+
+@router.delete("/groups/{group_id}")
+def delete_group(group_id: str, db: Session = Depends(get_db), user: User = Depends(require_any)):
+    """
+    Deletes a group outright, along with its member roster. Blocked if any
+    loan (of any status) has ever been applied for against this group, since
+    Loan.group_id points at it — deleting it then would orphan that loan.
+    """
+    group = db.query(LoanGroup).filter(LoanGroup.id == group_id, LoanGroup.tenant_id == user.tenant_id).first()
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    has_loans = db.query(Loan).filter(Loan.group_id == group_id).first()
+    if has_loans:
+        raise HTTPException(status_code=400, detail="This group has loan history and can't be deleted.")
+    db.query(LoanGroupMember).filter(LoanGroupMember.group_id == group_id).delete()
+    db.delete(group)
+    db.commit()
+    return {"status": "deleted"}
+
+
 # ---------- Loan Products ----------
 
 class LoanProductCreate(BaseModel):
