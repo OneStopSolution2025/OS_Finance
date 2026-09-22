@@ -106,31 +106,34 @@ class LoanProduct(Base):
     # A loan runs three consecutive weekly phases (e.g. 10 weeks, then 6, then
     # 4 — 20 weeks total). Unlike the standard flat/reducing engine, nothing
     # here is calculated or split — no interest-rate math, no dividing a
-    # total across weeks. For each phase, Principal, EMI (the fixed weekly
-    # principal+interest figure) and Savings are entered by hand as the
-    # exact WEEKLY figure, charged unchanged every single week of that
-    # phase. The only arithmetic the app does is repeating these weekly
-    # figures across each phase's weeks and summing them into totals. These
-    # three fields on the product are just defaults — every real loan
-    # snapshots its own copy of them (see Loan below), editable at
-    # application time, since real loan amounts vary.
+    # total across weeks. For each phase, Principal, Interest, and Savings
+    # are entered by hand as the exact WEEKLY figure, charged unchanged
+    # every single week of that phase — the weekly total is simply
+    # Principal + Interest + Savings. The only arithmetic the app does is
+    # repeating these weekly figures across each phase's weeks and summing
+    # them into totals. These three fields on the product are just
+    # defaults — every real loan snapshots its own copy of them (see Loan
+    # below), editable at application time, since real loan amounts vary.
     # custom_weekly_savings (below) predates the per-phase savings fields
     # and is no longer used by custom-schedule loans — left in place,
     # unused, rather than dropped, since dropping a column is never safe to
-    # assume is harmless.
+    # assume is harmless. The custom_phaseN_interest fields below were
+    # originally called custom_phaseN_emi (a combined principal+interest
+    # figure) — renamed to hold pure weekly interest directly, since the
+    # feature was not yet in live use when the rename happened.
     custom_schedule_enabled = Column(Boolean, default=False)
     custom_phase1_weeks = Column(Integer, nullable=True, default=10)
     custom_phase2_weeks = Column(Integer, nullable=True, default=6)
     custom_phase3_weeks = Column(Integer, nullable=True, default=4)
     custom_weekly_savings = Column(Numeric(12, 2), nullable=True, default=0)  # superseded — see note above
     custom_phase1_principal = Column(Numeric(12, 2), nullable=True, default=0)
-    custom_phase1_emi = Column(Numeric(12, 2), nullable=True, default=0)
+    custom_phase1_interest = Column(Numeric(12, 2), nullable=True, default=0)
     custom_phase1_savings = Column(Numeric(12, 2), nullable=True, default=0)
     custom_phase2_principal = Column(Numeric(12, 2), nullable=True, default=0)
-    custom_phase2_emi = Column(Numeric(12, 2), nullable=True, default=0)
+    custom_phase2_interest = Column(Numeric(12, 2), nullable=True, default=0)
     custom_phase2_savings = Column(Numeric(12, 2), nullable=True, default=0)
     custom_phase3_principal = Column(Numeric(12, 2), nullable=True, default=0)
-    custom_phase3_emi = Column(Numeric(12, 2), nullable=True, default=0)
+    custom_phase3_interest = Column(Numeric(12, 2), nullable=True, default=0)
     custom_phase3_savings = Column(Numeric(12, 2), nullable=True, default=0)
 
 
@@ -218,13 +221,13 @@ class Loan(Base):
     # the loan's product has custom_schedule_enabled=True; null on every
     # ordinary loan.
     custom_phase1_principal = Column(Numeric(12, 2), nullable=True)
-    custom_phase1_emi = Column(Numeric(12, 2), nullable=True)
+    custom_phase1_interest = Column(Numeric(12, 2), nullable=True)
     custom_phase1_savings = Column(Numeric(12, 2), nullable=True)
     custom_phase2_principal = Column(Numeric(12, 2), nullable=True)
-    custom_phase2_emi = Column(Numeric(12, 2), nullable=True)
+    custom_phase2_interest = Column(Numeric(12, 2), nullable=True)
     custom_phase2_savings = Column(Numeric(12, 2), nullable=True)
     custom_phase3_principal = Column(Numeric(12, 2), nullable=True)
-    custom_phase3_emi = Column(Numeric(12, 2), nullable=True)
+    custom_phase3_interest = Column(Numeric(12, 2), nullable=True)
     custom_phase3_savings = Column(Numeric(12, 2), nullable=True)
 
 

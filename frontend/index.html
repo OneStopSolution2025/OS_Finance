@@ -1014,7 +1014,7 @@ async function renderLoanProducts(){
         </div>
       </div>
       <div class="hidden" id="lp-custom-schedule-fields" style="margin-top:12px">
-        <p style="font-size:11.5px;color:#888;margin:0 0 8px">All three phases are required. Principal, EMI and Savings are the exact WEEKLY amounts — each is charged unchanged every single week of that phase, nothing is split or calculated from a rate. These are just the product's defaults; whoever applies for a real loan can adjust them for that customer. Savings shows to staff on the installment sheet but is hidden on the customer copy.</p>
+        <p style="font-size:11.5px;color:#888;margin:0 0 8px">All three phases are required. Principal, Interest and Savings are the exact WEEKLY amounts — each is charged unchanged every single week of that phase, nothing is split or calculated from a rate. The weekly total is simply Principal + Interest + Savings. These are just the product's defaults; whoever applies for a real loan can adjust them for that customer. Savings shows to staff on the installment sheet but is hidden on the customer copy.</p>
         ${customScheduleGridHtml('lp')}
       </div>
       <div class="form-grid" style="margin-top:14px">
@@ -1087,16 +1087,17 @@ function toggleCustomScheduleFields(prefix){
   const fieldsId = prefix === 'lp' ? 'lp-custom-schedule-fields' : 'ep-custom-schedule-fields';
   document.getElementById(fieldsId).classList.toggle('hidden', !enabled);
 }
-// Shared 3-phase grid (Weeks / Principal / EMI / Savings) used by the create-product form
-// (prefix 'lp'), the edit-product modal ('ep'), and the loan application form ('la') — same
-// field ids each time, just prefixed, so one renderer avoids three near-duplicate blocks.
+// Shared 3-phase grid (Weeks / Principal / Interest / Savings) used by the create-product
+// form (prefix 'lp'), the edit-product modal ('ep'), and the loan application form ('la') —
+// same field ids each time, just prefixed, so one renderer avoids three near-duplicate blocks.
+// The weekly total charged is simply Principal + Interest + Savings.
 function customScheduleGridHtml(prefix){
   return [1,2,3].map(n=>`
     <div class="form-grid" style="margin-top:${n>1?'10px':'0'};padding-top:${n>1?'10px':'0'};border-top:${n>1?'1px solid #eee':'none'}">
       <div class="field" style="grid-column:1/-1"><label style="font-weight:600">Phase ${n}</label></div>
       <div class="field"><label>Weeks${prefix==='la'?' <span style="font-weight:400;color:#888">(set on the product)</span>':''}</label><input id="${prefix}-phase${n}-weeks" type="number" min="1" value="${n===1?10:n===2?6:4}" ${prefix==='la'?'readonly style="background:#f5f5f5;cursor:not-allowed"':''}></div>
       <div class="field"><label>Principal — weekly (₹)</label><input id="${prefix}-phase${n}-principal" type="number" min="0" step="0.01" value="0" ${prefix==='la'?'oninput="updatePhasePrincipalTotal()"':''}></div>
-      <div class="field"><label>EMI — weekly (₹)</label><input id="${prefix}-phase${n}-emi" type="number" min="0" step="0.01" value="0"></div>
+      <div class="field"><label>Interest — weekly (₹)</label><input id="${prefix}-phase${n}-interest" type="number" min="0" step="0.01" value="0"></div>
       <div class="field"><label>Savings — weekly (₹)</label><input id="${prefix}-phase${n}-savings" type="number" min="0" step="0.01" value="0"></div>
     </div>`).join('');
 }
@@ -1166,7 +1167,7 @@ function openEditProduct(p){
     const defaults = {1:10,2:6,3:4};
     document.getElementById(`ep-phase${n}-weeks`).value = p[`custom_phase${n}_weeks`] || defaults[n];
     document.getElementById(`ep-phase${n}-principal`).value = p[`custom_phase${n}_principal`] || 0;
-    document.getElementById(`ep-phase${n}-emi`).value = p[`custom_phase${n}_emi`] || 0;
+    document.getElementById(`ep-phase${n}-interest`).value = p[`custom_phase${n}_interest`] || 0;
     document.getElementById(`ep-phase${n}-savings`).value = p[`custom_phase${n}_savings`] || 0;
   });
   toggleOtherInterestFields('ep');
@@ -1192,7 +1193,7 @@ async function submitEditProduct(){
       [1,2,3].forEach(n=>{
         payload[`custom_phase${n}_weeks`] = Number(document.getElementById(`ep-phase${n}-weeks`).value);
         payload[`custom_phase${n}_principal`] = Number(document.getElementById(`ep-phase${n}-principal`).value) || 0;
-        payload[`custom_phase${n}_emi`] = Number(document.getElementById(`ep-phase${n}-emi`).value) || 0;
+        payload[`custom_phase${n}_interest`] = Number(document.getElementById(`ep-phase${n}-interest`).value) || 0;
         payload[`custom_phase${n}_savings`] = Number(document.getElementById(`ep-phase${n}-savings`).value) || 0;
       });
     }
@@ -1232,7 +1233,7 @@ async function createLoanProduct(){
       [1,2,3].forEach(n=>{
         payload[`custom_phase${n}_weeks`] = Number(document.getElementById(`lp-phase${n}-weeks`).value);
         payload[`custom_phase${n}_principal`] = Number(document.getElementById(`lp-phase${n}-principal`).value) || 0;
-        payload[`custom_phase${n}_emi`] = Number(document.getElementById(`lp-phase${n}-emi`).value) || 0;
+        payload[`custom_phase${n}_interest`] = Number(document.getElementById(`lp-phase${n}-interest`).value) || 0;
         payload[`custom_phase${n}_savings`] = Number(document.getElementById(`lp-phase${n}-savings`).value) || 0;
       });
     }
@@ -1289,7 +1290,7 @@ async function renderLoans(){
           <div class="field"><label>Principal amount (₹)</label><input id="la-amount" type="number" oninput="updatePhasePrincipalTotal()"><div id="la-hint" style="font-size:11px;color:#888;margin-top:4px"></div></div>
         </div>
         <div class="hidden" id="la-custom-schedule-fields">
-          <p style="font-size:11.5px;color:#888;margin:8px 0">Pre-filled from the loan product's defaults — adjust the weekly Principal, EMI, and Savings for each phase to match this customer's actual loan. Weeks are fixed by the product. Weekly principal × weeks, summed across all 3 phases, must add up exactly to the Principal amount above.</p>
+          <p style="font-size:11.5px;color:#888;margin:8px 0">Pre-filled from the loan product's defaults — adjust the weekly Principal, Interest, and Savings for each phase to match this customer's actual loan. Weeks are fixed by the product. Weekly principal × weeks, summed across all 3 phases, must add up exactly to the Principal amount above.</p>
           ${customScheduleGridHtml('la')}
           <div class="form-grid" style="margin-top:10px">
             <div class="field"><label>Start date (first installment)</label><input id="la-start-date" type="date"></div>
@@ -1319,7 +1320,7 @@ async function renderLoans(){
         <td>₹${l.principal_amount.toLocaleString()}</td>
         <td>${l.disbursed_amount ? `₹${l.disbursed_amount.toLocaleString()}${l.disbursal_method ? `<div style="font-size:11px;color:#888">${esc(l.disbursal_method.replace('_',' '))}</div>` : ''}` : '—'}</td>
         <td style="white-space:nowrap;font-size:12.5px">${new Date(l.applied_at).toLocaleDateString()}</td>
-        <td><span class="badge ${l.status}">${l.status.replace('_',' ')}</span>${l.status==='rejected' && l.rejection_reason ? `<div style="font-size:11px;color:#888;margin-top:4px">${esc(l.rejection_reason)}</div>` : ''}${!['pending_approval','rejected'].includes(l.status) ? `<div style="margin-top:4px"><button class="link-btn" style="font-size:11px" onclick="downloadLoanInstallmentSheet('${l.id}','${esc(l.loan_number)}','pdf')">⬇ Sheet (PDF)</button> · <button class="link-btn" style="font-size:11px" onclick="downloadLoanInstallmentSheet('${l.id}','${esc(l.loan_number)}','xlsx')">Excel</button></div><div style="margin-top:2px"><button class="link-btn" style="font-size:11px;color:#888" onclick="downloadLoanInstallmentSheet('${l.id}','${esc(l.loan_number)}','pdf',true)">⬇ Customer copy (PDF)</button> · <button class="link-btn" style="font-size:11px;color:#888" onclick="downloadLoanInstallmentSheet('${l.id}','${esc(l.loan_number)}','xlsx',true)">Excel</button></div>${l.is_group_loan ? `<div style="margin-top:2px"><button class="link-btn" style="font-size:11px" onclick="downloadGroupCenterSheet('${l.id}','${esc(l.loan_number)}','pdf')">⬇ Center sheet</button> · <button class="link-btn" style="font-size:11px" onclick="openMllSheetPicker('${l.id}','${esc(l.loan_number)}','${l.group_id}')">M.L.L. sheets…</button></div>` : ''}` : ''}</td>
+        <td><span class="badge ${l.status}">${l.status.replace('_',' ')}</span>${l.status==='rejected' && l.rejection_reason ? `<div style="font-size:11px;color:#888;margin-top:4px">${esc(l.rejection_reason)}</div>` : ''}${!['pending_approval','rejected'].includes(l.status) ? `<div style="margin-top:4px"><button class="link-btn" style="font-size:11px" onclick="downloadLoanInstallmentSheet('${l.id}','${esc(l.loan_number)}','pdf')">⬇ Sheet (PDF)</button> · <button class="link-btn" style="font-size:11px" onclick="downloadLoanInstallmentSheet('${l.id}','${esc(l.loan_number)}','xlsx')">Excel</button></div><div style="margin-top:2px"><button class="link-btn" style="font-size:11px;color:#888" onclick="downloadLoanInstallmentSheet('${l.id}','${esc(l.loan_number)}','pdf',true)">⬇ Customer copy (PDF)</button> · <button class="link-btn" style="font-size:11px;color:#888" onclick="downloadLoanInstallmentSheet('${l.id}','${esc(l.loan_number)}','xlsx',true)">Excel</button></div>${l.is_group_loan ? `<div style="margin-top:2px"><button class="link-btn" style="font-size:11px" onclick="downloadGroupCenterSheet('${l.id}','${esc(l.loan_number)}','pdf')">⬇ Center sheet</button> · <button class="link-btn" style="font-size:11px" onclick="downloadGroupCenterSheet('${l.id}','${esc(l.loan_number)}','xlsx')">Excel</button> · <button class="link-btn" style="font-size:11px" onclick="openMllSheetPicker('${l.id}','${esc(l.loan_number)}','${l.group_id}')">M.L.L. sheets…</button></div><div style="margin-top:2px"><button class="link-btn" style="font-size:11px;color:#888" onclick="downloadGroupCenterSheet('${l.id}','${esc(l.loan_number)}','pdf',true)">⬇ Center sheet (customer copy)</button> · <button class="link-btn" style="font-size:11px;color:#888" onclick="downloadGroupCenterSheet('${l.id}','${esc(l.loan_number)}','xlsx',true)">Excel</button></div>` : ''}` : ''}</td>
         ${canManage ? `<td>${l.is_group_loan ? '<span style="color:#888;font-size:12px">Group — see Collections tab</span>' : `<button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="viewCustomerDocs('${l.customer_id}','${esc(l.customer_name)}')">Review KYC</button>`}</td>
         <td style="white-space:nowrap">${l.status==='pending_approval'?`<button class="btn" style="padding:6px 10px;font-size:12px" onclick="openApproveModal('${l.id}')">Approve</button>
           <button class="btn ghost" style="padding:6px 10px;font-size:12px;color:#C0392B" onclick="rejectLoan('${l.id}')">Reject</button>`
@@ -1404,13 +1405,13 @@ function onApplyProductChange(){
   if(usesCustomSchedule){
     document.getElementById('la-start-date').value = new Date().toISOString().slice(0,10);
     // Pre-fill the phase grid from this product's own saved defaults — the applicant
-    // (employee/SuperAdmin) then adjusts Principal/EMI/Savings for the real customer.
+    // (employee/SuperAdmin) then adjusts Principal/Interest/Savings for the real customer.
     const product = applyProducts.find(p => p.id === opt.value);
     if(product){
       [1,2,3].forEach(n=>{
         document.getElementById(`la-phase${n}-weeks`).value = product[`custom_phase${n}_weeks`] || 0;
         document.getElementById(`la-phase${n}-principal`).value = product[`custom_phase${n}_principal`] || 0;
-        document.getElementById(`la-phase${n}-emi`).value = product[`custom_phase${n}_emi`] || 0;
+        document.getElementById(`la-phase${n}-interest`).value = product[`custom_phase${n}_interest`] || 0;
         document.getElementById(`la-phase${n}-savings`).value = product[`custom_phase${n}_savings`] || 0;
       });
     }
@@ -1466,7 +1467,7 @@ async function applyForLoan(){
       const weeks = Number(document.getElementById(`la-phase${n}-weeks`).value) || 0;  // product's weeks — not editable here
       const weeklyPrincipal = Number(document.getElementById(`la-phase${n}-principal`).value) || 0;
       payload[`custom_phase${n}_principal`] = weeklyPrincipal;
-      payload[`custom_phase${n}_emi`] = Number(document.getElementById(`la-phase${n}-emi`).value) || 0;
+      payload[`custom_phase${n}_interest`] = Number(document.getElementById(`la-phase${n}-interest`).value) || 0;
       payload[`custom_phase${n}_savings`] = Number(document.getElementById(`la-phase${n}-savings`).value) || 0;
       phaseTotal += weeklyPrincipal * weeks;
     });
@@ -1864,17 +1865,17 @@ function renderCustomSchedulePreviewTable(data){
     <tbody>${data.rows.map(r=>`<tr><td>${r.installment_no}</td><td>${phaseLabel(r.phase_no)}</td><td>${r.due_date}</td><td>₹${r.principal_due.toLocaleString()}</td><td>₹${r.interest_due.toLocaleString()}</td><td>₹${r.savings_due.toLocaleString()}</td><td>₹${r.total_due.toLocaleString()}</td></tr>`).join('')}</tbody></table>
   `;
 }
-// Builds the phaseN_principal/emi/savings query params from a set of form-field ids
+// Builds the phaseN_principal/interest/savings query params from a set of form-field ids
 // (prefix'd lp/ep/la) — shared by the product-page preview and the loan-application
 // preview, since both send the same 9 optional overrides to the same endpoint.
 function customScheduleQueryParams(prefix){
   const parts = [];
   [1,2,3].forEach(n=>{
     const principalEl = document.getElementById(`${prefix}-phase${n}-principal`);
-    const emiEl = document.getElementById(`${prefix}-phase${n}-emi`);
+    const interestEl = document.getElementById(`${prefix}-phase${n}-interest`);
     const savingsEl = document.getElementById(`${prefix}-phase${n}-savings`);
     if(principalEl && principalEl.value !== '') parts.push(`phase${n}_principal=${Number(principalEl.value)}`);
-    if(emiEl && emiEl.value !== '') parts.push(`phase${n}_emi=${Number(emiEl.value)}`);
+    if(interestEl && interestEl.value !== '') parts.push(`phase${n}_interest=${Number(interestEl.value)}`);
     if(savingsEl && savingsEl.value !== '') parts.push(`phase${n}_savings=${Number(savingsEl.value)}`);
   });
   return parts.join('&');
@@ -1908,9 +1909,9 @@ async function downloadLoanInstallmentSheet(loanId, loanNumber, format, forCusto
     await downloadAuthenticatedFile(`/loans/${loanId}/installment-sheet?format=${format}${forCustomer?'&for_customer=true':''}`, `${loanNumber}_installment_sheet${forCustomer?'_customer':''}.${format}`);
   }catch(e){ showToast(e.message, 'error'); }
 }
-async function downloadGroupCenterSheet(loanId, loanNumber, format){
+async function downloadGroupCenterSheet(loanId, loanNumber, format, forCustomer){
   try{
-    await downloadAuthenticatedFile(`/loans/${loanId}/installment-sheet?format=${format}&view=center`, `${loanNumber}_center_sheet.${format}`);
+    await downloadAuthenticatedFile(`/loans/${loanId}/installment-sheet?format=${format}&view=center${forCustomer?'&for_customer=true':''}`, `${loanNumber}_center_sheet${forCustomer?'_customer':''}.${format}`);
   }catch(e){ showToast(e.message, 'error'); }
 }
 async function downloadMemberMllSheet(loanId, loanNumber, memberId, memberName, format){

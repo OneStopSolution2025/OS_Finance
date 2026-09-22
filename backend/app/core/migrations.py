@@ -62,13 +62,18 @@ def run_safe_migrations(engine: Engine):
             ("custom_phase3_weeks", "INTEGER DEFAULT 4"),
             ("custom_weekly_savings", "NUMERIC(12,2) DEFAULT 0"),
             ("custom_phase1_principal", "NUMERIC(12,2) DEFAULT 0"),
-            ("custom_phase1_emi", "NUMERIC(12,2) DEFAULT 0"),
+            ("custom_phase1_emi", "NUMERIC(12,2) DEFAULT 0"),  # orphaned — superseded by custom_phase1_interest below;
+                                                                # kept only so a database that already ran this
+                                                                # migration before the rename doesn't error, never read
+            ("custom_phase1_interest", "NUMERIC(12,2) DEFAULT 0"),
             ("custom_phase1_savings", "NUMERIC(12,2) DEFAULT 0"),
             ("custom_phase2_principal", "NUMERIC(12,2) DEFAULT 0"),
-            ("custom_phase2_emi", "NUMERIC(12,2) DEFAULT 0"),
+            ("custom_phase2_emi", "NUMERIC(12,2) DEFAULT 0"),  # orphaned — see custom_phase1_emi note above
+            ("custom_phase2_interest", "NUMERIC(12,2) DEFAULT 0"),
             ("custom_phase2_savings", "NUMERIC(12,2) DEFAULT 0"),
             ("custom_phase3_principal", "NUMERIC(12,2) DEFAULT 0"),
-            ("custom_phase3_emi", "NUMERIC(12,2) DEFAULT 0"),
+            ("custom_phase3_emi", "NUMERIC(12,2) DEFAULT 0"),  # orphaned — see custom_phase1_emi note above
+            ("custom_phase3_interest", "NUMERIC(12,2) DEFAULT 0"),
             ("custom_phase3_savings", "NUMERIC(12,2) DEFAULT 0"),
         ],
         "loans": [
@@ -82,13 +87,16 @@ def run_safe_migrations(engine: Engine):
             ("processing_fee", "NUMERIC(12,2) DEFAULT 0"),
             ("custom_start_date", "DATE"),
             ("custom_phase1_principal", "NUMERIC(12,2)"),
-            ("custom_phase1_emi", "NUMERIC(12,2)"),
+            ("custom_phase1_emi", "NUMERIC(12,2)"),  # orphaned — see the loan_products note above
+            ("custom_phase1_interest", "NUMERIC(12,2)"),
             ("custom_phase1_savings", "NUMERIC(12,2)"),
             ("custom_phase2_principal", "NUMERIC(12,2)"),
-            ("custom_phase2_emi", "NUMERIC(12,2)"),
+            ("custom_phase2_emi", "NUMERIC(12,2)"),  # orphaned — see the loan_products note above
+            ("custom_phase2_interest", "NUMERIC(12,2)"),
             ("custom_phase2_savings", "NUMERIC(12,2)"),
             ("custom_phase3_principal", "NUMERIC(12,2)"),
-            ("custom_phase3_emi", "NUMERIC(12,2)"),
+            ("custom_phase3_emi", "NUMERIC(12,2)"),  # orphaned — see the loan_products note above
+            ("custom_phase3_interest", "NUMERIC(12,2)"),
             ("custom_phase3_savings", "NUMERIC(12,2)"),
         ],
         "emi_schedule": [

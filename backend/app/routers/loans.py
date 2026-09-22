@@ -199,15 +199,16 @@ class LoanProductCreate(BaseModel):
     # not calculated or split from any total, and not derived from interest_rate_annual.
     # Every real loan snapshots its own copy of these (editable at application time), so
     # these are only the starting defaults shown on the loan product and on a brand-new
-    # application for this product.
+    # application for this product. The weekly total is simply Principal + Interest +
+    # Savings — Interest is entered directly here, not derived from a combined EMI figure.
     custom_phase1_principal: float | None = 0
-    custom_phase1_emi: float | None = 0
+    custom_phase1_interest: float | None = 0
     custom_phase1_savings: float | None = 0
     custom_phase2_principal: float | None = 0
-    custom_phase2_emi: float | None = 0
+    custom_phase2_interest: float | None = 0
     custom_phase2_savings: float | None = 0
     custom_phase3_principal: float | None = 0
-    custom_phase3_emi: float | None = 0
+    custom_phase3_interest: float | None = 0
     custom_phase3_savings: float | None = 0
 
     def validate_other(self):
@@ -220,9 +221,9 @@ class LoanProductCreate(BaseModel):
                 if not all([self.custom_phase1_weeks, self.custom_phase2_weeks, self.custom_phase3_weeks]):
                     raise HTTPException(status_code=400, detail="All three phase week-counts are required for a custom phased schedule — none can be left blank or zero.")
                 for label, value in [
-                    ("Phase 1 principal", self.custom_phase1_principal), ("Phase 1 EMI", self.custom_phase1_emi), ("Phase 1 savings", self.custom_phase1_savings),
-                    ("Phase 2 principal", self.custom_phase2_principal), ("Phase 2 EMI", self.custom_phase2_emi), ("Phase 2 savings", self.custom_phase2_savings),
-                    ("Phase 3 principal", self.custom_phase3_principal), ("Phase 3 EMI", self.custom_phase3_emi), ("Phase 3 savings", self.custom_phase3_savings),
+                    ("Phase 1 principal", self.custom_phase1_principal), ("Phase 1 interest", self.custom_phase1_interest), ("Phase 1 savings", self.custom_phase1_savings),
+                    ("Phase 2 principal", self.custom_phase2_principal), ("Phase 2 interest", self.custom_phase2_interest), ("Phase 2 savings", self.custom_phase2_savings),
+                    ("Phase 3 principal", self.custom_phase3_principal), ("Phase 3 interest", self.custom_phase3_interest), ("Phase 3 savings", self.custom_phase3_savings),
                 ]:
                     if value is not None and value < 0:
                         raise HTTPException(status_code=400, detail=f"{label} can't be negative.")
@@ -276,13 +277,13 @@ class LoanProductUpdate(BaseModel):
     custom_phase3_weeks: int | None = None
     custom_weekly_savings: float | None = None
     custom_phase1_principal: float | None = None
-    custom_phase1_emi: float | None = None
+    custom_phase1_interest: float | None = None
     custom_phase1_savings: float | None = None
     custom_phase2_principal: float | None = None
-    custom_phase2_emi: float | None = None
+    custom_phase2_interest: float | None = None
     custom_phase2_savings: float | None = None
     custom_phase3_principal: float | None = None
-    custom_phase3_emi: float | None = None
+    custom_phase3_interest: float | None = None
     custom_phase3_savings: float | None = None
 
 
@@ -338,7 +339,7 @@ def download_installment_sheet(
             raise HTTPException(status_code=400, detail="This product uses the custom phased schedule — choose a start date and click Generate.")
         # A custom-schedule product has no rate-driven math to run against a sample
         # amount — the schedule comes entirely from the product's own manually-entered
-        # per-phase defaults (Principal/EMI/Savings), same as the preview endpoint.
+        # per-phase defaults (Principal/Interest/Savings), same as the preview endpoint.
         raw_rows = calculate_custom_phased_schedule(product_phase_config(product), start_date)
         rows = [{
             "installment_no": r["installment_no"], "due_date": r["due_date"].isoformat(),
@@ -458,14 +459,14 @@ def download_loan_installment_sheet(loan_id: str, format: str = "pdf", for_custo
                 } for r in raw_rows]
 
             if format == "xlsx":
-                file_path = generate_group_center_sheet_xlsx(loan.loan_number, center_name, center_place, branch_name, is_projected, float(loan.principal_amount), member_roster, agg_rows, branch_address=branch_address)
+                file_path = generate_group_center_sheet_xlsx(loan.loan_number, center_name, center_place, branch_name, is_projected, float(loan.principal_amount), member_roster, agg_rows, branch_address=branch_address, show_savings=not for_customer)
                 media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 ext = "xlsx"
             else:
-                file_path = generate_group_center_sheet_pdf(loan.loan_number, center_name, center_place, branch_name, is_projected, float(loan.principal_amount), member_roster, agg_rows, branch_address=branch_address)
+                file_path = generate_group_center_sheet_pdf(loan.loan_number, center_name, center_place, branch_name, is_projected, float(loan.principal_amount), member_roster, agg_rows, branch_address=branch_address, show_savings=not for_customer)
                 media_type = "application/pdf"
                 ext = "pdf"
-            filename = f"{loan.loan_number}_center_sheet.{ext}"
+            filename = f"{loan.loan_number}_center_sheet{'_customer' if for_customer else ''}.{ext}"
             return FileResponse(file_path, media_type=media_type, filename=filename)
 
         # view == "member"
@@ -659,13 +660,13 @@ class LoanApply(BaseModel):
     # its own week-count, summed across all three phases (overridden or default),
     # must exactly equal principal_amount above.
     custom_phase1_principal: float | None = None
-    custom_phase1_emi: float | None = None
+    custom_phase1_interest: float | None = None
     custom_phase1_savings: float | None = None
     custom_phase2_principal: float | None = None
-    custom_phase2_emi: float | None = None
+    custom_phase2_interest: float | None = None
     custom_phase2_savings: float | None = None
     custom_phase3_principal: float | None = None
-    custom_phase3_emi: float | None = None
+    custom_phase3_interest: float | None = None
     custom_phase3_savings: float | None = None
 
 
@@ -768,25 +769,26 @@ def calculate_custom_phased_schedule(phases: list[dict], start_date: date) -> li
 
     Nothing here is derived or split — no interest-rate math, no dividing a
     total across weeks. Each phase in `phases` is a dict with
-    weeks/principal/emi/savings, all entered by hand elsewhere (on the
+    weeks/principal/interest/savings, all entered by hand elsewhere (on the
     product as defaults, snapshotted and possibly overridden per loan at
     application time), and every one of the three money figures is already
     the exact per-week amount:
       - "principal": the fixed weekly principal figure, charged every
         single week of that phase, exactly as entered — never split or
         derived from a phase total.
-      - "emi": the fixed weekly principal+interest figure charged every
-        single week of that phase. That week's interest is simply this EMI
-        minus that same week's principal (both already weekly figures) —
-        never calculated from a rate.
+      - "interest": the fixed weekly interest figure, charged every single
+        week of that phase, exactly as entered — never calculated from a
+        rate and never derived from any other figure.
       - "savings": the fixed weekly savings figure for that phase, added on
-        top of EMI every week, never touching the principal/interest math.
+        top of principal+interest every week, never touching the
+        principal/interest math.
     The only arithmetic this function does is repeating each phase's fixed
     weekly figures across its weeks and running installment numbers/dates —
-    everything else is exactly what was typed in. Totals (phase totals, the
-    loan's overall total) are just sums of these weekly figures, computed
-    where they're needed (see product_phase_config/loan_phase_config
-    callers) — never the other way around.
+    everything else is exactly what was typed in. The weekly total is simply
+    Principal + Interest + Savings. Totals (phase totals, the loan's overall
+    total) are just sums of these weekly figures, computed where they're
+    needed (see product_phase_config/loan_phase_config callers) — never the
+    other way around.
     """
     rows = []
     installment_no = 0
@@ -796,16 +798,15 @@ def calculate_custom_phased_schedule(phases: list[dict], start_date: date) -> li
         if weeks <= 0:
             continue
         weekly_principal = Decimal(str(phase.get("principal") or 0))
-        emi = Decimal(str(phase.get("emi") or 0))
+        weekly_interest = Decimal(str(phase.get("interest") or 0))
         savings = Decimal(str(phase.get("savings") or 0))
-        weekly_interest = emi - weekly_principal
         for _ in range(weeks):
             installment_no += 1
             due = due + timedelta(days=7)
             rows.append({
                 "installment_no": installment_no, "due_date": due, "phase_no": phase_idx,
                 "principal_due": weekly_principal, "interest_due": weekly_interest,
-                "savings_due": savings, "total_due": emi + savings,
+                "savings_due": savings, "total_due": weekly_principal + weekly_interest + savings,
             })
     return rows
 
@@ -813,22 +814,22 @@ def calculate_custom_phased_schedule(phases: list[dict], start_date: date) -> li
 def product_phase_config(product: LoanProduct) -> list[dict]:
     """Default phase figures as configured on the loan product itself."""
     return [
-        {"weeks": product.custom_phase1_weeks, "principal": product.custom_phase1_principal, "emi": product.custom_phase1_emi, "savings": product.custom_phase1_savings},
-        {"weeks": product.custom_phase2_weeks, "principal": product.custom_phase2_principal, "emi": product.custom_phase2_emi, "savings": product.custom_phase2_savings},
-        {"weeks": product.custom_phase3_weeks, "principal": product.custom_phase3_principal, "emi": product.custom_phase3_emi, "savings": product.custom_phase3_savings},
+        {"weeks": product.custom_phase1_weeks, "principal": product.custom_phase1_principal, "interest": product.custom_phase1_interest, "savings": product.custom_phase1_savings},
+        {"weeks": product.custom_phase2_weeks, "principal": product.custom_phase2_principal, "interest": product.custom_phase2_interest, "savings": product.custom_phase2_savings},
+        {"weeks": product.custom_phase3_weeks, "principal": product.custom_phase3_principal, "interest": product.custom_phase3_interest, "savings": product.custom_phase3_savings},
     ]
 
 
 def loan_phase_config(loan: Loan, product: LoanProduct) -> list[dict]:
     """
-    A specific loan's own snapshotted phase figures (principal/EMI/savings,
+    A specific loan's own snapshotted phase figures (principal/interest/savings,
     set at application time) combined with the product's phase week-counts
     (weeks are never overridden per loan — only the money figures are).
     """
     return [
-        {"weeks": product.custom_phase1_weeks, "principal": loan.custom_phase1_principal, "emi": loan.custom_phase1_emi, "savings": loan.custom_phase1_savings},
-        {"weeks": product.custom_phase2_weeks, "principal": loan.custom_phase2_principal, "emi": loan.custom_phase2_emi, "savings": loan.custom_phase2_savings},
-        {"weeks": product.custom_phase3_weeks, "principal": loan.custom_phase3_principal, "emi": loan.custom_phase3_emi, "savings": loan.custom_phase3_savings},
+        {"weeks": product.custom_phase1_weeks, "principal": loan.custom_phase1_principal, "interest": loan.custom_phase1_interest, "savings": loan.custom_phase1_savings},
+        {"weeks": product.custom_phase2_weeks, "principal": loan.custom_phase2_principal, "interest": loan.custom_phase2_interest, "savings": loan.custom_phase2_savings},
+        {"weeks": product.custom_phase3_weeks, "principal": loan.custom_phase3_principal, "interest": loan.custom_phase3_interest, "savings": loan.custom_phase3_savings},
     ]
 
 
@@ -855,9 +856,9 @@ def build_custom_phased_schedule(loan: Loan, product: LoanProduct, db: Session, 
 @router.get("/loan-products/{product_id}/custom-schedule-preview")
 def preview_custom_schedule(
     product_id: str, start_date: date,
-    phase1_principal: float | None = None, phase1_emi: float | None = None, phase1_savings: float | None = None,
-    phase2_principal: float | None = None, phase2_emi: float | None = None, phase2_savings: float | None = None,
-    phase3_principal: float | None = None, phase3_emi: float | None = None, phase3_savings: float | None = None,
+    phase1_principal: float | None = None, phase1_interest: float | None = None, phase1_savings: float | None = None,
+    phase2_principal: float | None = None, phase2_interest: float | None = None, phase2_savings: float | None = None,
+    phase3_principal: float | None = None, phase3_interest: float | None = None, phase3_savings: float | None = None,
     db: Session = Depends(get_db), user: User = Depends(require_any),
 ):
     """
@@ -879,9 +880,9 @@ def preview_custom_schedule(
         return value if value is not None else float(default or 0)
 
     phases = [
-        {"weeks": product.custom_phase1_weeks, "principal": resolve(phase1_principal, product.custom_phase1_principal), "emi": resolve(phase1_emi, product.custom_phase1_emi), "savings": resolve(phase1_savings, product.custom_phase1_savings)},
-        {"weeks": product.custom_phase2_weeks, "principal": resolve(phase2_principal, product.custom_phase2_principal), "emi": resolve(phase2_emi, product.custom_phase2_emi), "savings": resolve(phase2_savings, product.custom_phase2_savings)},
-        {"weeks": product.custom_phase3_weeks, "principal": resolve(phase3_principal, product.custom_phase3_principal), "emi": resolve(phase3_emi, product.custom_phase3_emi), "savings": resolve(phase3_savings, product.custom_phase3_savings)},
+        {"weeks": product.custom_phase1_weeks, "principal": resolve(phase1_principal, product.custom_phase1_principal), "interest": resolve(phase1_interest, product.custom_phase1_interest), "savings": resolve(phase1_savings, product.custom_phase1_savings)},
+        {"weeks": product.custom_phase2_weeks, "principal": resolve(phase2_principal, product.custom_phase2_principal), "interest": resolve(phase2_interest, product.custom_phase2_interest), "savings": resolve(phase2_savings, product.custom_phase2_savings)},
+        {"weeks": product.custom_phase3_weeks, "principal": resolve(phase3_principal, product.custom_phase3_principal), "interest": resolve(phase3_interest, product.custom_phase3_interest), "savings": resolve(phase3_savings, product.custom_phase3_savings)},
     ]
     rows = calculate_custom_phased_schedule(phases, start_date)
     total_weeks = sum(p["weeks"] or 0 for p in phases)
@@ -893,7 +894,7 @@ def preview_custom_schedule(
         "total_weeks": total_weeks,
         "phase_weeks": [p["weeks"] for p in phases],
         "phase_principals": [p["principal"] for p in phases],
-        "phase_emis": [p["emi"] for p in phases],
+        "phase_interests": [p["interest"] for p in phases],
         "phase_savings": [p["savings"] for p in phases],
         "total_principal": float(total_principal),
         "rows": [{
@@ -976,9 +977,9 @@ def apply_loan(payload: LoanApply, db: Session = Depends(get_db), user: User = D
                 )
             )
         custom_phase_fields = {
-            "custom_phase1_principal": p1, "custom_phase1_emi": resolve(payload.custom_phase1_emi, product.custom_phase1_emi), "custom_phase1_savings": resolve(payload.custom_phase1_savings, product.custom_phase1_savings),
-            "custom_phase2_principal": p2, "custom_phase2_emi": resolve(payload.custom_phase2_emi, product.custom_phase2_emi), "custom_phase2_savings": resolve(payload.custom_phase2_savings, product.custom_phase2_savings),
-            "custom_phase3_principal": p3, "custom_phase3_emi": resolve(payload.custom_phase3_emi, product.custom_phase3_emi), "custom_phase3_savings": resolve(payload.custom_phase3_savings, product.custom_phase3_savings),
+            "custom_phase1_principal": p1, "custom_phase1_interest": resolve(payload.custom_phase1_interest, product.custom_phase1_interest), "custom_phase1_savings": resolve(payload.custom_phase1_savings, product.custom_phase1_savings),
+            "custom_phase2_principal": p2, "custom_phase2_interest": resolve(payload.custom_phase2_interest, product.custom_phase2_interest), "custom_phase2_savings": resolve(payload.custom_phase2_savings, product.custom_phase2_savings),
+            "custom_phase3_principal": p3, "custom_phase3_interest": resolve(payload.custom_phase3_interest, product.custom_phase3_interest), "custom_phase3_savings": resolve(payload.custom_phase3_savings, product.custom_phase3_savings),
         }
 
     loan = Loan(

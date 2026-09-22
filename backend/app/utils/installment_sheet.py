@@ -457,14 +457,16 @@ def _draw_footer(c, width, branch_name: str, branch_phone: str | None = None, br
 def generate_group_center_sheet_pdf(
     loan_number: str, center_name: str, center_place: str | None, branch_name: str,
     is_projected: bool, total_loan_amount: float, members: list[dict], rows: list[dict],
-    branch_phone: str | None = None, branch_address: str | None = None,
+    branch_phone: str | None = None, branch_address: str | None = None, show_savings: bool = True,
 ) -> str:
     """
     The "Center" sheet — one aggregate view of the whole group's loan, used
     by the field officer for the group meeting. Unlike the per-member flat
     list, every row here is the loan's own EMI/Principal/Interest/Saving
     figures exactly as scheduled — no per-member split — plus a roster of
-    every member's name and mobile number at the top.
+    every member's name and mobile number at the top. show_savings=False (the
+    customer copy) drops the SAVING column, matching every other installment
+    sheet in the app — savings is still folded into the TOTAL either way.
     """
     filename = f"center-sheet-{loan_number}-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}.pdf"
     file_path = os.path.join(SHEETS_DIR, filename)
@@ -518,8 +520,12 @@ def generate_group_center_sheet_pdf(
         c.drawString(16 * mm, y, "This group hasn't been disbursed yet — dates below are projected, not final.")
         y -= 8 * mm
 
-    col_x = [14, 34, 62, 88, 114, 138, 162, 182]
-    headers = ["SL.NO", "DATE", "EMI", "PRINCIPAL", "INTEREST", "SAVING", "TOTAL", "CRO SIGN."]
+    if show_savings:
+        col_x = [14, 34, 62, 88, 114, 138, 162, 182]
+        headers = ["SL.NO", "DATE", "EMI", "PRINCIPAL", "INTEREST", "SAVING", "TOTAL", "CRO SIGN."]
+    else:
+        col_x = [14, 36, 66, 96, 128, 156, 182]
+        headers = ["SL.NO", "DATE", "EMI", "PRINCIPAL", "INTEREST", "TOTAL", "CRO SIGN."]
 
     def draw_table_header(y):
         c.setFont("Helvetica-Bold", 8)
@@ -533,6 +539,7 @@ def generate_group_center_sheet_pdf(
 
     y = draw_table_header(y)
     c.setFont("Helvetica", 8)
+    total_col = 6 if show_savings else 5
     total_emi = total_principal = total_interest = total_saving = total_total = 0.0
     for row in rows:
         if y < 20 * mm:
@@ -547,8 +554,9 @@ def generate_group_center_sheet_pdf(
         c.drawString(col_x[2] * mm, y, f"{emi:,.2f}")
         c.drawString(col_x[3] * mm, y, f"{row['principal_due']:,.2f}")
         c.drawString(col_x[4] * mm, y, f"{row['interest_due']:,.2f}")
-        c.drawString(col_x[5] * mm, y, f"{row.get('savings_due', 0):,.2f}")
-        c.drawString(col_x[6] * mm, y, f"{row['total_due']:,.2f}")
+        if show_savings:
+            c.drawString(col_x[5] * mm, y, f"{row.get('savings_due', 0):,.2f}")
+        c.drawString(col_x[total_col] * mm, y, f"{row['total_due']:,.2f}")
         total_emi += emi
         total_principal += row["principal_due"]
         total_interest += row["interest_due"]
@@ -566,8 +574,9 @@ def generate_group_center_sheet_pdf(
     c.drawString(col_x[2] * mm, y, f"{total_emi:,.2f}")
     c.drawString(col_x[3] * mm, y, f"{total_principal:,.2f}")
     c.drawString(col_x[4] * mm, y, f"{total_interest:,.2f}")
-    c.drawString(col_x[5] * mm, y, f"{total_saving:,.2f}")
-    c.drawString(col_x[6] * mm, y, f"{total_total:,.2f}")
+    if show_savings:
+        c.drawString(col_x[5] * mm, y, f"{total_saving:,.2f}")
+    c.drawString(col_x[total_col] * mm, y, f"{total_total:,.2f}")
 
     _draw_footer(c, width, branch_name, branch_phone, branch_address)
     c.showPage()
@@ -578,13 +587,14 @@ def generate_group_center_sheet_pdf(
 def generate_group_center_sheet_xlsx(
     loan_number: str, center_name: str, center_place: str | None, branch_name: str,
     is_projected: bool, total_loan_amount: float, members: list[dict], rows: list[dict],
-    branch_phone: str | None = None, branch_address: str | None = None,
+    branch_phone: str | None = None, branch_address: str | None = None, show_savings: bool = True,
 ) -> str:
     wb = Workbook()
     ws = wb.active
     ws.title = "Center Sheet"[:31]
 
-    ws.merge_cells("A1:H1")
+    last_col = "H" if show_savings else "G"
+    ws.merge_cells(f"A1:{last_col}1")
     ws["A1"] = f"UDHAYAM MICRO FINANCE — Center Sheet — {loan_number}" + (" (Projected)" if is_projected else "")
     ws["A1"].font = Font(bold=True, size=14)
     ws["A2"] = f"CENTER NAME: {center_name}    CENTER PLACE: {center_place or '—'}    Branch: {branch_name}"
@@ -602,7 +612,10 @@ def generate_group_center_sheet_xlsx(
         r += 1
 
     header_row = r + 1
-    headers = ["SL.NO", "DATE", "EMI (Rs.)", "PRINCIPAL (Rs.)", "INTEREST (Rs.)", "SAVING (Rs.)", "TOTAL (Rs.)", "CRO SIGNATURE"]
+    if show_savings:
+        headers = ["SL.NO", "DATE", "EMI (Rs.)", "PRINCIPAL (Rs.)", "INTEREST (Rs.)", "SAVING (Rs.)", "TOTAL (Rs.)", "CRO SIGNATURE"]
+    else:
+        headers = ["SL.NO", "DATE", "EMI (Rs.)", "PRINCIPAL (Rs.)", "INTEREST (Rs.)", "TOTAL (Rs.)", "CRO SIGNATURE"]
     fill = PatternFill(start_color="183B66", end_color="183B66", fill_type="solid")
     for col, text in enumerate(headers, start=1):
         cell = ws.cell(row=header_row, column=col, value=text)
@@ -610,6 +623,7 @@ def generate_group_center_sheet_xlsx(
         cell.font = Font(color="64A844", bold=True)
         cell.alignment = Alignment(horizontal="center")
 
+    total_col = 7 if show_savings else 6
     total_emi = total_principal = total_interest = total_saving = total_total = 0.0
     i = header_row + 1
     for row in rows:
@@ -619,8 +633,9 @@ def generate_group_center_sheet_xlsx(
         ws.cell(row=i, column=3, value=round(emi, 2)).number_format = "#,##0.00"
         ws.cell(row=i, column=4, value=row["principal_due"]).number_format = "#,##0.00"
         ws.cell(row=i, column=5, value=row["interest_due"]).number_format = "#,##0.00"
-        ws.cell(row=i, column=6, value=row.get("savings_due", 0)).number_format = "#,##0.00"
-        ws.cell(row=i, column=7, value=row["total_due"]).number_format = "#,##0.00"
+        if show_savings:
+            ws.cell(row=i, column=6, value=row.get("savings_due", 0)).number_format = "#,##0.00"
+        ws.cell(row=i, column=total_col, value=row["total_due"]).number_format = "#,##0.00"
         total_emi += emi
         total_principal += row["principal_due"]
         total_interest += row["interest_due"]
@@ -633,12 +648,13 @@ def generate_group_center_sheet_xlsx(
     ws.cell(row=total_row, column=3, value=round(total_emi, 2)).font = Font(bold=True)
     ws.cell(row=total_row, column=4, value=round(total_principal, 2)).font = Font(bold=True)
     ws.cell(row=total_row, column=5, value=round(total_interest, 2)).font = Font(bold=True)
-    ws.cell(row=total_row, column=6, value=round(total_saving, 2)).font = Font(bold=True)
-    ws.cell(row=total_row, column=7, value=round(total_total, 2)).font = Font(bold=True)
-    for col in (3, 4, 5, 6, 7):
+    if show_savings:
+        ws.cell(row=total_row, column=6, value=round(total_saving, 2)).font = Font(bold=True)
+    ws.cell(row=total_row, column=total_col, value=round(total_total, 2)).font = Font(bold=True)
+    for col in ({3, 4, 5, 6, 7} if show_savings else {3, 4, 5, 6}):
         ws.cell(row=total_row, column=col).number_format = "#,##0.00"
 
-    widths = [8, 14, 14, 16, 14, 12, 14, 16]
+    widths = [8, 14, 14, 16, 14, 12, 14, 16] if show_savings else [8, 14, 14, 16, 14, 14, 16]
     for col, w in zip("ABCDEFGH", widths):
         ws.column_dimensions[col].width = w
 
