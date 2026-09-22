@@ -23,7 +23,7 @@ What's KEPT:
   - The Tenant record itself (Udhayam Micro Finance Institutions)
 
 What's DELETED (in the order required to satisfy foreign key constraints):
-  Payment, Document, Attendance, GroupContribution, MoneyAuditLog,
+  Partner, Payment, Document, Attendance, GroupContribution, MoneyAuditLog,
   EMISchedule, LoanGroupMember, Loan, LoanGroup, Customer, LoanProduct,
   every User with role=employee, every Branch.
 """
@@ -32,7 +32,7 @@ import sys
 from app.core.database import SessionLocal
 from app.models.finance import (
     Payment, Document, Attendance, GroupContribution, EMISchedule,
-    LoanGroupMember, Loan, LoanGroup, Customer, LoanProduct,
+    LoanGroupMember, Loan, LoanGroup, Customer, LoanProduct, Partner,
 )
 from app.models.audit import MoneyAuditLog
 from app.models.tenancy import User, Branch, UserRole
@@ -40,7 +40,13 @@ from app.models.tenancy import User, Branch, UserRole
 
 # Deletion order matters — children before parents, or Postgres will reject
 # the delete with a foreign key violation. This list is that order.
+#
+# Partner (investor names, capital invested/withdrawn) has no rows that
+# reference it as a foreign key, so it's safe anywhere in this order — it's
+# listed up top for visibility since it was added after this script was
+# first written.
 DELETION_PLAN = [
+    ("Partners (investor/capital records)", Partner, {}),
     ("Payments", Payment, {}),
     ("Documents", Document, {}),
     ("Attendance records", Attendance, {}),
