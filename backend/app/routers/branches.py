@@ -253,3 +253,91 @@ def delete_employee(employee_id: str, db: Session = Depends(get_db), user: User 
             detail="This employee has financial history (loans, payments, or audit records tied to them) and can't "
                    "be deleted, to protect that record. Suspend their login instead to keep the history intact."
         )
+
+
+# ---------- SuperAdmins ----------
+# A second (or third) SuperAdmin login — e.g. a temporary one for a vendor,
+# an auditor, or testing — created and later removed by an EXISTING
+# SuperAdmin, without ever touching any other SuperAdmin's own account.
+
+class SuperAdminCreate(BaseModel):
+    full_name: str
+    email: EmailStr
+    phone: str | None = None
+    password: str | None = None  # omit to auto-generate a secure password
+
+    def validate_fields(self):
+        if not self.full_name or not self.full_name.strip():
+            raise HTTPException(status_code=400, detail="Full name is required.")
+        if self.phone and not re.fullmatch(r"\d{10}", self.phone):
+            raise HTTPException(status_code=400, detail="Contact number must be exactly 10 digits.")
+
+
+@router.post("/superadmins")
+def create_superadmin(payload: SuperAdminCreate, db: Session = Depends(get_db), user: User = Depends(require_superadmin)):
+    """
+    Adds another SuperAdmin login under the same tenant. Only an existing
+    SuperAdmin can call this, and it only ever adds a new row — it never
+    reads or changes the password, role, or any other field of the
+    SuperAdmin making the request or any other existing SuperAdmin.
+    """
+    payload.validate_fields()
+    if db.query(User).filter(User.email == payload.email).first():
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    was_generated = not payload.password
+    plaintext_password = payload.password or generate_password()
+
+    admin = User(
+        tenant_id=user.tenant_id,
+        branch_id=None,
+        full_name=payload.full_name.strip(),
+        email=payload.email,
+        phone=payload.phone,
+        hashed_password=hash_password(plaintext_password),
+        role=UserRole.superadmin,
+    )
+    db.add(admin)
+    db.commit()
+    db.refresh(admin)
+    return {
+        "id": admin.id,
+        "email": admin.email,
+        # Only returned once, right after creation.
+        "password": plaintext_password if was_generated else None,
+        "password_was_generated": was_generated,
+    }
+
+
+@router.get("/superadmins")
+def list_superadmins(db: Session = Depends(get_db), user: User = Depends(require_superadmin)):
+    admins = db.query(User).filter(User.role == UserRole.superadmin, User.tenant_id == user.tenant_id).all()
+    return [
+        {
+            "id": a.id, "full_name": a.full_name, "email": a.email, "phone": a.phone,
+            "is_active": a.is_active, "created_at": a.created_at.isoformat(),
+            "is_you": a.id == user.id,
+        }
+        for a in admins
+    ]
+
+
+@router.delete("/superadmins/{admin_id}")
+def delete_superadmin(admin_id: str, db: Session = Depends(get_db), user: User = Depends(require_superadmin)):
+    """
+    Removes a SuperAdmin login. Refuses to delete your OWN account through
+    this endpoint (log in as a different SuperAdmin to remove one), and
+    refuses to delete the last remaining SuperAdmin on the tenant, so you
+    can never lock yourself — or anyone else — out.
+    """
+    admin = db.query(User).filter(User.id == admin_id, User.tenant_id == user.tenant_id, User.role == UserRole.superadmin).first()
+    if not admin:
+        raise HTTPException(status_code=404, detail="SuperAdmin not found")
+    if admin.id == user.id:
+        raise HTTPException(status_code=400, detail="You can't delete your own account while logged in as it. Log in as another SuperAdmin to remove this one.")
+    remaining = db.query(User).filter(User.role == UserRole.superadmin, User.tenant_id == user.tenant_id).count()
+    if remaining <= 1:
+        raise HTTPException(status_code=400, detail="This is the last SuperAdmin on the account and can't be deleted.")
+    db.delete(admin)
+    db.commit()
+    return {"status": "deleted"}

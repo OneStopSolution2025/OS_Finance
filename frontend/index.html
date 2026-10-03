@@ -764,7 +764,7 @@ async function createBranch(){
 }
 async function renderEmployees(){
   content().innerHTML = `<div class="empty">Loading…</div>`;
-  const [employees, branches] = await Promise.all([api('/branches/employees'), api('/branches/')]);
+  const [employees, branches, superadmins] = await Promise.all([api('/branches/employees'), api('/branches/'), api('/branches/superadmins')]);
   window._allEmployees = employees;
   window._allBranches = branches;
   const branchOpts = branches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('');
@@ -821,6 +821,20 @@ async function renderEmployees(){
       <table><thead><tr><th>Name</th><th>Email</th><th>Branch</th><th>Designation</th><th>Photo ID</th><th style="width:1%;white-space:nowrap">Status</th><th style="width:1%;white-space:nowrap">Actions</th></tr></thead>
       <tbody id="employees-tbody">${employees.map(e=>employeeRow(e, branchName)).join('') || '<tr><td colspan="7" class="empty">No employees yet</td></tr>'}</tbody></table>
       </div>
+    </div>
+    <div class="panel"><h3>Super Admins</h3>
+      <p style="font-size:12.5px;color:#666;margin:0 0 14px">Add another Super Admin login — e.g. a temporary one for a vendor or auditor. Any Super Admin can remove one later, except their own account.</p>
+      <div class="form-grid">
+        <div class="field"><label>Full name</label><input id="sa-name" autocomplete="off"></div>
+        <div class="field"><label>Email</label><input id="sa-email" type="email" autocomplete="off"></div>
+        <div class="field"><label>Contact number</label><input id="sa-phone" inputmode="numeric" maxlength="10" placeholder="10-digit mobile number (optional)" autocomplete="off" oninput="digitsOnly(this,10)"></div>
+        <div class="field"><label class="pw-label">Set a password</label><div class="pw-wrap"><input id="sa-pass" type="password" placeholder="At least 8 characters" autocomplete="new-password"><button type="button" class="pw-toggle" onclick="togglePw('sa-pass', this)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>
+      </div>
+      <div class="row-actions"><button class="btn amber" onclick="createSuperAdmin()">Create Super Admin</button></div>
+      <div class="err" id="sa-err"></div>
+      <div id="sa-created-msg"></div>
+      <table style="margin-top:16px"><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th style="width:1%;white-space:nowrap">Status</th><th style="width:1%;white-space:nowrap">Actions</th></tr></thead>
+        <tbody id="superadmins-tbody">${superadmins.map(a=>superadminRow(a)).join('')}</tbody></table>
     </div>
     <div class="modal-overlay" id="edit-employee-modal">
       <div class="modal-card" style="max-width:480px;max-height:85vh;overflow-y:auto">
@@ -963,6 +977,51 @@ async function createEmployee(){
       <div class="row-actions" style="margin-top:12px"><button class="btn" onclick="renderEmployees()">Done — refresh list</button></div>
     `;
   }catch(e){ errEl.textContent = e.message; }
+}
+function superadminRow(a){
+  return `<tr>
+    <td>${esc(a.full_name)}${a.is_you ? ' <span style="color:#888;font-size:11.5px">(you)</span>' : ''}</td>
+    <td>${esc(a.email)}</td><td>${esc(a.phone||'—')}</td>
+    <td><span class="badge ${a.is_active?'active':'suspended'}">${a.is_active?'Active':'Suspended'}</span></td>
+    <td style="white-space:nowrap">
+      ${a.is_you
+        ? '<span style="color:#888;font-size:12px">Log in as another Super Admin to remove this one</span>'
+        : `<button class="btn ghost" style="padding:6px 8px;font-size:12px;color:#C0392B" onclick="deleteSuperAdmin('${a.id}','${esc(a.full_name)}')">Delete</button>`}
+    </td>
+  </tr>`;
+}
+async function refreshSuperAdminsTable(){
+  const superadmins = await api('/branches/superadmins');
+  document.getElementById('superadmins-tbody').innerHTML = superadmins.map(a=>superadminRow(a)).join('');
+}
+async function createSuperAdmin(){
+  const errEl = document.getElementById('sa-err'); errEl.textContent = '';
+  document.getElementById('sa-created-msg').innerHTML = '';
+  const name = document.getElementById('sa-name').value.trim();
+  const email = document.getElementById('sa-email').value.trim();
+  const password = document.getElementById('sa-pass').value;
+  const phone = document.getElementById('sa-phone').value.trim();
+  if(!name){ errEl.textContent = 'Full name is required.'; return; }
+  if(!email){ errEl.textContent = 'Email is required.'; return; }
+  if(!password || password.length < 8){ errEl.textContent = 'Set a password of at least 8 characters.'; return; }
+  if(phone && !/^\d{10}$/.test(phone)){ errEl.textContent = 'Contact number must be exactly 10 digits.'; return; }
+  try{
+    await api('/branches/superadmins', { method:'POST', json:{ full_name: name, email, password, phone: phone || null }});
+    document.getElementById('sa-created-msg').innerHTML = `<div class="success-box">Super Admin created — they can sign in with the email and password you set.</div>`;
+    document.getElementById('sa-name').value = '';
+    document.getElementById('sa-email').value = '';
+    document.getElementById('sa-pass').value = '';
+    document.getElementById('sa-phone').value = '';
+    refreshSuperAdminsTable();
+  }catch(e){ errEl.textContent = e.message; }
+}
+async function deleteSuperAdmin(id, name){
+  if(!confirm(`Delete the Super Admin "${name}"? This cannot be undone.`)) return;
+  try{
+    await api(`/branches/superadmins/${id}`, { method:'DELETE' });
+    showToast('Super Admin deleted');
+    refreshSuperAdminsTable();
+  }catch(e){ showToast(e.message, 'error'); }
 }
 async function uploadEmployeeDoc(employeeId){
   const fileInput = document.getElementById('e-address-proof-file');
