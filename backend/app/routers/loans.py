@@ -591,11 +591,11 @@ def download_installment_sheet(
         } for r in raw_rows]
 
     if format == "xlsx":
-        file_path = generate_installment_sheet_xlsx(product.name, amount, product, rows, show_savings=show_savings)
+        file_path = generate_installment_sheet_xlsx(product.name, amount, product, rows, show_savings=show_savings, show_emi=show_savings)
         media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         ext = "xlsx"
     else:
-        file_path = generate_installment_sheet_pdf(product.name, amount, product, rows, show_savings=show_savings)
+        file_path = generate_installment_sheet_pdf(product.name, amount, product, rows, show_savings=show_savings, show_emi=show_savings)
         media_type = "application/pdf"
         ext = "pdf"
 
@@ -837,11 +837,11 @@ def download_loan_installment_sheet(loan_id: str, format: str = "pdf", for_custo
     fee_to_show = float(loan.processing_fee) if (loan.processing_fee and not for_customer) else None
 
     if format == "xlsx":
-        file_path = generate_loan_installment_sheet_xlsx(loan.loan_number, payer_name, payer_type, branch_name, is_projected, rows, is_group=bool(loan.group_id), show_savings=show_savings, processing_fee=fee_to_show)
+        file_path = generate_loan_installment_sheet_xlsx(loan.loan_number, payer_name, payer_type, branch_name, is_projected, rows, is_group=bool(loan.group_id), show_savings=show_savings, processing_fee=fee_to_show, show_emi=has_custom_schedule)
         media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         ext = "xlsx"
     else:
-        file_path = generate_loan_installment_sheet_pdf(loan.loan_number, payer_name, payer_type, branch_name, is_projected, rows, is_group=bool(loan.group_id), show_savings=show_savings, processing_fee=fee_to_show)
+        file_path = generate_loan_installment_sheet_pdf(loan.loan_number, payer_name, payer_type, branch_name, is_projected, rows, is_group=bool(loan.group_id), show_savings=show_savings, processing_fee=fee_to_show, show_emi=has_custom_schedule)
         media_type = "application/pdf"
         ext = "pdf"
 

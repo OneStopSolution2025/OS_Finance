@@ -1731,6 +1731,21 @@ async function renderReports(){
       <table><thead><tr><th>1–30 days</th><th>31–60 days</th><th>61–90 days</th><th>90+ days</th></tr></thead>
       <tbody><tr><td>₹${par['1-30'].toLocaleString()}</td><td>₹${par['31-60'].toLocaleString()}</td><td>₹${par['61-90'].toLocaleString()}</td><td>₹${par['90+'].toLocaleString()}</td></tr></tbody></table>
     </div>
+    <div class="panel" id="fin-statements-panel">
+      <h3>Profit &amp; Loss and Balance Sheet</h3>
+      <p style="font-size:12.5px;color:#666;margin:0 0 14px">Profit and loss for the period, and the balance sheet as of the end date, including partner capital and each partner's profit share.</p>
+      <div class="form-grid">
+        <div class="field"><label>From (optional)</label><input type="date" id="fin-from"></div>
+        <div class="field"><label>To / as of (optional)</label><input type="date" id="fin-to"></div>
+      </div>
+      <div class="row-actions">
+        <button class="btn amber" onclick="loadFinancialStatements()">View statements</button>
+        <button class="btn ghost" onclick="downloadFinancialStatements('xlsx')">⬇ Excel</button>
+        <button class="btn ghost" onclick="downloadFinancialStatements('pdf')">⬇ PDF</button>
+      </div>
+      <div class="err" id="fin-err"></div>
+      <div id="fin-body"></div>
+    </div>
     <div class="panel">
       <h3>Money audit trail</h3>
       <p style="font-size:12.5px;color:#666;margin:0 0 14px">An unchangeable record of every loan disbursed, payment collected, and salary paid — this is your source of truth if a dispute ever comes up. Nothing here can be edited or deleted.</p>
@@ -1786,6 +1801,74 @@ async function renderReports(){
     </div>
   `;
   loadAuditLog();
+}
+function finQuery(){
+  const parts = [];
+  const f = document.getElementById('fin-from').value;
+  const t = document.getElementById('fin-to').value;
+  if(f) parts.push(`from_date=${f}`);
+  if(t) parts.push(`to_date=${t}`);
+  return parts;
+}
+const finMoney = n => `₹${Number(n||0).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+async function loadFinancialStatements(){
+  const errEl = document.getElementById('fin-err'); errEl.textContent = '';
+  const body = document.getElementById('fin-body');
+  body.innerHTML = '<div class="empty">Loading…</div>';
+  try{
+    const q = finQuery();
+    const d = await api(`/reports/financial-statements${q.length?'?'+q.join('&'):''}`);
+    const pl = d.profit_and_loss, bs = d.balance_sheet;
+    const rowH = (label, val, bold, indent) => `<tr><td style="${bold?'font-weight:700;':''}${indent?'padding-left:24px;':''}">${label}</td><td style="text-align:right;${bold?'font-weight:700;':''}">${val===null?'':finMoney(val)}</td></tr>`;
+    const profitColor = pl.net_profit < 0 ? '#C0392B' : '#5A6B00';
+    body.innerHTML = `
+      <div class="stat-grid" style="margin-top:14px">
+        <div class="stat-card"><div class="label">Net profit / (loss)</div><div class="value" style="color:${profitColor}">${finMoney(pl.net_profit)}</div></div>
+        <div class="stat-card"><div class="label">Total income</div><div class="value">${finMoney(pl.income.total)}</div></div>
+        <div class="stat-card"><div class="label">Total assets</div><div class="value">${finMoney(bs.assets.total)}</div></div>
+        <div class="stat-card"><div class="label">Partner capital</div><div class="value">${finMoney(bs.equity.partner_capital)}</div></div>
+      </div>
+      <h4 style="margin:18px 0 6px">Profit &amp; Loss <span style="font-weight:400;color:#888;font-size:12px">(${d.meta.from_date||'beginning'} to ${d.meta.to_date})</span></h4>
+      <table><tbody>
+        ${rowH('INCOME',null,true)}
+        ${rowH('Interest income',pl.income.interest,false,true)}
+        ${rowH('Processing fees',pl.income.processing_fees,false,true)}
+        ${rowH('Late penalties',pl.income.late_penalties,false,true)}
+        ${rowH('Total income',pl.income.total,true)}
+        ${rowH('EXPENSES',null,true)}
+        ${rowH('Salaries',pl.expenses.salaries,false,true)}
+        ${rowH('Total expenses',pl.expenses.total,true)}
+        <tr style="background:#F4F7EC"><td style="font-weight:700">NET PROFIT / (LOSS)</td><td style="text-align:right;font-weight:700;color:${profitColor}">${finMoney(pl.net_profit)}</td></tr>
+      </tbody></table>
+      <h4 style="margin:18px 0 6px">Balance Sheet <span style="font-weight:400;color:#888;font-size:12px">(as of ${d.meta.to_date})</span></h4>
+      <table><tbody>
+        ${rowH('ASSETS',null,true)}
+        ${rowH('Cash &amp; bank (derived)',bs.assets.cash_and_bank,false,true)}
+        ${rowH('Loans receivable (principal outstanding)',bs.assets.loans_receivable,false,true)}
+        ${rowH('Total assets',bs.assets.total,true)}
+        ${rowH('LIABILITIES',null,true)}
+        ${rowH('Member savings held',bs.liabilities.member_savings,false,true)}
+        ${rowH('Total liabilities',bs.liabilities.total,true)}
+        ${rowH('EQUITY (PARTNERSHIP)',null,true)}
+        ${rowH('Partner capital (invested − withdrawn)',bs.equity.partner_capital,false,true)}
+        ${rowH('Retained earnings (cumulative profit)',bs.equity.retained_earnings,false,true)}
+        ${rowH('Total equity',bs.equity.total,true)}
+        <tr style="background:#F4F7EC"><td style="font-weight:700">TOTAL LIABILITIES + EQUITY</td><td style="text-align:right;font-weight:700">${finMoney(bs.total_liabilities_and_equity)}</td></tr>
+      </tbody></table>
+      <p style="font-size:11.5px;color:#888;margin:6px 0 0">${bs.balanced ? '✅ Balance sheet balances.' : `⚠ Difference of ${finMoney(bs.difference)} — please review.`} Overdue installments not yet collected: ${finMoney(bs.memo.overdue_installments_amount)}.</p>
+      <h4 style="margin:18px 0 6px">Partnership</h4>
+      <div style="overflow-x:auto"><table><thead><tr><th>Partner</th><th>Invested</th><th>Withdrawn</th><th>Net capital</th><th>Share</th><th>Profit share (period)</th><th>Profit share (cumulative)</th><th>Total equity</th></tr></thead>
+      <tbody>${d.partners.map(p=>`<tr><td>${esc(p.name)}</td><td>${finMoney(p.invested)}</td><td>${finMoney(p.withdrawn)}</td><td>${finMoney(p.net_capital)}</td><td>${p.share_pct}%</td><td>${finMoney(p.profit_share_period)}</td><td>${finMoney(p.profit_share_cumulative)}</td><td>${finMoney(p.total_equity)}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">No partners recorded yet</td></tr>'}</tbody></table></div>
+      <ul style="font-size:11.5px;color:#888;margin:10px 0 0;padding-left:18px">${d.meta.basis.map(n=>`<li>${esc(n)}</li>`).join('')}</ul>
+    `;
+  }catch(e){ body.innerHTML = ''; errEl.textContent = e.message; }
+}
+async function downloadFinancialStatements(format){
+  const errEl = document.getElementById('fin-err'); errEl.textContent = '';
+  const q = finQuery(); q.unshift(`format=${format}`);
+  try{
+    await downloadAuthenticatedFile(`/reports/financial-statements/export?${q.join('&')}`, `profit-loss-balance-sheet.${format}`);
+  }catch(e){ errEl.textContent = e.message; }
 }
 async function downloadLeads(){
   const month = document.getElementById('leads-month').value;
@@ -2015,8 +2098,8 @@ function renderCustomSchedulePreviewTable(data){
   const phaseLabel = n => `Phase ${n}`;
   return `
     <p style="font-size:11.5px;color:#888;margin:0 0 8px">${data.total_weeks} weeks total (${data.phase_weeks.join(' + ')}) · Total principal ₹${data.total_principal.toLocaleString()}</p>
-    <table style="font-size:12px"><thead><tr><th>#</th><th>Phase</th><th>Due</th><th>Principal</th><th>Interest</th><th>Savings</th><th>Total</th></tr></thead>
-    <tbody>${data.rows.map(r=>`<tr><td>${r.installment_no}</td><td>${phaseLabel(r.phase_no)}</td><td>${r.due_date}</td><td>₹${r.principal_due.toLocaleString()}</td><td>₹${r.interest_due.toLocaleString()}</td><td>₹${r.savings_due.toLocaleString()}</td><td>₹${r.total_due.toLocaleString()}</td></tr>`).join('')}</tbody></table>
+    <table style="font-size:12px"><thead><tr><th>#</th><th>Phase</th><th>Due</th><th>Principal</th><th>Interest</th><th>EMI</th><th>Savings</th><th>Total</th></tr></thead>
+    <tbody>${data.rows.map(r=>`<tr><td>${r.installment_no}</td><td>${phaseLabel(r.phase_no)}</td><td>${r.due_date}</td><td>₹${r.principal_due.toLocaleString()}</td><td>₹${r.interest_due.toLocaleString()}</td><td>₹${(Math.round((r.principal_due + r.interest_due)*100)/100).toLocaleString()}</td><td>₹${r.savings_due.toLocaleString()}</td><td>₹${r.total_due.toLocaleString()}</td></tr>`).join('')}</tbody></table>
   `;
 }
 // Builds the phaseN_principal/interest/savings query params from a set of form-field ids

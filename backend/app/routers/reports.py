@@ -415,6 +415,49 @@ def download_report(db: Session = Depends(get_db), user: User = Depends(require_
     return FileResponse(file_path, media_type="application/pdf", filename=f"{tenant_name.replace(' ', '_')}_report.pdf")
 
 
+@router.get("/financial-statements")
+def financial_statements(
+    from_date: date | None = None,
+    to_date: date | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_superadmin),
+):
+    """
+    SuperAdmin-only. Profit & Loss for the period plus a Balance Sheet as of
+    the end date, with partner capital and profit share. Read-only — built
+    from existing loans, payments, salaries and partners.
+    """
+    from app.utils.financial_statements import build_financials
+    if from_date and to_date and from_date > to_date:
+        raise HTTPException(status_code=400, detail="From date cannot be after To date.")
+    return build_financials(db, user.tenant_id, from_date, to_date)
+
+
+@router.get("/financial-statements/export")
+def export_financial_statements(
+    format: str = "xlsx",
+    from_date: date | None = None,
+    to_date: date | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_superadmin),
+):
+    from app.utils.financial_statements import build_financials, generate_financials_xlsx, generate_financials_pdf
+    if format not in ("xlsx", "pdf"):
+        raise HTTPException(status_code=400, detail="format must be xlsx or pdf")
+    if from_date and to_date and from_date > to_date:
+        raise HTTPException(status_code=400, detail="From date cannot be after To date.")
+    tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
+    tenant_name = tenant.name if tenant else "Udhayam MFI"
+    data = build_financials(db, user.tenant_id, from_date, to_date)
+    if format == "xlsx":
+        file_path = generate_financials_xlsx(tenant_name, data)
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    else:
+        file_path = generate_financials_pdf(tenant_name, data)
+        media_type = "application/pdf"
+    return FileResponse(file_path, media_type=media_type, filename=f"{tenant_name.replace(' ', '_')}_profit_loss_balance_sheet.{format}")
+
+
 @router.get("/export")
 def export_breakdown(
     group_by: str,
