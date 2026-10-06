@@ -189,6 +189,41 @@ def get_group_members(group_id: str, db: Session = Depends(get_db), user: User =
     return result
 
 
+@router.get("/groups/{group_id}/members/details")
+def get_group_member_details(group_id: str, db: Session = Depends(get_db), user: User = Depends(require_any)):
+    """
+    Everything an approver needs to review a group's members in one call —
+    each member's customer details plus the documents uploaded for them
+    (view/download go through the existing /documents/{id}/view and
+    /documents/{id}/download endpoints). Read-only.
+    """
+    from app.models.finance import Document
+    group = db.query(LoanGroup).filter(LoanGroup.id == group_id, LoanGroup.tenant_id == user.tenant_id).first()
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    members = db.query(LoanGroupMember).filter(LoanGroupMember.group_id == group_id).all()
+    result = []
+    for m in members:
+        c = db.query(Customer).filter(Customer.id == m.customer_id).first()
+        docs = db.query(Document).filter(Document.customer_id == m.customer_id, Document.tenant_id == user.tenant_id).order_by(Document.uploaded_at).all() if c else []
+        result.append({
+            "group_member_id": m.id, "customer_id": m.customer_id,
+            "customer_name": c.full_name if c else "—", "customer_code": c.customer_code if c else None,
+            "phone": c.phone if c else None, "email": c.email if c else None, "address": c.address if c else None,
+            "aadhaar_number": c.aadhaar_number if c else None, "pan_number": c.pan_number if c else None,
+            "kyc_verified": bool(c.kyc_verified) if c else False,
+            "bank_account_holder_name": c.bank_account_holder_name if c else None,
+            "bank_account_number": c.bank_account_number if c else None,
+            "bank_ifsc": c.bank_ifsc if c else None, "bank_name": c.bank_name if c else None,
+            "nominee_name": c.nominee_name if c else None, "nominee_relationship": c.nominee_relationship if c else None,
+            "nominee_phone": c.nominee_phone if c else None, "nominee_address": c.nominee_address if c else None,
+            "nominee_id_type": c.nominee_id_type if c else None, "nominee_id_number": c.nominee_id_number if c else None,
+            "documents": [{"id": d.id, "doc_type": d.doc_type.value, "file_name": d.file_name,
+                           "uploaded_at": d.uploaded_at.isoformat() if d.uploaded_at else None} for d in docs],
+        })
+    return result
+
+
 class GroupUpdate(BaseModel):
     name: str | None = None
     center_place: str | None = None
@@ -433,9 +468,79 @@ def update_loan_product(product_id: str, payload: LoanProductUpdate, db: Session
     return {"status": "updated"}
 
 
+def _projected_group_product_sheet(product, amount: float, format: str, start_date, view: str, member_no: int | None):
+    """
+    Builds the Center / M.L.L. projection for a group PRODUCT at a sample
+    amount — no group or loan exists yet, so members are numbered
+    placeholders (Member 1 ... Member N, N being the product's own member
+    count). Uses exactly the same schedule math and even-split rule as a
+    real group loan.
+    """
+    from app.utils.installment_sheet import (
+        generate_group_center_sheet_pdf, generate_group_center_sheet_xlsx,
+        generate_member_mll_sheet_pdf, generate_member_mll_sheet_xlsx,
+    )
+    n = product.group_member_count or 0
+    if n < 2:
+        raise HTTPException(status_code=400, detail="This group product has no member count set.")
+
+    if product.custom_schedule_enabled:
+        if not start_date:
+            raise HTTPException(status_code=400, detail="This product uses the custom phased schedule — choose a start date and click Generate.")
+        raw_rows = calculate_custom_phased_schedule(product_phase_config(product), start_date)
+    else:
+        raw_rows = calculate_emi_schedule(amount, product.interest_rate_annual, product.tenure_months, product, first_due_date=start_date)
+
+    if view == "center":
+        roster = [{"name": f"Member {i + 1}", "phone": None} for i in range(n)]
+        agg_rows = [{
+            "installment_no": r["installment_no"], "due_date": r["due_date"].isoformat(),
+            "principal_due": float(r["principal_due"]), "interest_due": float(r["interest_due"]),
+            "savings_due": float(r.get("savings_due", 0)), "total_due": float(r["total_due"]),
+        } for r in raw_rows]
+        if format == "xlsx":
+            file_path = generate_group_center_sheet_xlsx("SAMPLE", product.name, None, "All branches", True, float(amount), roster, agg_rows)
+            media_type, ext = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "xlsx"
+        else:
+            file_path = generate_group_center_sheet_pdf("SAMPLE", product.name, None, "All branches", True, float(amount), roster, agg_rows)
+            media_type, ext = "application/pdf", "pdf"
+        return FileResponse(file_path, media_type=media_type, filename=f"{product.name.replace(' ', '_')}_center_sheet.{ext}")
+
+    # view == "member"
+    if not member_no or member_no < 1 or member_no > n:
+        raise HTTPException(status_code=400, detail=f"Choose a member number between 1 and {n}.")
+    idx = member_no - 1
+    member_loan_amount = split_evenly(Decimal(str(amount)), n)[idx]
+    balance = Decimal(str(member_loan_amount))
+    member_rows = []
+    for r in raw_rows:
+        p_share = split_evenly(r["principal_due"], n)[idx]
+        i_share = split_evenly(r["interest_due"], n)[idx]
+        balance -= p_share
+        if balance < 0:
+            balance = Decimal("0")
+        if r is raw_rows[-1] and balance < Decimal("1"):
+            balance = Decimal("0")  # clear sub-rupee rounding left over from the per-week paise split
+        member_rows.append({
+            "installment_no": r["installment_no"], "due_date": r["due_date"].isoformat(),
+            "principal_due": float(p_share), "interest_due": float(i_share), "balance": float(balance),
+        })
+    mll_no = f"{member_no:02d}/SAMPLE"
+    first_date = raw_rows[0]["due_date"].isoformat() if raw_rows else None
+    name = f"Member {member_no}"
+    if format == "xlsx":
+        file_path = generate_member_mll_sheet_xlsx(mll_no, product.name, name, float(member_loan_amount), first_date, None, "All branches", True, member_rows)
+        media_type, ext = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "xlsx"
+    else:
+        file_path = generate_member_mll_sheet_pdf(mll_no, product.name, name, float(member_loan_amount), first_date, None, "All branches", True, member_rows)
+        media_type, ext = "application/pdf", "pdf"
+    return FileResponse(file_path, media_type=media_type, filename=f"{product.name.replace(' ', '_')}_member{member_no}_mll_sheet.{ext}")
+
+
 @router.get("/loan-products/{product_id}/installment-sheet")
 def download_installment_sheet(
     product_id: str, amount: float, format: str = "pdf", start_date: date | None = None,
+    view: str = "list", member_no: int | None = None,
     db: Session = Depends(get_db), user: User = Depends(require_superadmin),
 ):
     """
@@ -443,6 +548,13 @@ def download_installment_sheet(
     amount — no real loan is created, this is purely for showing a
     prospective customer what their repayments would look like. Only
     SuperAdmin can pull this, matching the rest of the reports/exports.
+
+    For a GROUP product, view="center" gives the consolidated Center sheet
+    for the whole group and view="member" gives one member's individual
+    M.L.L. ledger (member_no, 1 to the product's member count) — the same
+    two layouts a real group loan produces, for Flat, Reducing-balance and
+    custom-schedule products alike. The default view="list" is unchanged and
+    still applies to individual products only.
     """
     from app.utils.installment_sheet import generate_installment_sheet_pdf, generate_installment_sheet_xlsx
 
@@ -451,8 +563,12 @@ def download_installment_sheet(
         raise HTTPException(status_code=404, detail="Loan product not found")
     if not (product.min_amount <= Decimal(str(amount)) <= product.max_amount):
         raise HTTPException(status_code=400, detail=f"Amount must be between {product.min_amount} and {product.max_amount} for this product.")
+    if product.is_group_loan and view in ("center", "member"):
+        return _projected_group_product_sheet(product, amount, format, start_date, view, member_no)
     if product.is_group_loan:
         raise HTTPException(status_code=400, detail="Installment sheets are for individual products — a group loan's per-member share depends on the group size chosen at application time.")
+    if view != "list":
+        raise HTTPException(status_code=400, detail="The center and member views are only available for group products.")
 
     show_savings = bool(product.custom_schedule_enabled)
     if show_savings:
@@ -615,6 +731,8 @@ def download_loan_installment_sheet(loan_id: str, format: str = "pdf", for_custo
                 balance -= p_share
                 if balance < 0:
                     balance = Decimal("0")
+                if e is real_schedule[-1] and balance < Decimal("1"):
+                    balance = Decimal("0")  # clear sub-rupee rounding left over from the per-week paise split
                 member_rows.append({
                     "installment_no": e.installment_no, "due_date": e.due_date.isoformat(),
                     "principal_due": float(p_share), "interest_due": float(i_share),
@@ -627,6 +745,8 @@ def download_loan_installment_sheet(loan_id: str, format: str = "pdf", for_custo
                 balance -= p_share
                 if balance < 0:
                     balance = Decimal("0")
+                if r is raw_rows[-1] and balance < Decimal("1"):
+                    balance = Decimal("0")  # clear sub-rupee rounding left over from the per-week paise split
                 member_rows.append({
                     "installment_no": r["installment_no"], "due_date": r["due_date"].isoformat(),
                     "principal_due": float(p_share), "interest_due": float(i_share),

@@ -219,11 +219,33 @@
       <div class="row-actions" style="margin-bottom:10px"><button class="btn ghost" onclick="generateCustomSchedulePreview()">Generate</button></div>
       <div id="sheet-preview-body" style="max-height:220px;overflow-y:auto;margin-bottom:12px"></div>
     </div>
-    <div class="row-actions">
+    <div class="row-actions" id="sheet-individual-actions">
       <button class="btn amber" onclick="downloadInstallmentSheet('pdf')">⬇ Download PDF</button>
       <button class="btn" onclick="downloadInstallmentSheet('xlsx')">⬇ Download Excel</button>
     </div>
+    <div class="hidden" id="sheet-group-fields">
+      <div class="field hidden" id="sheet-group-start-field"><label>First installment date <span style="font-weight:400;color:#888">(optional)</span></label><input id="sheet-group-start-date" type="date"></div>
+      <p style="font-size:12px;color:#666;margin:4px 0 8px"><strong>Center sheet</strong> — the whole group, consolidated</p>
+      <div class="row-actions" style="margin-top:0">
+        <button class="btn amber" onclick="downloadGroupProductSheet('center','pdf')">⬇ PDF</button>
+        <button class="btn" onclick="downloadGroupProductSheet('center','xlsx')">⬇ Excel</button>
+      </div>
+      <p style="font-size:12px;color:#666;margin:14px 0 8px"><strong>Customer-wise sheet (M.L.L.)</strong> — one member's ledger</p>
+      <div class="field"><label>Member</label><select id="sheet-member-no"></select></div>
+      <div class="row-actions" style="margin-top:0">
+        <button class="btn amber" onclick="downloadGroupProductSheet('member','pdf')">⬇ PDF</button>
+        <button class="btn" onclick="downloadGroupProductSheet('member','xlsx')">⬇ Excel</button>
+      </div>
+    </div>
     <div class="err" id="sheet-err"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="member-review-modal" style="z-index:1100">
+  <div class="modal-card" style="max-width:640px;max-height:88vh;overflow-y:auto;position:relative">
+    <button onclick="document.getElementById('member-review-modal').classList.remove('show')" style="position:absolute;top:14px;right:14px;background:none;border:none;font-size:20px;line-height:1;cursor:pointer;color:#888;padding:4px" aria-label="Close">&times;</button>
+    <h3 id="member-review-title" style="padding-right:28px">Group members</h3>
+    <div id="member-review-body"></div>
   </div>
 </div>
 
@@ -1267,7 +1289,7 @@ function productRow(p){
         ? `<button class="btn ghost" style="padding:6px 8px;font-size:12px" onclick="deactivateProduct('${p.id}')">Deactivate</button>`
         : `<button class="btn amber" style="padding:6px 8px;font-size:12px" onclick="activateProduct('${p.id}')">Activate</button>`}
       <button class="btn ghost" style="padding:6px 8px;font-size:12px;color:#C0392B" onclick="deleteProduct('${p.id}')">Delete</button>
-      ${p.is_group_loan ? '' : `<button class="btn ghost" style="padding:6px 8px;font-size:12px" onclick='openInstallmentSheetModal(${JSON.stringify(p)})'>⬇ Installment Sheet</button>`}
+      <button class="btn ghost" style="padding:6px 8px;font-size:12px" onclick='openInstallmentSheetModal(${JSON.stringify(p)})'>⬇ Installment Sheet</button>
     </td>
   </tr>`;
 }
@@ -1442,7 +1464,7 @@ async function renderLoans(){
         <td>${l.disbursed_amount ? `₹${l.disbursed_amount.toLocaleString()}${l.disbursal_method ? `<div style="font-size:11px;color:#888">${esc(l.disbursal_method.replace('_',' '))}</div>` : ''}` : '—'}</td>
         <td style="white-space:nowrap;font-size:12.5px">${new Date(l.applied_at).toLocaleDateString()}</td>
         <td><span class="badge ${l.status}">${l.status.replace('_',' ')}</span>${l.status==='rejected' && l.rejection_reason ? `<div style="font-size:11px;color:#888;margin-top:4px">${esc(l.rejection_reason)}</div>` : ''}${!['pending_approval','rejected'].includes(l.status) ? `<div style="margin-top:4px"><button class="link-btn" style="font-size:11px" onclick="downloadLoanInstallmentSheet('${l.id}','${esc(l.loan_number)}','pdf')">⬇ Sheet (PDF)</button> · <button class="link-btn" style="font-size:11px" onclick="downloadLoanInstallmentSheet('${l.id}','${esc(l.loan_number)}','xlsx')">Excel</button></div><div style="margin-top:2px"><button class="link-btn" style="font-size:11px;color:#888" onclick="downloadLoanInstallmentSheet('${l.id}','${esc(l.loan_number)}','pdf',true)">⬇ Customer copy (PDF)</button> · <button class="link-btn" style="font-size:11px;color:#888" onclick="downloadLoanInstallmentSheet('${l.id}','${esc(l.loan_number)}','xlsx',true)">Excel</button></div>${l.is_group_loan ? `<div style="margin-top:2px"><button class="link-btn" style="font-size:11px" onclick="downloadGroupCenterSheet('${l.id}','${esc(l.loan_number)}','pdf')">⬇ Center sheet</button> · <button class="link-btn" style="font-size:11px" onclick="downloadGroupCenterSheet('${l.id}','${esc(l.loan_number)}','xlsx')">Excel</button> · <button class="link-btn" style="font-size:11px" onclick="openMllSheetPicker('${l.id}','${esc(l.loan_number)}','${l.group_id}')">M.L.L. sheets…</button></div><div style="margin-top:2px"><button class="link-btn" style="font-size:11px;color:#888" onclick="downloadGroupCenterSheet('${l.id}','${esc(l.loan_number)}','pdf',true)">⬇ Center sheet (customer copy)</button> · <button class="link-btn" style="font-size:11px;color:#888" onclick="downloadGroupCenterSheet('${l.id}','${esc(l.loan_number)}','xlsx',true)">Excel</button></div>` : ''}` : ''}</td>
-        ${canManage ? `<td>${l.is_group_loan ? '<span style="color:#888;font-size:12px">Group — see Collections tab</span>' : `<button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="viewCustomerDocs('${l.customer_id}','${esc(l.customer_name)}')">Review KYC</button>`}</td>
+        ${canManage ? `<td>${l.is_group_loan ? `<button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="openMemberReview('${l.group_id}','${esc(l.customer_name)}')">View members</button>` : `<button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="viewCustomerDocs('${l.customer_id}','${esc(l.customer_name)}')">Review KYC</button>`}</td>
         <td style="white-space:nowrap">${l.status==='pending_approval'?`<button class="btn" style="padding:6px 10px;font-size:12px" onclick="openApproveModal('${l.id}')">Approve</button>
           <button class="btn ghost" style="padding:6px 10px;font-size:12px;color:#C0392B" onclick="rejectLoan('${l.id}')">Reject</button>`
           : l.status==='approved'?`<button class="btn amber" style="padding:6px 10px;font-size:12px" onclick="openDisburseModal('${l.id}','${l.customer_id}')">Disburse</button>`:'—'}</td>`:''}
@@ -1973,6 +1995,17 @@ function openInstallmentSheetModal(product){
   if(product.custom_schedule_enabled){
     document.getElementById('sheet-start-date').value = new Date().toISOString().slice(0,10);
   }
+  // Group products get the consolidated Center sheet and a customer-wise
+  // (per-member M.L.L.) sheet instead of the single individual list.
+  const isGroup = !!product.is_group_loan;
+  document.getElementById('sheet-individual-actions').classList.toggle('hidden', isGroup);
+  document.getElementById('sheet-group-fields').classList.toggle('hidden', !isGroup);
+  document.getElementById('sheet-group-start-field').classList.toggle('hidden', !isGroup || !!product.custom_schedule_enabled);
+  document.getElementById('sheet-group-start-date').value = '';
+  if(isGroup){
+    const n = product.group_member_count || 0;
+    document.getElementById('sheet-member-no').innerHTML = Array.from({length:n}, (_,i)=>`<option value="${i+1}">Member ${i+1}</option>`).join('');
+  }
   document.getElementById('installment-sheet-modal').classList.add('show');
 }
 // Renders the phased-schedule preview table shared by the Loan Products page
@@ -2024,6 +2057,63 @@ async function downloadInstallmentSheet(format){
       `${installmentSheetProduct.name}_installment_sheet.${format}`
     );
   }catch(e){ errEl.textContent = e.message; }
+}
+async function downloadGroupProductSheet(view, format){
+  const errEl = document.getElementById('sheet-err'); errEl.textContent = '';
+  const amount = Number(document.getElementById('sheet-amount').value);
+  if(!installmentSheetProduct || !amount){ errEl.textContent = 'Enter a sample amount.'; return; }
+  const custom = !!installmentSheetProduct.custom_schedule_enabled;
+  const startDate = custom ? document.getElementById('sheet-start-date').value : document.getElementById('sheet-group-start-date').value;
+  if(custom && !startDate){ errEl.textContent = 'Choose a start date first.'; return; }
+  const startParam = startDate ? `&start_date=${startDate}` : '';
+  const memberNo = document.getElementById('sheet-member-no').value;
+  const memberParam = view === 'member' ? `&member_no=${memberNo}` : '';
+  try{
+    await downloadAuthenticatedFile(
+      `/loan-products/${installmentSheetProduct.id}/installment-sheet?amount=${amount}&format=${format}&view=${view}${startParam}${memberParam}`,
+      `${installmentSheetProduct.name}_${view==='center'?'center':'member'+memberNo}_sheet.${format}`
+    );
+  }catch(e){ errEl.textContent = e.message; }
+}
+// Read-only review of a group's members — customer details plus uploaded
+// documents (view/download) — for approving a group loan, or for checking a
+// single member from the group's Edit / Members panel (onlyMemberId).
+async function openMemberReview(groupId, groupName, onlyMemberId){
+  document.getElementById('member-review-title').textContent = onlyMemberId ? `Member details — ${groupName}` : `Members & documents — ${groupName}`;
+  document.getElementById('member-review-body').innerHTML = '<div class="empty">Loading…</div>';
+  document.getElementById('member-review-modal').classList.add('show');
+  try{
+    let members = await api(`/groups/${groupId}/members/details`);
+    if(onlyMemberId) members = members.filter(m => m.group_member_id === onlyMemberId);
+    const docLabel = t => (KYC_DOC_TYPES.find(x=>x.key===t)||{}).label || String(t).replace(/_/g,' ');
+    const row = (label, value) => value ? `<div style="display:flex;gap:8px;font-size:12.5px;padding:2px 0"><span style="color:#888;min-width:120px">${label}</span><span>${esc(value)}</span></div>` : '';
+    document.getElementById('member-review-body').innerHTML = members.map((m,i) => `
+      <div style="border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <strong>${onlyMemberId ? '' : (i+1)+'. '}${esc(m.customer_name)} <span style="color:#888;font-weight:400;font-size:12px">${esc(m.customer_code||'')}</span></strong>
+          <span class="badge ${m.kyc_verified?'active':'suspended'}">${m.kyc_verified?'KYC verified':'KYC pending'}</span>
+        </div>
+        ${row('Phone', m.phone)}${row('Email', m.email)}${row('Address', m.address)}
+        ${row('Aadhaar', m.aadhaar_number)}${row('PAN', m.pan_number)}
+        ${row('Bank', [m.bank_name, m.bank_account_number, m.bank_ifsc].filter(Boolean).join(' · '))}
+        ${row('Nominee', [m.nominee_name, m.nominee_relationship && m.nominee_relationship.replace(/_/g,' '), m.nominee_phone].filter(Boolean).join(' · '))}
+        ${row('Nominee address', m.nominee_address)}
+        ${row('Nominee ID', [m.nominee_id_type && m.nominee_id_type.replace(/_/g,' '), m.nominee_id_number].filter(Boolean).join(' · '))}
+        <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px">
+          <div style="font-size:12px;color:#888;margin-bottom:4px">Documents (${m.documents.length})</div>
+          ${m.documents.map(d => `
+            <div class="activity-item">
+              <div><div class="activity-main">${esc(docLabel(d.doc_type))}</div><div class="activity-sub">${esc(d.file_name)}</div></div>
+              <div style="display:flex;gap:10px;align-items:center">
+                <button class="link-btn" style="font-size:12px" onclick="viewDocument('${d.id}','${esc(d.file_name)}')">View</button>
+                <button class="link-btn" style="font-size:12px" onclick="downloadDocument('${d.id}','${esc(d.file_name)}')">Download</button>
+              </div>
+            </div>`).join('') || '<p class="empty" style="padding:6px 0;font-size:12.5px">No documents uploaded.</p>'}
+        </div>
+      </div>`).join('') || '<p class="empty">No members found.</p>';
+  }catch(e){
+    document.getElementById('member-review-body').innerHTML = `<div class="err">${esc(e.message)}</div>`;
+  }
 }
 async function downloadLoanInstallmentSheet(loanId, loanNumber, format, forCustomer){
   try{
@@ -2345,11 +2435,17 @@ async function openManageGroupModal(groupId){
       <div class="row-actions" style="margin-top:10px"><button class="btn amber" onclick="saveGroupDetails('${groupId}')">Save details</button></div>
       <div class="err" id="gm-details-err"></div>
       <div style="border-top:1px solid var(--border);margin-top:16px;padding-top:14px">
-        <p style="font-size:12.5px;color:#666;margin:0 0 10px"><strong>Members</strong> (${members.length})</p>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin:0 0 10px">
+          <p style="font-size:12.5px;color:#666;margin:0"><strong>Members</strong> (${members.length})</p>
+          <button class="link-btn" style="font-size:12px" onclick="openMemberReview('${groupId}','${esc(group.name)}')">View all members &amp; documents</button>
+        </div>
         ${members.map(m => `
           <div class="activity-item">
             <div><div class="activity-main">${esc(m.customer_name)}</div><div class="activity-sub">${esc(m.phone||'')}</div></div>
-            <button class="link-btn" style="font-size:12px;color:#C0392B" onclick="removeMemberFromGroup('${groupId}','${m.group_member_id}','${esc(m.customer_name)}')">Remove</button>
+            <div style="display:flex;gap:12px;align-items:center">
+              <button class="link-btn" style="font-size:12px" onclick="openMemberReview('${groupId}','${esc(group.name)}','${m.group_member_id}')">View</button>
+              <button class="link-btn" style="font-size:12px;color:#C0392B" onclick="removeMemberFromGroup('${groupId}','${m.group_member_id}','${esc(m.customer_name)}')">Remove</button>
+            </div>
           </div>
         `).join('') || '<p class="empty" style="padding:8px 0">No members.</p>'}
       </div>
