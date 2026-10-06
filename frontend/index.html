@@ -2722,9 +2722,13 @@ async function onCollectionLoanChange(){
 async function loadGroupInstallmentOptions(){
   const loanId = document.getElementById('p-loan').value;
   const sched = await api(`/loans/${loanId}/schedule`);
+  // Pre-select only the earliest installment that is not fully paid (the next one due).
+  // Previously every unpaid option carried "selected", so the browser picked the last one.
+  const nextUnpaid = sched.find(s=>!s.is_paid);
   document.getElementById('pg-emi').innerHTML = sched.map(s=>
-    `<option value="${s.id}" ${s.is_paid?'':'selected'}>#${s.installment_no} — due ${s.due_date} — ${s.paid_count}/${s.total_members} paid ${s.is_paid?'✅':''}</option>`
+    `<option value="${s.id}" ${(nextUnpaid && nextUnpaid.id===s.id)?'selected':''}>#${s.installment_no} — due ${s.due_date} — ${s.paid_count}/${s.total_members} paid ${s.is_paid?'✅':''}</option>`
   ).join('');
+  if(nextUnpaid) document.getElementById('pg-emi').value = nextUnpaid.id;
   await loadGroupInstallmentStatus();
 }
 async function loadGroupInstallmentStatus(){
