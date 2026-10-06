@@ -561,7 +561,7 @@ def download_installment_sheet(
     product = db.query(LoanProduct).filter(LoanProduct.id == product_id, LoanProduct.tenant_id == user.tenant_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Loan product not found")
-    if not (product.min_amount <= Decimal(str(amount)) <= product.max_amount):
+    if not product.custom_schedule_enabled and not (product.min_amount <= Decimal(str(amount)) <= product.max_amount):
         raise HTTPException(status_code=400, detail=f"Amount must be between {product.min_amount} and {product.max_amount} for this product.")
     if product.is_group_loan and view in ("center", "member"):
         return _projected_group_product_sheet(product, amount, format, start_date, view, member_no)
@@ -1157,7 +1157,9 @@ def apply_loan(payload: LoanApply, db: Session = Depends(get_db), user: User = D
     product = db.query(LoanProduct).filter(LoanProduct.id == payload.loan_product_id, LoanProduct.tenant_id == user.tenant_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Loan product not found")
-    if not (product.min_amount <= Decimal(str(payload.principal_amount)) <= product.max_amount):
+    # Custom phased-schedule loans are entered by hand by the admin (amount and every phase
+    # figure), so the product's min/max range is not enforced for them.
+    if not product.custom_schedule_enabled and not (product.min_amount <= Decimal(str(payload.principal_amount)) <= product.max_amount):
         raise HTTPException(status_code=400, detail=f"Amount must be between {product.min_amount} and {product.max_amount}")
 
     if product.is_group_loan:
@@ -1201,22 +1203,9 @@ def apply_loan(payload: LoanApply, db: Session = Depends(get_db), user: User = D
         p1 = resolve(payload.custom_phase1_principal, product.custom_phase1_principal)
         p2 = resolve(payload.custom_phase2_principal, product.custom_phase2_principal)
         p3 = resolve(payload.custom_phase3_principal, product.custom_phase3_principal)
-        # Each phase's principal here is a WEEKLY figure, charged unchanged every week of
-        # that phase — never split from a total. So what this loan actually adds up to
-        # (and must equal the loan amount) is each phase's weekly principal times its own
-        # week-count, summed across all three phases.
-        weeks1, weeks2, weeks3 = product.custom_phase1_weeks or 0, product.custom_phase2_weeks or 0, product.custom_phase3_weeks or 0
-        phase_principal_sum = (
-            Decimal(str(p1)) * Decimal(weeks1) + Decimal(str(p2)) * Decimal(weeks2) + Decimal(str(p3)) * Decimal(weeks3)
-        )
-        if abs(phase_principal_sum - Decimal(str(payload.principal_amount))) > Decimal("0.01"):
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"Phase 1 ({p1} × {weeks1} wks) + Phase 2 ({p2} × {weeks2} wks) + Phase 3 ({p3} × {weeks3} wks) "
-                    f"= {phase_principal_sum}, which must add up exactly to the loan amount ({payload.principal_amount})."
-                )
-            )
+        # The admin enters the amount and every phase figure by hand, so there is no
+        # cross-check between the phase totals and the loan amount — what is entered is
+        # what the schedule uses.
         custom_phase_fields = {
             "custom_phase1_principal": p1, "custom_phase1_interest": resolve(payload.custom_phase1_interest, product.custom_phase1_interest), "custom_phase1_savings": resolve(payload.custom_phase1_savings, product.custom_phase1_savings),
             "custom_phase2_principal": p2, "custom_phase2_interest": resolve(payload.custom_phase2_interest, product.custom_phase2_interest), "custom_phase2_savings": resolve(payload.custom_phase2_savings, product.custom_phase2_savings),

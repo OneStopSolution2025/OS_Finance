@@ -1433,7 +1433,7 @@ async function renderLoans(){
           <div class="field"><label>Principal amount (₹)</label><input id="la-amount" type="number" oninput="updatePhasePrincipalTotal()"><div id="la-hint" style="font-size:11px;color:#888;margin-top:4px"></div></div>
         </div>
         <div class="hidden" id="la-custom-schedule-fields">
-          <p style="font-size:11.5px;color:#888;margin:8px 0">Pre-filled from the loan product's defaults — adjust the weekly Principal, Interest, and Savings for each phase to match this customer's actual loan. Weeks are fixed by the product. Weekly principal × weeks, summed across all 3 phases, must add up exactly to the Principal amount above.</p>
+          <p style="font-size:11.5px;color:#888;margin:8px 0">Pre-filled from the loan product's defaults — adjust the weekly Principal, Interest, and Savings for each phase to match this customer's actual loan. Weeks are fixed by the product. Figures are used exactly as entered.</p>
           ${customScheduleGridHtml('la')}
           <div class="form-grid" style="margin-top:10px">
             <div class="field"><label>Start date (first installment)</label><input id="la-start-date" type="date"></div>
@@ -1578,8 +1578,8 @@ function updatePhasePrincipalTotal(){
   }, 0);
   const amount = Number(document.getElementById('la-amount').value) || 0;
   const matches = Math.abs(total - amount) < 0.01;
-  hintEl.style.color = matches ? '#2e7d32' : '#C0392B';
-  hintEl.textContent = `Phase total (weekly principal × weeks): ₹${total.toLocaleString()} ${matches ? '✓ matches principal amount' : `— must equal the principal amount (₹${amount.toLocaleString()})`}`;
+  hintEl.style.color = '#888';
+  hintEl.textContent = `Phase total (weekly principal × weeks): ₹${total.toLocaleString()}`;
 }
 async function previewApplyCustomSchedule(){
   const previewEl = document.getElementById('la-schedule-preview');
@@ -1614,10 +1614,6 @@ async function applyForLoan(){
       payload[`custom_phase${n}_savings`] = Number(document.getElementById(`la-phase${n}-savings`).value) || 0;
       phaseTotal += weeklyPrincipal * weeks;
     });
-    if(Math.abs(phaseTotal - amount) > 0.01){
-      errEl.textContent = `Weekly principal × weeks for all 3 phases (₹${phaseTotal.toLocaleString()}) must add up exactly to the principal amount (₹${amount.toLocaleString()}).`;
-      return;
-    }
   }
   if(isGroup){
     const groupId = document.getElementById('la-group').value;
