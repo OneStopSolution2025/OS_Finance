@@ -48,6 +48,12 @@ def run_safe_migrations(engine: Engine):
             ("bank_ifsc", "VARCHAR"),
             ("bank_name", "VARCHAR"),
             ("created_by", "UUID"),
+            ("nominee_name", "VARCHAR"),
+            ("nominee_relationship", "VARCHAR"),
+            ("nominee_phone", "VARCHAR"),
+            ("nominee_address", "TEXT"),
+            ("nominee_id_type", "VARCHAR"),
+            ("nominee_id_number", "VARCHAR"),
         ],
         "loan_products": [
             ("custom_interest_label", "VARCHAR"),
@@ -128,8 +134,30 @@ def run_safe_migrations(engine: Engine):
                 if col_name not in existing_columns:
                     conn.execute(text(f'ALTER TABLE "{table}" ADD COLUMN "{col_name}" {ddl}'))
 
+    add_enum_values(engine)
     fix_mistyped_columns(engine)
     fix_column_nullability(engine)
+
+
+def add_enum_values(engine: Engine):
+    """
+    Adds new members to an existing Postgres enum type. create_all() only
+    builds an enum when the table is first created, so a database that
+    already has the documents table never learns about a value added later
+    unless it's added here. Additive only — never removes or renames values.
+    """
+    new_values = {"documenttype": ["nominee_id"]}
+    if engine.dialect.name != "postgresql":
+        return
+    # ALTER TYPE ... ADD VALUE can't run inside a transaction block on older
+    # Postgres versions, so this uses its own autocommit connection.
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        for type_name, values in new_values.items():
+            exists = conn.execute(text("SELECT 1 FROM pg_type WHERE typname = :n"), {"n": type_name}).first()
+            if not exists:
+                continue  # create_all() will create it fresh with every value
+            for value in values:
+                conn.execute(text(f"ALTER TYPE {type_name} ADD VALUE IF NOT EXISTS '{value}'"))
 
 
 def fix_mistyped_columns(engine: Engine):

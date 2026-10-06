@@ -45,6 +45,7 @@ class DocumentType(str, enum.Enum):
     income_proof = "income_proof"
     loan_agreement = "loan_agreement"
     bank_passbook = "bank_passbook"
+    nominee_id = "nominee_id"
     other = "other"
 
 
@@ -67,11 +68,17 @@ class Customer(Base):
     phone_verified = Column(Boolean, default=False)
     guarantor_name = Column(String, nullable=True)
     guarantor_phone = Column(String, nullable=True)
+    nominee_name = Column(String, nullable=True)
+    nominee_relationship = Column(String, nullable=True)   # son | daughter | husband | wife | daughter_in_law | sister
     photo_document_id = Column(UUID(as_uuid=False), nullable=True)
     bank_account_holder_name = Column(String, nullable=True)
     bank_account_number = Column(String, nullable=True)
     bank_ifsc = Column(String, nullable=True)
     bank_name = Column(String, nullable=True)
+    nominee_phone = Column(String, nullable=True)
+    nominee_address = Column(Text, nullable=True)
+    nominee_id_type = Column(String, nullable=True)     # aadhaar | pan | voter_id | driving_license
+    nominee_id_number = Column(String, nullable=True)
     created_by = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     is_active = Column(Boolean, default=True)

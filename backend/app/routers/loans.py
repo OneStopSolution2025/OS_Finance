@@ -30,6 +30,8 @@ def scope_branch(query, model, user: User):
 
 # ---------- Customers ----------
 
+NOMINEE_RELATIONSHIPS = ["son", "daughter", "husband", "wife", "daughter_in_law", "sister"]
+
 class CustomerCreate(BaseModel):
     branch_id: str
     full_name: str
@@ -45,8 +47,22 @@ class CustomerCreate(BaseModel):
     bank_account_number: str | None = None
     bank_ifsc: str | None = None
     bank_name: str | None = None
+    nominee_name: str | None = None
+    nominee_relationship: str | None = None   # one of NOMINEE_RELATIONSHIPS
+    nominee_phone: str | None = None
+    nominee_address: str | None = None
+    nominee_id_type: str | None = None        # 'aadhaar' | 'pan' | 'voter_id' | 'driving_license'
+    nominee_id_number: str | None = None
 
     def validate_fields(self):
+        if self.nominee_relationship and self.nominee_relationship not in NOMINEE_RELATIONSHIPS:
+            raise HTTPException(status_code=400, detail="Nominee relationship must be one of: " + ", ".join(NOMINEE_RELATIONSHIPS) + ".")
+        if self.nominee_phone and not re.fullmatch(r"\d{10}", self.nominee_phone):
+            raise HTTPException(status_code=400, detail="Nominee contact number must be exactly 10 digits.")
+        if self.nominee_id_type and self.nominee_id_type not in ("aadhaar", "pan", "voter_id", "driving_license"):
+            raise HTTPException(status_code=400, detail="Nominee ID type must be aadhaar, pan, voter_id or driving_license.")
+        if self.nominee_id_type == "aadhaar" and self.nominee_id_number and not re.fullmatch(r"\d{12}", self.nominee_id_number):
+            raise HTTPException(status_code=400, detail="Nominee Aadhaar number must be exactly 12 digits.")
         if not re.fullmatch(r"\d{10}", self.phone):
             raise HTTPException(status_code=400, detail="Phone number must be exactly 10 digits.")
         if self.aadhaar_number and not re.fullmatch(r"\d{12}", self.aadhaar_number):

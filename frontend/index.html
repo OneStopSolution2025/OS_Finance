@@ -2138,6 +2138,8 @@ const KYC_DOC_TYPES = [
   {key:'photo', label:'Photo'},
   {key:'bank_passbook', label:'Bank Passbook'},
   {key:'signed_application', label:'Signed Application (scanned)'},
+  {key:'nominee_id', label:'Nominee ID proof'},
+  {key:'other', label:'Others'},
 ];
 
 async function renderCustomers(){
@@ -2165,6 +2167,34 @@ async function renderCustomers(){
           <input id="c-pan" placeholder="AAAAA9999A" maxlength="10" style="text-transform:uppercase" autocomplete="off" oninput="panOnly(this)">
         </div>
       </div>
+      <h3 style="font-size:14px;margin:18px 0 10px">Nominee details</h3>
+      <div class="form-grid">
+        <div class="field"><label>Nominee name</label><input id="c-nominee-name" autocomplete="off"></div>
+        <div class="field"><label>Relationship</label>
+          <select id="c-nominee-relationship">
+            <option value="">Select relationship</option>
+            <option value="son">Son</option>
+            <option value="daughter">Daughter</option>
+            <option value="husband">Husband</option>
+            <option value="wife">Wife</option>
+            <option value="daughter_in_law">Daughter in law</option>
+            <option value="sister">Sister</option>
+          </select>
+        </div>
+        <div class="field"><label>Nominee contact number</label><input id="c-nominee-phone" inputmode="numeric" maxlength="10" placeholder="10-digit mobile number" autocomplete="off" oninput="digitsOnly(this,10)"></div>
+        <div class="field"><label>Nominee address</label><input id="c-nominee-address" autocomplete="off"></div>
+        <div class="field"><label>Nominee ID type</label>
+          <select id="c-nominee-id-type">
+            <option value="">Select ID type</option>
+            <option value="aadhaar">Aadhaar</option>
+            <option value="pan">PAN Card</option>
+            <option value="voter_id">Voter ID</option>
+            <option value="driving_license">Driving License</option>
+          </select>
+        </div>
+        <div class="field"><label>Nominee ID number</label><input id="c-nominee-id-number" autocomplete="off"></div>
+      </div>
+      <p style="font-size:12px;color:#888;margin:8px 0 0">Upload the nominee's ID proof in the documents section below.</p>
       <h3 style="font-size:14px;margin:18px 0 10px">Bank details (for loan disbursal)</h3>
       <p style="font-size:12px;color:#888;margin:0 0 10px">Needed if the customer will be paid by bank transfer instead of cash. Also upload their bank passbook below.</p>
       <div class="form-grid">
@@ -2189,7 +2219,7 @@ async function renderCustomers(){
     <div class="panel"><h3>Customers</h3>
       <div class="list-scroll">
       <table><thead><tr><th>Code</th><th>Name</th><th>Phone</th><th>KYC</th><th>Bank</th><th>Documents</th></tr></thead>
-      <tbody id="customers-tbody">${customers.map(c=>`<tr><td>${esc(c.customer_code)}</td><td>${esc(c.full_name)}</td><td>${esc(c.phone)}</td><td>${c.kyc_verified?'✅':'Pending'}</td><td>${c.bank_account_number?'✅':'—'}</td>
+      <tbody id="customers-tbody">${customers.map(c=>`<tr><td>${esc(c.customer_code)}</td><td>${esc(c.full_name)}${c.nominee_name?`<div style="font-size:11.5px;color:#888">Nominee: ${esc(c.nominee_name)}${c.nominee_relationship?` (${esc(c.nominee_relationship.replace(/_/g,' '))})`:''}${c.nominee_phone?` · ${esc(c.nominee_phone)}`:''}</div>`:''}</td><td>${esc(c.phone)}</td><td>${c.kyc_verified?'✅':'Pending'}</td><td>${c.bank_account_number?'✅':'—'}</td>
         <td><button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="viewCustomerDocs('${c.id}','${esc(c.full_name)}')">View / Upload</button></td></tr>`).join('') || '<tr><td colspan="6" class="empty">No customers yet</td></tr>'}</tbody></table>
       </div>
     </div>
@@ -2387,6 +2417,10 @@ async function createCustomer(){
   if(!isValidPhone(phone)){ errEl.textContent = 'Phone number must be exactly 10 digits.'; return; }
   const aadhaar = document.getElementById('c-aadhaar').value.trim();
   if(aadhaar && !isValidAadhaar(aadhaar)){ errEl.textContent = 'Aadhaar number must be exactly 12 digits.'; return; }
+  const nomineePhone = document.getElementById('c-nominee-phone').value.trim();
+  if(nomineePhone && !isValidPhone(nomineePhone)){ errEl.textContent = 'Nominee contact number must be exactly 10 digits.'; return; }
+  const nomineeIdNo = document.getElementById('c-nominee-id-number').value.trim();
+  if(document.getElementById('c-nominee-id-type').value === 'aadhaar' && nomineeIdNo && !isValidAadhaar(nomineeIdNo)){ errEl.textContent = 'Nominee Aadhaar number must be exactly 12 digits.'; return; }
   const pan = document.getElementById('c-pan').value.trim();
   if(pan && !isValidPan(pan)){ errEl.textContent = 'PAN must be in the format AAAAA9999A (5 letters, 4 digits, 1 letter).'; return; }
 
@@ -2405,6 +2439,12 @@ async function createCustomer(){
       bank_account_number: document.getElementById('c-bank-account').value || null,
       bank_ifsc: document.getElementById('c-bank-ifsc').value || null,
       bank_name: document.getElementById('c-bank-name').value || null,
+      nominee_name: document.getElementById('c-nominee-name').value.trim() || null,
+      nominee_relationship: document.getElementById('c-nominee-relationship').value || null,
+      nominee_phone: document.getElementById('c-nominee-phone').value.trim() || null,
+      nominee_address: document.getElementById('c-nominee-address').value.trim() || null,
+      nominee_id_type: document.getElementById('c-nominee-id-type').value || null,
+      nominee_id_number: document.getElementById('c-nominee-id-number').value.trim() || null,
     }});
 
     // Customer is created — from this point on we NEVER re-enable the button
@@ -2442,7 +2482,7 @@ async function createCustomer(){
       </div>
     `;
     const fresh = await api('/customers');
-    document.getElementById('customers-tbody').innerHTML = fresh.map(c=>`<tr><td>${esc(c.customer_code)}</td><td>${esc(c.full_name)}</td><td>${esc(c.phone)}</td><td>${c.kyc_verified?'✅':'Pending'}</td><td>${c.bank_account_number?'✅':'—'}</td>
+    document.getElementById('customers-tbody').innerHTML = fresh.map(c=>`<tr><td>${esc(c.customer_code)}</td><td>${esc(c.full_name)}${c.nominee_name?`<div style="font-size:11.5px;color:#888">Nominee: ${esc(c.nominee_name)}${c.nominee_relationship?` (${esc(c.nominee_relationship.replace(/_/g,' '))})`:''}${c.nominee_phone?` · ${esc(c.nominee_phone)}`:''}</div>`:''}</td><td>${esc(c.phone)}</td><td>${c.kyc_verified?'✅':'Pending'}</td><td>${c.bank_account_number?'✅':'—'}</td>
         <td><button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="viewCustomerDocs('${c.id}','${esc(c.full_name)}')">View / Upload</button></td></tr>`).join('') || '<tr><td colspan="6" class="empty">No customers yet</td></tr>';
     // Also refresh the group member picker — without this, a customer added
     // just now wouldn't show up as selectable until the whole page reloaded.
@@ -2481,7 +2521,7 @@ async function viewCustomerDocs(customerId, customerName){
         </div>`).join('')}</div>` : '<p class="empty" style="padding:12px 0">No documents uploaded yet.</p>'}
       <div style="border-top:1px solid var(--border);padding-top:14px">
         <p style="font-size:12px;color:#888;margin:0 0 10px">Upload missing documents:</p>
-        ${KYC_DOC_TYPES.filter(t => !uploadedTypes.has(t.key)).map(t => `
+        ${KYC_DOC_TYPES.filter(t => t.key === 'other' || !uploadedTypes.has(t.key)).map(t => `
           <div class="field" style="margin-bottom:10px">
             <label>${t.label}</label>
             <input type="file" id="kyc2-${t.key}-${customerId}" accept="image/*,.pdf">
