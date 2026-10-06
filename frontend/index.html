@@ -836,6 +836,13 @@ async function renderEmployees(){
       <table style="margin-top:16px"><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th style="width:1%;white-space:nowrap">Status</th><th style="width:1%;white-space:nowrap">Actions</th></tr></thead>
         <tbody id="superadmins-tbody">${superadmins.map(a=>superadminRow(a)).join('')}</tbody></table>
     </div>
+    <div class="modal-overlay" id="emp-docs-modal">
+      <div class="modal-card" style="max-width:480px;max-height:85vh;overflow-y:auto;position:relative">
+        <button onclick="document.getElementById('emp-docs-modal').classList.remove('show')" style="position:absolute;top:14px;right:14px;background:none;border:none;font-size:20px;line-height:1;cursor:pointer;color:#888;padding:4px" aria-label="Close">&times;</button>
+        <h3 id="emp-docs-modal-title" style="padding-right:28px">Documents</h3>
+        <div id="emp-docs-modal-body"></div>
+      </div>
+    </div>
     <div class="modal-overlay" id="edit-employee-modal">
       <div class="modal-card" style="max-width:480px;max-height:85vh;overflow-y:auto">
         <h3>Edit Employee</h3>
@@ -890,6 +897,7 @@ function employeeRow(e, branchName){
     <td><span class="badge ${e.is_active?'active':'suspended'}">${e.is_active?'Active':'Suspended'}</span></td>
     <td style="white-space:nowrap">
       <button class="btn ghost" style="padding:6px 8px;font-size:12px" onclick='openEditEmployee(${JSON.stringify(e)})'>Edit</button>
+      <button class="btn ghost" style="padding:6px 8px;font-size:12px" onclick="viewEmployeeDocs('${e.id}','${esc(e.full_name)}')">Documents</button>
       ${e.is_active
         ? `<button class="btn ghost" style="padding:6px 8px;font-size:12px" onclick="suspendEmployee('${e.id}')">Suspend</button>`
         : `<button class="btn amber" style="padding:6px 8px;font-size:12px" onclick="activateEmployee('${e.id}')">Activate</button>`}
@@ -1023,6 +1031,56 @@ async function deleteSuperAdmin(id, name){
     refreshSuperAdminsTable();
   }catch(e){ showToast(e.message, 'error'); }
 }
+async function viewEmployeeDocs(employeeId, employeeName){
+  document.getElementById('emp-docs-modal-title').textContent = `Documents — ${employeeName}`;
+  document.getElementById('emp-docs-modal-body').innerHTML = '<div class="empty">Loading…</div>';
+  document.getElementById('emp-docs-modal').classList.add('show');
+  try{
+    const docs = await api(`/employees/${employeeId}/documents`);
+    document.getElementById('emp-docs-modal-body').innerHTML = `
+      ${docs.length ? `<div style="margin-bottom:16px">${docs.map(d => `
+        <div class="activity-item">
+          <div><div class="activity-main">${esc((d.doc_type||'document').replace(/_/g,' '))}</div><div class="activity-sub">${esc(d.file_name)}</div></div>
+          <div style="display:flex;gap:10px;align-items:center">
+            <button class="link-btn" style="font-size:12px" onclick="viewDocument('${d.id}','${esc(d.file_name)}')">View</button>
+            <button class="link-btn" style="font-size:12px" onclick="downloadDocument('${d.id}','${esc(d.file_name)}')">Download</button>
+            <button class="link-btn" style="font-size:12px;color:#C0392B" onclick="deleteEmployeeDocument('${d.id}','${employeeId}','${esc(employeeName)}')">Delete</button>
+          </div>
+        </div>`).join('')}</div>` : '<p class="empty" style="padding:12px 0">No documents uploaded yet.</p>'}
+      <div style="border-top:1px solid var(--border);padding-top:14px">
+        <p style="font-size:12px;color:#888;margin:0 0 10px">Upload ID proof:</p>
+        <input type="file" id="emp-doc-file-${employeeId}" accept="image/*,.pdf">
+        <button class="btn ghost" style="padding:6px 10px;font-size:12px;margin-top:6px" onclick="uploadEmployeeDocFromModal('${employeeId}','${esc(employeeName)}')">Upload</button>
+        <div class="err" id="emp-doc-err"></div>
+      </div>
+    `;
+  }catch(e){
+    document.getElementById('emp-docs-modal-body').innerHTML = `<div class="err">${esc(e.message)}</div>`;
+  }
+}
+async function deleteEmployeeDocument(documentId, employeeId, employeeName){
+  if(!confirm('Delete this document? You can upload a replacement right after.')) return;
+  try{
+    await api(`/documents/${documentId}`, { method:'DELETE' });
+    showToast('Document deleted');
+    viewEmployeeDocs(employeeId, employeeName);
+  }catch(e){ showToast(e.message, 'error'); }
+}
+async function uploadEmployeeDocFromModal(employeeId, employeeName){
+  const fileInput = document.getElementById(`emp-doc-file-${employeeId}`);
+  const errEl = document.getElementById('emp-doc-err'); errEl.textContent = '';
+  if(!fileInput.files.length){ errEl.textContent = 'Choose a file first.'; return; }
+  const formData = new FormData();
+  formData.append('doc_type', 'address_proof');
+  formData.append('employee_id', employeeId);
+  formData.append('file', fileInput.files[0]);
+  try{
+    const res = await fetch(API + '/documents/upload', { method:'POST', headers:{'Authorization':`Bearer ${state.token}`}, body: formData });
+    const data = await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(data.detail || 'Upload failed');
+    viewEmployeeDocs(employeeId, employeeName);
+  }catch(e){ errEl.textContent = e.message; }
+}
 async function uploadEmployeeDoc(employeeId){
   const fileInput = document.getElementById('e-address-proof-file');
   const statusEl = document.getElementById('e-address-proof-status');
@@ -1034,7 +1092,11 @@ async function uploadEmployeeDoc(employeeId){
   try{
     const res = await fetch(API + '/documents/upload', { method:'POST', headers:{'Authorization':`Bearer ${state.token}`}, body: formData });
     if(!res.ok) throw new Error('Upload failed');
+    const uploaded = await res.json().catch(()=>null);
     statusEl.textContent = '✓ Uploaded'; statusEl.style.color = '#5A6B00';
+    if(uploaded && uploaded.id){
+      statusEl.insertAdjacentHTML('afterend', ` <button class="link-btn" style="font-size:12px;margin-left:6px" onclick="viewDocument('${uploaded.id}','${esc(uploaded.file_name)}')">View</button>`);
+    }
   }catch(e){ statusEl.textContent = e.message; statusEl.style.color = '#C0392B'; }
 }
 
