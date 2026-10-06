@@ -223,6 +223,13 @@
       <button class="btn amber" onclick="downloadInstallmentSheet('pdf')">⬇ Download PDF</button>
       <button class="btn" onclick="downloadInstallmentSheet('xlsx')">⬇ Download Excel</button>
     </div>
+    <div id="sheet-individual-mll">
+      <p style="font-size:12px;color:#666;margin:14px 0 8px"><strong>M.L.L. sheet</strong> — member loan ledger with running balance</p>
+      <div class="row-actions" style="margin-top:0">
+        <button class="btn amber" onclick="downloadIndividualMllProductSheet('pdf')">⬇ PDF</button>
+        <button class="btn" onclick="downloadIndividualMllProductSheet('xlsx')">⬇ Excel</button>
+      </div>
+    </div>
     <div class="hidden" id="sheet-group-fields">
       <div class="field hidden" id="sheet-group-start-field"><label>First installment date <span style="font-weight:400;color:#888">(optional)</span></label><input id="sheet-group-start-date" type="date"></div>
       <p style="font-size:12px;color:#666;margin:4px 0 8px"><strong>Center sheet</strong> — the whole group, consolidated</p>
@@ -1463,7 +1470,7 @@ async function renderLoans(){
         <td>₹${l.principal_amount.toLocaleString()}</td>
         <td>${l.disbursed_amount ? `₹${l.disbursed_amount.toLocaleString()}${l.disbursal_method ? `<div style="font-size:11px;color:#888">${esc(l.disbursal_method.replace('_',' '))}</div>` : ''}` : '—'}</td>
         <td style="white-space:nowrap;font-size:12.5px">${new Date(l.applied_at).toLocaleDateString()}</td>
-        <td><span class="badge ${l.status}">${l.status.replace('_',' ')}</span>${l.status==='rejected' && l.rejection_reason ? `<div style="font-size:11px;color:#888;margin-top:4px">${esc(l.rejection_reason)}</div>` : ''}${!['pending_approval','rejected'].includes(l.status) ? `<div style="margin-top:4px"><button class="link-btn" style="font-size:11px" onclick="downloadLoanInstallmentSheet('${l.id}','${esc(l.loan_number)}','pdf')">⬇ Sheet (PDF)</button> · <button class="link-btn" style="font-size:11px" onclick="downloadLoanInstallmentSheet('${l.id}','${esc(l.loan_number)}','xlsx')">Excel</button></div><div style="margin-top:2px"><button class="link-btn" style="font-size:11px;color:#888" onclick="downloadLoanInstallmentSheet('${l.id}','${esc(l.loan_number)}','pdf',true)">⬇ Customer copy (PDF)</button> · <button class="link-btn" style="font-size:11px;color:#888" onclick="downloadLoanInstallmentSheet('${l.id}','${esc(l.loan_number)}','xlsx',true)">Excel</button></div>${l.is_group_loan ? `<div style="margin-top:2px"><button class="link-btn" style="font-size:11px" onclick="downloadGroupCenterSheet('${l.id}','${esc(l.loan_number)}','pdf')">⬇ Center sheet</button> · <button class="link-btn" style="font-size:11px" onclick="downloadGroupCenterSheet('${l.id}','${esc(l.loan_number)}','xlsx')">Excel</button> · <button class="link-btn" style="font-size:11px" onclick="openMllSheetPicker('${l.id}','${esc(l.loan_number)}','${l.group_id}')">M.L.L. sheets…</button></div><div style="margin-top:2px"><button class="link-btn" style="font-size:11px;color:#888" onclick="downloadGroupCenterSheet('${l.id}','${esc(l.loan_number)}','pdf',true)">⬇ Center sheet (customer copy)</button> · <button class="link-btn" style="font-size:11px;color:#888" onclick="downloadGroupCenterSheet('${l.id}','${esc(l.loan_number)}','xlsx',true)">Excel</button></div>` : ''}` : ''}</td>
+        <td><span class="badge ${l.status}">${l.status.replace('_',' ')}</span>${l.status==='rejected' && l.rejection_reason ? `<div style="font-size:11px;color:#888;margin-top:4px">${esc(l.rejection_reason)}</div>` : ''}${!['pending_approval','rejected'].includes(l.status) ? `<div style="margin-top:4px"><button class="link-btn" style="font-size:11px" onclick="downloadLoanInstallmentSheet('${l.id}','${esc(l.loan_number)}','pdf')">⬇ Sheet (PDF)</button> · <button class="link-btn" style="font-size:11px" onclick="downloadLoanInstallmentSheet('${l.id}','${esc(l.loan_number)}','xlsx')">Excel</button></div><div style="margin-top:2px"><button class="link-btn" style="font-size:11px;color:#888" onclick="downloadLoanInstallmentSheet('${l.id}','${esc(l.loan_number)}','pdf',true)">⬇ Customer copy (PDF)</button> · <button class="link-btn" style="font-size:11px;color:#888" onclick="downloadLoanInstallmentSheet('${l.id}','${esc(l.loan_number)}','xlsx',true)">Excel</button></div>${!l.is_group_loan ? `<div style="margin-top:2px"><button class="link-btn" style="font-size:11px" onclick="downloadIndividualMllSheet('${l.id}','${esc(l.loan_number)}','pdf')">⬇ M.L.L. sheet</button> · <button class="link-btn" style="font-size:11px" onclick="downloadIndividualMllSheet('${l.id}','${esc(l.loan_number)}','xlsx')">Excel</button></div>` : ''}${l.is_group_loan ? `<div style="margin-top:2px"><button class="link-btn" style="font-size:11px" onclick="downloadGroupCenterSheet('${l.id}','${esc(l.loan_number)}','pdf')">⬇ Center sheet</button> · <button class="link-btn" style="font-size:11px" onclick="downloadGroupCenterSheet('${l.id}','${esc(l.loan_number)}','xlsx')">Excel</button> · <button class="link-btn" style="font-size:11px" onclick="openMllSheetPicker('${l.id}','${esc(l.loan_number)}','${l.group_id}')">M.L.L. sheets…</button></div><div style="margin-top:2px"><button class="link-btn" style="font-size:11px;color:#888" onclick="downloadGroupCenterSheet('${l.id}','${esc(l.loan_number)}','pdf',true)">⬇ Center sheet (customer copy)</button> · <button class="link-btn" style="font-size:11px;color:#888" onclick="downloadGroupCenterSheet('${l.id}','${esc(l.loan_number)}','xlsx',true)">Excel</button></div>` : ''}` : ''}</td>
         ${canManage ? `<td>${l.is_group_loan ? `<button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="openMemberReview('${l.group_id}','${esc(l.customer_name)}')">View members</button>` : `<button class="btn ghost" style="padding:6px 10px;font-size:12px" onclick="viewCustomerDocs('${l.customer_id}','${esc(l.customer_name)}')">Review KYC</button>`}</td>
         <td style="white-space:nowrap">${l.status==='pending_approval'?`<button class="btn" style="padding:6px 10px;font-size:12px" onclick="openApproveModal('${l.id}')">Approve</button>
           <button class="btn ghost" style="padding:6px 10px;font-size:12px;color:#C0392B" onclick="rejectLoan('${l.id}')">Reject</button>`
@@ -2078,6 +2085,7 @@ function openInstallmentSheetModal(product){
   // (per-member M.L.L.) sheet instead of the single individual list.
   const isGroup = !!product.is_group_loan;
   document.getElementById('sheet-individual-actions').classList.toggle('hidden', isGroup);
+  document.getElementById('sheet-individual-mll').classList.toggle('hidden', isGroup);
   document.getElementById('sheet-group-fields').classList.toggle('hidden', !isGroup);
   document.getElementById('sheet-group-start-field').classList.toggle('hidden', !isGroup || !!product.custom_schedule_enabled);
   document.getElementById('sheet-group-start-date').value = '';
@@ -2134,6 +2142,21 @@ async function downloadInstallmentSheet(format){
     await downloadAuthenticatedFile(
       `/loan-products/${installmentSheetProduct.id}/installment-sheet?amount=${amount}&format=${format}${startParam}`,
       `${installmentSheetProduct.name}_installment_sheet.${format}`
+    );
+  }catch(e){ errEl.textContent = e.message; }
+}
+async function downloadIndividualMllProductSheet(format){
+  const errEl = document.getElementById('sheet-err'); errEl.textContent = '';
+  const amount = Number(document.getElementById('sheet-amount').value);
+  if(!installmentSheetProduct || !amount){ errEl.textContent = 'Enter a sample amount.'; return; }
+  const custom = !!installmentSheetProduct.custom_schedule_enabled;
+  const startDate = custom ? document.getElementById('sheet-start-date').value : null;
+  if(custom && !startDate){ errEl.textContent = 'Choose a start date first.'; return; }
+  try{
+    const startParam = startDate ? `&start_date=${startDate}` : '';
+    await downloadAuthenticatedFile(
+      `/loan-products/${installmentSheetProduct.id}/installment-sheet?amount=${amount}&format=${format}&view=mll${startParam}`,
+      `${installmentSheetProduct.name}_mll_sheet.${format}`
     );
   }catch(e){ errEl.textContent = e.message; }
 }
@@ -2197,6 +2220,11 @@ async function openMemberReview(groupId, groupName, onlyMemberId){
 async function downloadLoanInstallmentSheet(loanId, loanNumber, format, forCustomer){
   try{
     await downloadAuthenticatedFile(`/loans/${loanId}/installment-sheet?format=${format}${forCustomer?'&for_customer=true':''}`, `${loanNumber}_installment_sheet${forCustomer?'_customer':''}.${format}`);
+  }catch(e){ showToast(e.message, 'error'); }
+}
+async function downloadIndividualMllSheet(loanId, loanNumber, format){
+  try{
+    await downloadAuthenticatedFile(`/loans/${loanId}/installment-sheet?format=${format}&view=mll`, `${loanNumber}_mll_sheet.${format}`);
   }catch(e){ showToast(e.message, 'error'); }
 }
 async function downloadGroupCenterSheet(loanId, loanNumber, format, forCustomer){

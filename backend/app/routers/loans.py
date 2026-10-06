@@ -537,6 +537,54 @@ def _projected_group_product_sheet(product, amount: float, format: str, start_da
     return FileResponse(file_path, media_type=media_type, filename=f"{product.name.replace(' ', '_')}_member{member_no}_mll_sheet.{ext}")
 
 
+def _individual_mll_rows(loan_amount, schedule_rows) -> list[dict]:
+    """
+    Rows for an M.L.L. (Member Loan Ledger) page for an INDIVIDUAL loan: the
+    same layout group members get — EMI (principal + interest), principal,
+    interest and a running balance stepping down from the loan amount. Works
+    for any schedule (flat, reducing or custom phased); each item needs
+    installment_no, due_date (date or ISO string), principal_due, interest_due
+    and optionally is_paid.
+    """
+    balance = Decimal(str(loan_amount))
+    out = []
+    for idx, r in enumerate(schedule_rows):
+        principal = Decimal(str(r["principal_due"]))
+        balance -= principal
+        if balance < 0:
+            balance = Decimal("0")
+        if idx == len(schedule_rows) - 1 and balance < Decimal("1"):
+            balance = Decimal("0")  # clear sub-rupee rounding left over from the schedule maths
+        due = r["due_date"]
+        out.append({
+            "installment_no": r["installment_no"],
+            "due_date": due.isoformat() if hasattr(due, "isoformat") else str(due),
+            "principal_due": float(principal), "interest_due": float(Decimal(str(r["interest_due"]))),
+            "balance": float(balance), "is_paid": bool(r.get("is_paid", False)),
+        })
+    return out
+
+
+def _projected_individual_mll_sheet(product, amount: float, format: str, start_date):
+    """M.L.L. projection for an INDIVIDUAL product at a sample amount (flat, reducing or custom)."""
+    from app.utils.installment_sheet import generate_member_mll_sheet_pdf, generate_member_mll_sheet_xlsx
+    if product.custom_schedule_enabled:
+        if not start_date:
+            raise HTTPException(status_code=400, detail="This product uses the custom phased schedule — choose a start date and click Generate.")
+        raw_rows = calculate_custom_phased_schedule(product_phase_config(product), start_date)
+    else:
+        raw_rows = calculate_emi_schedule(amount, product.interest_rate_annual, product.tenure_months, product, first_due_date=start_date)
+    rows = _individual_mll_rows(amount, raw_rows)
+    first_date = rows[0]["due_date"] if rows else None
+    if format == "xlsx":
+        file_path = generate_member_mll_sheet_xlsx("SAMPLE", product.name, "Sample customer", float(amount), first_date, None, "All branches", True, rows)
+        media_type, ext = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "xlsx"
+    else:
+        file_path = generate_member_mll_sheet_pdf("SAMPLE", product.name, "Sample customer", float(amount), first_date, None, "All branches", True, rows)
+        media_type, ext = "application/pdf", "pdf"
+    return FileResponse(file_path, media_type=media_type, filename=f"{product.name.replace(' ', '_')}_mll_sheet.{ext}")
+
+
 @router.get("/loan-products/{product_id}/installment-sheet")
 def download_installment_sheet(
     product_id: str, amount: float, format: str = "pdf", start_date: date | None = None,
@@ -567,6 +615,8 @@ def download_installment_sheet(
         return _projected_group_product_sheet(product, amount, format, start_date, view, member_no)
     if product.is_group_loan:
         raise HTTPException(status_code=400, detail="Installment sheets are for individual products — a group loan's per-member share depends on the group size chosen at application time.")
+    if view == "mll":
+        return _projected_individual_mll_sheet(product, amount, format, start_date)
     if view != "list":
         raise HTTPException(status_code=400, detail="The center and member views are only available for group products.")
 
@@ -655,6 +705,44 @@ def download_loan_installment_sheet(loan_id: str, format: str = "pdf", for_custo
     members = db.query(LoanGroupMember).filter(LoanGroupMember.group_id == loan.group_id).all() if loan.group_id else []
     member_customer_ids = {m.id: m.customer_id for m in members}
     member_customers = {c.id: c for c in db.query(Customer).filter(Customer.id.in_(member_customer_ids.values())).all()} if members else {}
+
+    if view == "mll":
+        # Individual-loan M.L.L. (Member Loan Ledger) — flat, reducing or custom. Group loans
+        # keep their own per-member M.L.L. via view="member".
+        if loan.group_id:
+            raise HTTPException(status_code=400, detail="For a group loan, use the member view to get each member's M.L.L. sheet.")
+        from app.utils.installment_sheet import generate_member_mll_sheet_pdf, generate_member_mll_sheet_xlsx
+        is_projected = not bool(real_schedule)
+        if real_schedule:
+            sched = [{"installment_no": e.installment_no, "due_date": e.due_date, "principal_due": e.principal_due,
+                      "interest_due": e.interest_due, "is_paid": e.is_paid} for e in real_schedule]
+        elif has_custom_schedule:
+            if not loan.custom_start_date:
+                raise HTTPException(status_code=400, detail="This loan uses a custom phased schedule but has no start date set — this shouldn't happen for a loan applied after this feature shipped.")
+            sched = calculate_custom_phased_schedule(loan_phase_config(loan, product), loan.custom_start_date)
+        else:
+            sched = calculate_emi_schedule(loan.principal_amount, loan.interest_rate_annual, loan.tenure_months, product)
+        member_rows = _individual_mll_rows(loan.principal_amount, sched)
+        branch_address = ", ".join(filter(None, [branch.address if branch else None, branch.city if branch else None, branch.state if branch else None])) or None
+        loan_dis_date = loan.disbursed_at.date().isoformat() if loan.disbursed_at else (loan.custom_start_date.isoformat() if loan.custom_start_date else None)
+        mll_date = loan.disbursed_at.date() if loan.disbursed_at else loan.custom_start_date
+        if mll_date:
+            fy_start = mll_date.year if mll_date.month >= 4 else mll_date.year - 1
+        else:
+            from datetime import datetime as _dt
+            fy_start = _dt.utcnow().year
+        digits = "".join(ch for ch in str(loan.loan_number) if ch.isdigit())
+        mll_no = f"{int(digits):02d}/{fy_start}-{fy_start + 1}" if digits else f"{loan.loan_number}/{fy_start}-{fy_start + 1}"
+        phone = customer.phone if customer else None
+        if format == "xlsx":
+            file_path = generate_member_mll_sheet_xlsx(mll_no, branch_name, payer_name, float(loan.principal_amount), loan_dis_date, phone, branch_name, is_projected, member_rows, branch_address=branch_address)
+            media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            ext = "xlsx"
+        else:
+            file_path = generate_member_mll_sheet_pdf(mll_no, branch_name, payer_name, float(loan.principal_amount), loan_dis_date, phone, branch_name, is_projected, member_rows, branch_address=branch_address)
+            media_type = "application/pdf"
+            ext = "pdf"
+        return FileResponse(file_path, media_type=media_type, filename=f"{loan.loan_number}_{payer_name.replace(' ', '_')}_mll_sheet.{ext}")
 
     if view in ("center", "member"):
         if not loan.group_id:
